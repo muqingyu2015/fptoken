@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>倒排共享存储与互斥频繁项集设计方案</title>
+  <style>
+    body { margin: 0; background: #f7f9fc; font-family: "Microsoft YaHei", Arial, sans-serif; color: #1f2937; line-height: 1.75; }
+    .c { max-width: 980px; margin: 24px auto; padding: 0 14px 40px; }
+    .b { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 18px 20px; margin-bottom: 14px; }
+    h1, h2, h3 { margin: 0 0 10px; line-height: 1.4; }
+    h1 { color: #1d4ed8; font-size: 28px; }
+    h2 { color: #0f3f95; font-size: 21px; }
+    h3 { font-size: 17px; margin-top: 10px; }
+    p { margin: 8px 0; }
+    ul, ol { margin: 6px 0 8px 22px; }
+    li { margin: 4px 0; }
+    .note { background: #eff6ff; border-left: 4px solid #1d4ed8; border-radius: 8px; padding: 8px 10px; margin: 10px 0; }
+    .ok { background: #ecfdf5; border-left-color: #047857; }
+    .warn { background: #fffbeb; border-left-color: #b45309; }
+    code { background: #f3f4f6; border-radius: 4px; padding: 1px 6px; font-family: Consolas, "Courier New", monospace; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 14px; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f3f4f6; }
+  </style>
+</head>
+<body>
+  <div class="c">
+    <section class="b">
+      <h1>倒排共享存储与互斥频繁项集设计方案</h1>
+      <p>目标：对“经常一起出现的词”进行压缩存储，特别是当多个词倒排表完全相同时，保证只存一份。</p>
+      <p>作者诉求：不仅要压缩，还要得到“互斥、最大长度、价值最高”的频繁项集合。</p>
+      <div class="note ok">
+        关键结论：先做“完全相同倒排表去重（可无损替换）”，再做“频繁项集共享核心倒排（增益型优化）”。
+      </div>
+    </section>
+
+    <section class="b">
+      <h2>1. 需求拆解（按可落地顺序）</h2>
+      <ol>
+        <li><b>硬需求 A：</b>若 <code>P(a)=P(b)=P(c)=[1,2,3,4]</code>，只存一份 <code>[1,2,3,4]</code>。</li>
+        <li><b>硬需求 B：</b>能拿到“频繁项集对应的 docid 列表（TID set）”，不是只有 support。</li>
+        <li><b>硬需求 C：</b>在候选频繁项集中选出“互斥 + 最大长度（或最大价值）”的集合。</li>
+      </ol>
+      <div class="note warn">
+        只用标准 FP-Growth API 通常只能拿到 support，拿不到每个项集的原始 docid 列表，这是你遇到的核心缺口。
+      </div>
+    </section>
+
+    <section class="b">
+      <h2>2. 先做无损去重：相同倒排表只存一份</h2>
+      <h3>2.1 数据结构</h3>
+      <ul>
+        <li><code>posting_blob(blob_id, compressed_doclist, size)</code></li>
+        <li><code>term_dict(term, blob_id, df, ...)</code></li>
+      </ul>
+      <h3>2.2 构建流程</h3>
+      <ol>
+        <li>每个词先生成规范化倒排（升序、去重、同编码）。</li>
+        <li>计算指纹（如 64-bit hash）作为候选 key。</li>
+        <li>同 hash 的倒排做字节级/元素级二次比较，确认完全相同后复用同一 <code>blob_id</code>。</li>
+        <li><code>term_dict</code> 里多个词可指向同一 <code>blob_id</code>。</li>
+      </ol>
+      <p>这样就能精确满足你举例的“1234 只存一份”需求。</p>
+    </section>
+
+    <section class="b">
+      <h2>3. 频繁项集为什么仍然有价值</h2>
+      <p>完全相同倒排只覆盖“等价词组”场景。更多时候是高度重叠而非完全相同。</p>
+      <p>例如：</p>
+      <ul>
+        <li><code>P(a)=1,2,3,4,9</code></li>
+        <li><code>P(b)=1,2,3,4,10</code></li>
+        <li><code>P(c)=1,2,3,4,11</code></li>
+      </ul>
+      <p>交集核心是 <code>1,2,3,4</code>。可存一份核心，再存每词残差，达到进一步压缩。</p>
+      <div class="note">
+        这时频繁项集对应的 docid 列表，实际上就是该项集的交集 TID set，可直接作为共享核心倒排。
+      </div>
+    </section>
+
+    <section class="b">
+      <h2>4. 如何拿到“项集 -> docid 列表”</h2>
+      <h3>4.1 不用只看 FP-Growth 标准输出</h3>
+      <p>建议使用“垂直数据格式”挖掘：<code>term -> tidset</code>，通过交集生成更大项集的 tidset。</p>
+      <ul>
+        <li>单项：<code>T({a}) = P(a)</code></li>
+        <li>扩展项集：<code>T(X U Y) = T(X) ∩ T(Y)</code></li>
+      </ul>
+      <p>这本质是 Eclat 思路，天然能产出“项集对应 docid 列表”。</p>
+      <h3>4.2 工程实现建议</h3>
+      <ul>
+        <li>tidset 用 RoaringBitmap 存储，交集非常快。</li>
+        <li>minsup 过滤，避免候选爆炸。</li>
+        <li>只保留长度 >= 2 且压缩收益为正的项集。</li>
+      </ul>
+    </section>
+
+    <section class="b">
+      <h2>5. 互斥 + 最大长度：候选选择模型</h2>
+      <h3>5.1 候选定义</h3>
+      <p>每个候选项集 <code>S_i</code> 携带：</p>
+      <ul>
+        <li>词集合：<code>terms_i</code></li>
+        <li>共享核心：<code>core_i = intersect(postings of terms_i)</code></li>
+        <li>权重：<code>w_i</code>（长度、支持度、节省字节数综合）</li>
+      </ul>
+      <h3>5.2 互斥约束</h3>
+      <p>同一个词只能加入一个被选项集：对任意词 <code>t</code>，<code>sum(x_i | t in S_i) <= 1</code>。</p>
+      <h3>5.3 目标函数</h3>
+      <p>最大化 <code>sum(w_i * x_i)</code>，其中可设置长度优先：</p>
+      <p><code>w_i = alpha*|S_i| + beta*|core_i| + gamma*bytes_saved_i</code></p>
+      <div class="note ok">
+        这就是你说的“互斥最大长度频繁项集合”，严格可实现为加权集合打包。
+      </div>
+    </section>
+
+    <section class="b">
+      <h2>6. 两级求解策略（你原思路的工程化版本）</h2>
+      <table>
+        <thead>
+          <tr><th>层级</th><th>方法</th><th>用途</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>在线/日常</td>
+            <td>贪心：按 |S|、|core|、bytes_saved 排序后选不冲突集合</td>
+            <td>快，稳定，易维护</td>
+          </tr>
+          <tr>
+            <td>离线优化</td>
+            <td>OR-Tools CP-SAT 解 0-1 整数规划</td>
+            <td>追求更优上界，产出策略版本</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>推荐：贪心先给初解，CP-SAT 限时优化，超时则回退当前最优可行解。</p>
+    </section>
+
+    <section class="b">
+      <h2>7. 存储格式建议（保证可还原）</h2>
+      <h3>7.1 精确去重层（必须）</h3>
+      <p>term 直接指向共享 blob，可无损还原。</p>
+      <h3>7.2 频繁项共享层（可选增强）</h3>
+      <ul>
+        <li>存 <code>core_blob(S)</code> 一份。</li>
+        <li>每个词存残差：<code>residual(t,S) = P(t) - core(S)</code>。</li>
+        <li>查询该词时：<code>P(t) = core(S) U residual(t,S)</code>（保证正确性）。</li>
+      </ul>
+      <div class="note warn">
+        不要把项集交集直接替代词的完整倒排，否则会漏召回。必须配残差或保留原始倒排。
+      </div>
+    </section>
+
+    <section class="b">
+      <h2>8. 落地里程碑（建议）</h2>
+      <ol>
+        <li><b>M1：</b>完成“相同倒排表去重”，验证空间收益和查询一致性。</li>
+        <li><b>M2：</b>实现 vertical tidset 挖掘，拿到“项集 -> docid 列表”。</li>
+        <li><b>M3：</b>实现互斥选择（先贪心），并输出收益报告。</li>
+        <li><b>M4：</b>接入 CP-SAT 离线求精，形成可切换策略版本。</li>
+      </ol>
+    </section>
+
+    <section class="b">
+      <h2>9. 你当前需求的最终答案（简版）</h2>
+      <ul>
+        <li>“1234 只存一份”可以直接通过“倒排等价类去重”实现，且完全无损。</li>
+        <li>“项集对应 docid 列表”要用 tidset 方案（Eclat/垂直交集），不是只依赖标准 FP-Growth 输出。</li>
+        <li>“互斥最大长度”用加权集合打包建模，贪心 + OR-Tools 两级求解是最佳工程路径。</li>
+      </ul>
+      <div class="note ok">
+        这套方案和你的原始思路完全一致，只是把“可落地的数据结构、约束模型、执行顺序”补齐了。
+      </div>
+    </section>
+  </div>
+</body>
+</html>
