@@ -1,4 +1,4 @@
-package cn.lxdb.plugins.muqingyu.fptoken;
+package cn.lxdb.plugins.muqingyu.fptoken.config;
 
 /**
  * 作者：muqingyu

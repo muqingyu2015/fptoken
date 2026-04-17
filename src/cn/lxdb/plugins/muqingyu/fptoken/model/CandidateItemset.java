@@ -1,4 +1,4 @@
-package cn.lxdb.plugins.muqingyu.fptoken;
+package cn.lxdb.plugins.muqingyu.fptoken.model;
 
 import java.util.BitSet;
 

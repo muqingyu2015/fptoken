@@ -1,11 +1,17 @@
 package cn.lxdb.plugins.muqingyu.fptoken;
 
+import cn.lxdb.plugins.muqingyu.fptoken.config.SelectorConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.index.TermTidsetIndex;
+import cn.lxdb.plugins.muqingyu.fptoken.miner.FrequentItemsetMiner;
+import cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset;
+import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.model.SelectedGroup;
+import cn.lxdb.plugins.muqingyu.fptoken.picker.GreedyExclusiveItemsetPicker;
+import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayUtils;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 作者：muqingyu
@@ -26,7 +32,7 @@ import java.util.Map;
 public final class ExclusiveFrequentItemsetSelector {
 
     private static final int DEFAULT_MAX_ITEMSET_SIZE = 6;
-    private static final int DEFAULT_MAX_CANDIDATE_COUNT = 200_000;
+    private static final int DEFAULT_MAX_CANDIDATE_COUNT = 200000;
 
     private ExclusiveFrequentItemsetSelector() {
     }
@@ -56,6 +62,7 @@ public final class ExclusiveFrequentItemsetSelector {
         if (rows == null || rows.isEmpty()) {
             return Collections.emptyList();
         }
+        validateSequentialDocIds(rows);
         // 所有边界参数统一在配置类中校验。
         SelectorConfig config = new SelectorConfig(
                 minSupport,
@@ -64,18 +71,9 @@ public final class ExclusiveFrequentItemsetSelector {
                 maxCandidateCount
         );
 
-        // 建立 docId <-> 行下标映射。
-        // BitSet 内部使用连续下标，最终再映射回真实 docId。
-        Map<Integer, Integer> docIdToIndex = new HashMap<Integer, Integer>(rows.size() * 2);
-        List<Integer> indexToDocId = new ArrayList<Integer>(rows.size());
-        for (int i = 0; i < rows.size(); i++) {
-            int docId = rows.get(i).getDocId();
-            docIdToIndex.put(docId, i);
-            indexToDocId.add(docId);
-        }
-
         // 词典 + 倒排位图索引构建。
-        TermTidsetIndex index = TermTidsetIndex.build(rows, docIdToIndex);
+        // 输入约定：docId 从 0 开始且有序，直接作为 BitSet 下标使用。
+        TermTidsetIndex index = TermTidsetIndex.build(rows);
         if (index.getIdToTerm().isEmpty()) {
             return Collections.emptyList();
         }
@@ -90,13 +88,12 @@ public final class ExclusiveFrequentItemsetSelector {
         // 贪心互斥选择：长度优先、价值优先、支持度优先。
         GreedyExclusiveItemsetPicker picker = new GreedyExclusiveItemsetPicker();
         List<CandidateItemset> selected = picker.pick(candidates, index.getIdToTerm().size());
-        return toSelectedGroups(selected, index.getIdToTerm(), indexToDocId);
+        return toSelectedGroups(selected, index.getIdToTerm());
     }
 
     private static List<SelectedGroup> toSelectedGroups(
             List<CandidateItemset> selected,
-            List<byte[]> idToTerm,
-            List<Integer> indexToDocId
+            List<byte[]> idToTerm
     ) {
         List<SelectedGroup> out = new ArrayList<SelectedGroup>(selected.size());
         for (CandidateItemset candidate : selected) {
@@ -106,7 +103,7 @@ public final class ExclusiveFrequentItemsetSelector {
             }
             out.add(new SelectedGroup(
                     terms,
-                    bitSetToDocIds(candidate.getDocBits(), indexToDocId),
+                    bitSetToDocIds(candidate.getDocBits()),
                     candidate.getSupport(),
                     candidate.getEstimatedSaving()
             ));
@@ -114,12 +111,23 @@ public final class ExclusiveFrequentItemsetSelector {
         return out;
     }
 
-    private static List<Integer> bitSetToDocIds(BitSet docBits, List<Integer> indexToDocId) {
+    private static List<Integer> bitSetToDocIds(BitSet docBits) {
         List<Integer> out = new ArrayList<Integer>();
-        // BitSet 的 set bit 即命中文档下标，映射回真实 docId。
+        // 输入约定下，set bit 位置就是 docId。
         for (int i = docBits.nextSetBit(0); i >= 0; i = docBits.nextSetBit(i + 1)) {
-            out.add(indexToDocId.get(i));
+            out.add(Integer.valueOf(i));
         }
         return out;
+    }
+
+    private static void validateSequentialDocIds(List<DocTerms> rows) {
+        for (int i = 0; i < rows.size(); i++) {
+            int docId = rows.get(i).getDocId();
+            if (docId != i) {
+                throw new IllegalArgumentException(
+                        "docId must be ordered and start from 0; expected " + i + " but got " + docId
+                );
+            }
+        }
     }
 }

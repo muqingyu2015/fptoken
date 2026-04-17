@@ -1,5 +1,7 @@
-package cn.lxdb.plugins.muqingyu.fptoken;
+package cn.lxdb.plugins.muqingyu.fptoken.index;
 
+import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayKey;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
@@ -23,17 +25,14 @@ public final class TermTidsetIndex {
         this.tidsetsByTermId = tidsetsByTermId;
     }
 
-    public static TermTidsetIndex build(List<DocTerms> rows, Map<Integer, Integer> docIdToIndex) {
+    public static TermTidsetIndex build(List<DocTerms> rows) {
         Map<ByteArrayKey, Integer> termIdMap = new HashMap<ByteArrayKey, Integer>();
         List<byte[]> idToTerm = new ArrayList<byte[]>();
         List<BitSet> tidsetsByTermId = new ArrayList<BitSet>();
         int docCount = rows.size();
 
         for (DocTerms row : rows) {
-            Integer docIndex = docIdToIndex.get(row.getDocId());
-            if (docIndex == null) {
-                continue;
-            }
+            int docIndex = row.getDocId();
             for (byte[] rawTerm : row.getTerms()) {
                 if (rawTerm == null || rawTerm.length == 0) {
                     continue;
@@ -48,7 +47,7 @@ public final class TermTidsetIndex {
                     tidsetsByTermId.add(new BitSet(docCount));
                 }
                 // 标记该词命中当前文档。
-                tidsetsByTermId.get(termId.intValue()).set(docIndex.intValue());
+                tidsetsByTermId.get(termId.intValue()).set(docIndex);
             }
         }
         return new TermTidsetIndex(idToTerm, tidsetsByTermId);

@@ -1,5 +1,6 @@
-package cn.lxdb.plugins.muqingyu.fptoken;
+package cn.lxdb.plugins.muqingyu.fptoken.model;
 
+import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayUtils;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;

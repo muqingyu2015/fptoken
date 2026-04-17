@@ -1,5 +1,7 @@
-package cn.lxdb.plugins.muqingyu.fptoken;
+package cn.lxdb.plugins.muqingyu.fptoken.miner;
 
+import cn.lxdb.plugins.muqingyu.fptoken.config.SelectorConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
@@ -25,7 +27,7 @@ public final class FrequentItemsetMiner {
         // 第一步：先找出频繁 1-项集，非频繁单词直接剪掉。
         List<Integer> frequentTermIds = collectFrequentTermIds(tidsetsByTermId, config.getMinSupport());
         List<CandidateItemset> out = new ArrayList<CandidateItemset>(
-                Math.min(config.getMaxCandidateCount(), 10_000)
+                Math.min(config.getMaxCandidateCount(), 10000)
         );
         // prefix 复用数组，避免递归过程中频繁创建新对象。
         int[] prefix = new int[config.getMaxItemsetSize()];

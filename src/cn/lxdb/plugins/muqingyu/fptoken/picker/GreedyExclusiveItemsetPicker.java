@@ -1,5 +1,6 @@
-package cn.lxdb.plugins.muqingyu.fptoken;
+package cn.lxdb.plugins.muqingyu.fptoken.picker;
 
+import cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;

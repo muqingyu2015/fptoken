@@ -1,4 +1,4 @@
-package cn.lxdb.plugins.muqingyu.fptoken;
+package cn.lxdb.plugins.muqingyu.fptoken.util;
 
 import java.util.ArrayList;
 import java.util.Collection;
