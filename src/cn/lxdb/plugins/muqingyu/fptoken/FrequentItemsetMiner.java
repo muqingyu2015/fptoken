@@ -19,9 +19,9 @@ import java.util.List;
  * - 最坏候选规模仍可能指数增长（频繁项集问题本质如此）。
  * - 但在工程上通过 maxCandidateCount + maxItemsetSize 双上限控成本。
  */
-final class FrequentItemsetMiner {
+public final class FrequentItemsetMiner {
 
-    List<CandidateItemset> mine(List<BitSet> tidsetsByTermId, SelectorConfig config) {
+    public List<CandidateItemset> mine(List<BitSet> tidsetsByTermId, SelectorConfig config) {
         // 第一步：先找出频繁 1-项集，非频繁单词直接剪掉。
         List<Integer> frequentTermIds = collectFrequentTermIds(tidsetsByTermId, config.getMinSupport());
         List<CandidateItemset> out = new ArrayList<CandidateItemset>(

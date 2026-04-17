@@ -9,17 +9,17 @@ package cn.lxdb.plugins.muqingyu.fptoken;
  * - 构造时会拷贝数组，避免外部修改底层字节导致 Map 键失效。
  * - hashCode/equals 按字节内容实现，确保语义正确。
  */
-final class ByteArrayKey implements Comparable<ByteArrayKey> {
+public final class ByteArrayKey implements Comparable<ByteArrayKey> {
 
     private final byte[] value;
     private final int hash;
 
-    ByteArrayKey(byte[] value) {
+    public ByteArrayKey(byte[] value) {
         this.value = ByteArrayUtils.copy(value);
         this.hash = ByteArrayUtils.hash(this.value);
     }
 
-    byte[] bytes() {
+    public byte[] bytes() {
         return value;
     }
 

@@ -19,7 +19,7 @@ import java.util.Random;
  * 2) 执行互斥频繁项集选择器并统计耗时。
  * 3) 输出 Markdown 报告到 docs/performance-benchmark-report.md。
  */
-public class ExclusiveFrequentItemsetSelectorPerformanceBenchmark {
+public final class ExclusiveFrequentItemsetSelectorPerformanceBenchmark {
 
     private static final int[] DOC_SIZES = new int[] {2000, 5000, 10000};
     private static final int[] VOCAB_SIZES = new int[] {256, 1024, 4096};

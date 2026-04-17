@@ -17,9 +17,9 @@ import java.util.List;
  *   其中 C 为候选数，L 为候选平均长度。
  * - 通过排序规则把“最大长度、高价值”偏好编码进选择顺序。
  */
-final class GreedyExclusiveItemsetPicker {
+public final class GreedyExclusiveItemsetPicker {
 
-    List<CandidateItemset> pick(List<CandidateItemset> candidates, int dictionarySize) {
+    public List<CandidateItemset> pick(List<CandidateItemset> candidates, int dictionarySize) {
         // 复制一份再排序，避免影响调用方传入列表顺序。
         List<CandidateItemset> sorted = new ArrayList<CandidateItemset>(candidates);
         sortCandidates(sorted);

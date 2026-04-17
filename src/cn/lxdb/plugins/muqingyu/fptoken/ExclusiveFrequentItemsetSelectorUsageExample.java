@@ -11,7 +11,7 @@ import java.util.List;
  * - 示例 2：性能参数调优调用（最大项集长度、候选上限）
  * - 示例 3：非 ASCII 二进制词输入
  */
-public class ExclusiveFrequentItemsetSelectorUsageExample {
+public final class ExclusiveFrequentItemsetSelectorUsageExample {
 
     public static void main(String[] args) {
         runBasicExample();

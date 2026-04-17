@@ -14,7 +14,7 @@ import java.util.Map;
  * - 同时构建 termId 对应的 BitSet（tidset），位为 1 表示该 doc 含该词。
  * - 该结构是后续频繁项集挖掘的基础（交集即可得联合项支持度）。
  */
-final class TermTidsetIndex {
+public final class TermTidsetIndex {
     private final List<byte[]> idToTerm;
     private final List<BitSet> tidsetsByTermId;
 
@@ -23,7 +23,7 @@ final class TermTidsetIndex {
         this.tidsetsByTermId = tidsetsByTermId;
     }
 
-    static TermTidsetIndex build(List<DocTerms> rows, Map<Integer, Integer> docIdToIndex) {
+    public static TermTidsetIndex build(List<DocTerms> rows, Map<Integer, Integer> docIdToIndex) {
         Map<ByteArrayKey, Integer> termIdMap = new HashMap<ByteArrayKey, Integer>();
         List<byte[]> idToTerm = new ArrayList<byte[]>();
         List<BitSet> tidsetsByTermId = new ArrayList<BitSet>();
@@ -54,11 +54,11 @@ final class TermTidsetIndex {
         return new TermTidsetIndex(idToTerm, tidsetsByTermId);
     }
 
-    List<byte[]> getIdToTerm() {
+    public List<byte[]> getIdToTerm() {
         return idToTerm;
     }
 
-    List<BitSet> getTidsetsByTermId() {
+    public List<BitSet> getTidsetsByTermId() {
         return tidsetsByTermId;
     }
 }

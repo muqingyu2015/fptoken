@@ -15,36 +15,36 @@ import java.util.BitSet;
  * - 若一个项集长度为 k，支持度为 s，可理解为共享存储潜力与 (k-1)*s 相关。
  * - 这里是工程启发式，不是严格压缩率公式。
  */
-final class CandidateItemset {
+public final class CandidateItemset {
     private final int[] termIds;
     private final BitSet docBits;
     private final int support;
     private final int estimatedSaving;
 
-    CandidateItemset(int[] termIds, BitSet docBits) {
+    public CandidateItemset(int[] termIds, BitSet docBits) {
         this.termIds = termIds;
         this.docBits = docBits;
         this.support = docBits.cardinality();
         this.estimatedSaving = Math.max(0, (termIds.length - 1) * support);
     }
 
-    int[] getTermIds() {
+    public int[] getTermIds() {
         return termIds;
     }
 
-    BitSet getDocBits() {
+    public BitSet getDocBits() {
         return docBits;
     }
 
-    int getSupport() {
+    public int getSupport() {
         return support;
     }
 
-    int getEstimatedSaving() {
+    public int getEstimatedSaving() {
         return estimatedSaving;
     }
 
-    int length() {
+    public int length() {
         return termIds.length;
     }
 }
