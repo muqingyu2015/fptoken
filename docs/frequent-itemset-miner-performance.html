@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FrequentItemsetMiner：算法辨析与性能优化</title>
+  <style>
+    body { margin: 0; background: #f7f9fc; font-family: "Microsoft YaHei", Arial, sans-serif; color: #1f2937; line-height: 1.75; }
+    .c { max-width: 980px; margin: 24px auto; padding: 0 14px 40px; }
+    .b { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 18px 20px; margin-bottom: 14px; }
+    h1, h2, h3 { margin: 0 0 10px; line-height: 1.4; }
+    h1 { color: #1d4ed8; font-size: 28px; }
+    h2 { color: #0f3f95; font-size: 21px; }
+    h3 { font-size: 17px; margin-top: 10px; }
+    p { margin: 8px 0; }
+    ul, ol { margin: 6px 0 8px 22px; }
+    li { margin: 4px 0; }
+    .note { background: #eff6ff; border-left: 4px solid #1d4ed8; border-radius: 8px; padding: 8px 10px; margin: 10px 0; }
+    .ok { background: #ecfdf5; border-left-color: #047857; }
+    .warn { background: #fffbeb; border-left-color: #b45309; }
+    code { background: #f3f4f6; border-radius: 4px; padding: 1px 6px; font-family: Consolas, "Courier New", monospace; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 14px; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f3f4f6; }
+    pre { background: #111827; color: #e5e7eb; padding: 12px 14px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+    .muted { color: #6b7280; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="c">
+    <section class="b">
+      <h1>FrequentItemsetMiner：是「全排列」吗？性能与业界做法</h1>
+      <p class="muted">面向本仓库 <code>cn.lxdb.plugins.muqingyu.fptoken.miner.FrequentItemsetMiner</code> 的阅读笔记与工程扩展建议。</p>
+      <div class="note ok">
+        <b>核心结论：</b>当前实现是「在频繁 1-项集上，按递增下标做 DFS 组合扩展 + tidset 交集剪枝」，不是对全体词做全排列。每个项集在规范序下只枚举一次。
+      </div>
+    </section>
+
+    <section class="b">
+      <h2>1. 源码在做什么（为何容易误读成排列）</h2>
+      <p>外层 <code>for (i = start; i &lt; frequentTermIds.size(); i++)</code> 与递归里传入的 <code>i + 1</code>，等价于：从已选前缀后面继续选更大的 termId，保证 <code>termId 严格递增</code>。</p>
+      <ul>
+        <li><b>排列</b>关心顺序，例如 <code>{a,b}</code> 与 <code>{b,a}</code> 算两种；若用全排列会重复计数同一项集。</li>
+        <li><b>组合</b>不关心顺序，规范写法是递增序列，本实现正是这种「组合枚举」。</li>
+      </ul>
+      <p>支持度通过 <code>BitSet</code> 交集得到：<code>T(X ∪ {t}) = T(X) ∩ T({t})</code>，这是典型的 <b>垂直格式（tidset / Eclat 思路）</b>：用集合交代替事务扫描。</p>
+      <div class="note warn">
+        DFS 在视觉上像「穷举很多分支」，容易联想到排列；但分支数由「频繁项组合空间」决定，与阶乘级全排列不是同一量级的问题。
+      </div>
+    </section>
+
+    <section class="b">
+      <h2>2. 性能会不会很差？最坏与典型</h2>
+      <h3>2.1 理论下界与最坏情况</h3>
+      <p>挖掘「所有」频繁项集在一般情形下是 <b>NP 难</b>相关的问题：频繁项集数量本身在最坏情况下可以关于项数指数增长（经典例子：大量项几乎总在同一批文档共现）。因此 <b>任何完整枚举算法在最坏情况下都不可能多项式有界</b>。</p>
+      <h3>2.2 本实现已有的工程护栏</h3>
+      <ul>
+        <li><code>minSupport</code>：支持度不足的交集直接 <code>continue</code>，不再向下扩展（Apriori 单调性剪枝）。</li>
+        <li><code>maxItemsetSize</code>：限制项集最大长度，组合深度有硬上限。</li>
+        <li><code>maxCandidateCount</code>：候选项数量达上限即停止，保证最坏时延可控。</li>
+        <li>先过滤非频繁 1-项集，缩小 DFS 的「字母表」。</li>
+      </ul>
+      <h3>2.3 何时会「仍然很重」</h3>
+      <p>当频繁 1-项集很多、且它们在大片文档上高度共现时，即使剪枝，中间交集仍可能很多。此时瓶颈常在：<b>BitSet 克隆与按位与的次数</b>、以及 <b>候选输出量</b>。</p>
+    </section>
+
+    <section class="b">
+      <h2>3. 开源项目通常怎么做</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>思路</th>
+            <th>代表生态</th>
+            <th>特点</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Apriori</td>
+            <td>Weka、教学代码、早期库</td>
+            <td>逐层生成候选 + 剪枝；实现直观，大数据上常慢于 FP/Eclat。</td>
+          </tr>
+          <tr>
+            <td>FP-Growth</td>
+            <td>Spark MLlib <code>FPGrowth</code>、Python <code>mlxtend</code>、许多工业管线</td>
+            <td>压缩 FP 树，避免显式候选爆炸；通常需额外工作才能拿到每项集的完整 tid 列表。</td>
+          </tr>
+          <tr>
+            <td>Eclat / 垂直 tidset</td>
+            <td>SPMF、部分研究实现</td>
+            <td>与本仓库类似：交集求支持；tidset 稀疏时常配合压缩位图或 diffset。</td>
+          </tr>
+          <tr>
+            <td>LCM 系列等</td>
+            <td>频繁闭项集、最大项集专用算法</td>
+            <td>输出规模更小，适合「不需要全部频繁项集」的场景。</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>若你需要「项集 → 精确 docid 列表」且项集长度有界，<b>垂直 tidset + 深度受限 DFS</b> 在工程上很常见；大规模时会把 <code>BitSet</code> 换成更稀疏友好的结构并做并行。</p>
+    </section>
+
+    <section class="b">
+      <h2>4. 更好的优化手段（按投入从小到大）</h2>
+      <ol>
+        <li><b>项排序</b>：按支持度升序排列项（FP-Growth / Eclat 常用），使早期分支更「稀疏」，剪枝更早。当前实现按 <code>termId</code> 数值序，未按频率重排。</li>
+        <li><b>tidset 表示</b>：稠密文档 ID 用 <code>BitSet</code> 往往很好；极稀疏或极大语料可评估 <code>RoaringBitmap</code>、有序 int 数组 + galloping 交集等。</li>
+        <li><b>减少克隆</b>：复用缓冲区、原地与后恢复（若可证明安全）、或仅在叶子/输出时拷贝结果。</li>
+        <li><b>只挖闭项集或最大项集</b>：若下游只需「代表性」频繁模式，输出量可下降一个数量级以上。</li>
+        <li><b>并行化</b>：按首项或前缀分片，多线程独立子树（注意内存与上限协调）。</li>
+        <li><b>近似与采样</b>：在线场景可对文档或项采样，用概率保证换时间。</li>
+      </ol>
+      <div class="note">
+        没有「一种算法永远最快」：数据稀疏/稠密、最小支持度、是否只要闭集、是否要 tid 列表，都会决定最优实现。
+      </div>
+    </section>
+
+    <section class="b">
+      <h2>5. 与本仓库设计文档的关系</h2>
+      <p>仓库内 <code>docs/posting-dedup-and-exclusive-fiset-design.html</code> 已说明：垂直 <code>term → tidset</code>、交集扩展、以及 <code>RoaringBitmap</code> 等工程建议与本页一致。当前 Java 实现选择了 <code>BitSet</code> 与显式双上限，偏「实现简单、行为可预期」。</p>
+    </section>
+
+    <section class="b">
+      <h2>6. 小结</h2>
+      <ul>
+        <li>不是全排列，是<b>有剪枝的组合 DFS</b> + <b>垂直 tidset 交集</b>。</li>
+        <li>最坏情况仍可指数级，这是问题本质；已通过 <code>maxItemsetSize</code> 与 <code>maxCandidateCount</code> 控制产品级风险。</li>
+        <li>业界主流是 Apriori / FP-Growth / Eclat 及其变体；进一步优化多落在「项序、位图结构、少拷贝、闭/最大项集、并行」上。</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

@@ -7,13 +7,11 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 作者：muqingyu
+ * {@code byte[]} 工具：复制、内容哈希、无符号字典序比较、十六进制展示，以及文档词列表规范化。
  *
- * byte[] 相关公共工具。
+ * <p>集中在此是为了避免在业务类中散落数组比较/拷贝逻辑，并与 {@link ByteArrayKey} 保持一致语义。
  *
- * 为什么需要这层工具：
- * - Java 原生 byte[] 没有按“内容”实现 equals/hashCode，不能直接当 Map 键。
- * - 这里集中放置复制、哈希、无符号比较、十六进制展示等能力。
+ * @author muqingyu
  */
 public final class ByteArrayUtils {
 
@@ -22,14 +20,18 @@ public final class ByteArrayUtils {
     private ByteArrayUtils() {
     }
 
+    /** 浅拷贝：返回新数组，长度与内容一致。 */
     public static byte[] copy(byte[] src) {
         byte[] out = new byte[src.length];
         System.arraycopy(src, 0, out, 0, src.length);
         return out;
     }
 
+    /**
+     * 与 {@link String#hashCode()} 同型多项式哈希（按无符号字节参与 {@code 31 * h + (b & 0xFF)}）。
+     * <p>与 {@link ByteArrayKey} 配套使用。
+     */
     public static int hash(byte[] arr) {
-        // 与 ByteArrayKey 配套的内容哈希实现。
         int h = 1;
         for (byte b : arr) {
             h = 31 * h + (b & 0xFF);
@@ -37,8 +39,10 @@ public final class ByteArrayUtils {
         return h;
     }
 
+    /**
+     * 无符号字节字典序：逐字节按 0–255 比较，较短者若为前缀则更短者更小。
+     */
     public static int compareUnsigned(byte[] a, byte[] b) {
-        // 按无符号字节比较，避免负值字节影响顺序语义。
         int n = Math.min(a.length, b.length);
         for (int i = 0; i < n; i++) {
             int av = a[i] & 0xFF;
@@ -50,6 +54,7 @@ public final class ByteArrayUtils {
         return a.length - b.length;
     }
 
+    /** 将每个字节展开为两个十六进制字符（大写），长度 {@code bytes.length * 2}。 */
     public static String toHex(byte[] bytes) {
         char[] out = new char[bytes.length * 2];
         int p = 0;
@@ -61,24 +66,30 @@ public final class ByteArrayUtils {
         return new String(out);
     }
 
+    /** 将词列表转为十六进制字符串列表，便于日志中展示非 UTF-8 词。 */
     public static List<String> formatTermsHex(List<byte[]> terms) {
-        List<String> out = new ArrayList<String>(terms.size());
+        List<String> out = new ArrayList<>(terms.size());
         for (byte[] t : terms) {
             out.add(toHex(t));
         }
         return out;
     }
 
+    /**
+     * 单文档词规范化：跳过 null 与空数组；其余按出现顺序去重（{@link LinkedHashSet}）。
+     *
+     * @param terms 原始词集合
+     * @return 新列表；元素为 {@link ByteArrayKey} 内拷贝后的数组引用
+     */
     public static List<byte[]> normalizeTerms(Collection<byte[]> terms) {
-        // 单文档内做去重和空值过滤，避免重复词放大后续计算成本。
-        Set<ByteArrayKey> uniq = new LinkedHashSet<ByteArrayKey>();
+        Set<ByteArrayKey> uniq = new LinkedHashSet<>();
         for (byte[] term : terms) {
             if (term == null || term.length == 0) {
                 continue;
             }
             uniq.add(new ByteArrayKey(term));
         }
-        List<byte[]> out = new ArrayList<byte[]>(uniq.size());
+        List<byte[]> out = new ArrayList<>(uniq.size());
         for (ByteArrayKey key : uniq) {
             out.add(key.bytes());
         }

@@ -2,31 +2,41 @@ package cn.lxdb.plugins.muqingyu.fptoken.example;
 
 import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
 import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.model.SelectedGroup;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 作者：muqingyu
+ * 演示 {@link ExclusiveFrequentItemsetSelector} 的典型用法。
  *
- * 用法示例类：
- * - 示例 1：基础调用（最少参数）
- * - 示例 2：性能参数调优调用（最大项集长度、候选上限）
- * - 示例 3：非 ASCII 二进制词输入
+ * <p><b>本示例在做什么</b>：
+ * 构造若干 {@link DocTerms}（docId + 词），调用 {@link ExclusiveFrequentItemsetSelector#selectExclusiveBestItemsetsWithStats(List, int, int)}，
+ * 打印互斥词组与 {@link ExclusiveSelectionResult} 中的统计字段。
+ *
+ * <p><b>其他 API</b>：
+ * <ul>
+ *   <li>只要词组、不要统计：{@link ExclusiveFrequentItemsetSelector#selectExclusiveBestItemsets(List, int, int)} 或
+ *       {@link ExclusiveFrequentItemsetSelector#selectExclusiveBestItemsets(List, int, int, int, int)}</li>
+ *   <li>需要限制最大项集长度 / 候选上限：使用五参数 {@code selectExclusiveBestItemsets(...)} / {@code selectExclusiveBestItemsetsWithStats(...)}</li>
+ * </ul>
+ *
+ * <p><b>注意</b>：{@code String#getBytes()} 使用平台默认编码；生产环境若词为固定编码（如 UTF-8），请使用
+ * {@code str.getBytes(StandardCharsets.UTF_8)} 等与索引侧一致的编码。
+ *
+ * @author muqingyu
  */
 public final class ExclusiveFrequentItemsetSelectorUsageExample {
 
     public static void main(String[] args) {
         runBasicExample();
-//        runTuningExample();
-//        runBinaryTokenExample();
     }
 
     /**
-     * 示例 1：最基础的调用方式。
+     * 小数据集上的基础调用：{@code minSupport = 2}、{@code minItemsetSize = 2} 表示至少 2 个文档共现、且输出项集至少 2 个词。
      */
     private static void runBasicExample() {
-        List<DocTerms> input = new ArrayList<DocTerms>();
+        List<DocTerms> input = new ArrayList<>();
         input.add(new DocTerms(0, bytesTerms("m", "a", "b", "c", "x")));
         input.add(new DocTerms(1, bytesTerms("b", "a", "b", "c")));
         input.add(new DocTerms(2, bytesTerms("n", "a", "b", "c", "d")));
@@ -39,90 +49,24 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
         int minSupport = 2;
         int minItemsetSize = 2;
 
-        List<SelectedGroup> result =
-                ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsets(
+        ExclusiveSelectionResult result =
+                ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
                         input, minSupport, minItemsetSize);
 
-        printResult("示例1：基础调用", result);
+        printResult("示例1：基础调用", result.getGroups());
+        printStats(result);
     }
 
-//    /**
-//     * 示例 2：带性能调优参数的调用方式。
-//     * 适用于数据量较大时的“速度优先”场景。
-//     */
-//    private static void runTuningExample() {
-//        List<DocTerms> input = new ArrayList<DocTerms>();
-//        input.add(new DocTerms(0, bytesTerms("k1", "k2", "k3", "k9")));
-//        input.add(new DocTerms(1, bytesTerms("k1", "k2", "k3")));
-//        input.add(new DocTerms(2, bytesTerms("k1", "k2", "k3", "k4")));
-//        input.add(new DocTerms(3, bytesTerms("k4", "k5", "k6")));
-//        input.add(new DocTerms(4, bytesTerms("k4", "k5", "k6")));
-//        input.add(new DocTerms(5, bytesTerms("k4", "k5", "k6", "k7")));
-//        input.add(new DocTerms(6, bytesTerms("k8", "k9")));
-//
-//        int minSupport = 2;
-//        int minItemsetSize = 2;
-//        int maxItemsetSize = 4;      // 限制组合长度，降低挖掘开销
-//        int maxCandidateCount = 8000; // 候选硬上限，防止爆炸
-//
-//        List<SelectedGroup> result =
-//                ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsets(
-//                        input, minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount);
-//
-//        printResult("示例2：性能参数调优", result);
-//    }
-
-//    /**
-//     * 示例 3：演示词为纯二进制内容（不依赖字符串语义）。
-//     */
-//    private static void runBinaryTokenExample() {
-//        List<DocTerms> input = new ArrayList<DocTerms>();
-//        input.add(new DocTerms(0, asList(
-//                bytes(0x01, 0x10), bytes(0x02, 0x20), bytes(0x03, 0x30))));
-//        input.add(new DocTerms(1, asList(
-//                bytes(0x01, 0x10), bytes(0x02, 0x20), bytes(0x03, 0x30))));
-//        input.add(new DocTerms(2, asList(
-//                bytes(0x01, 0x10), bytes(0x02, 0x20), bytes(0x03, 0x30), bytes(0x09, 0x09))));
-//        input.add(new DocTerms(3, asList(
-//                bytes(0x0A, 0x0B), bytes(0x0A, 0x0C), bytes(0x0A, 0x0D))));
-//        input.add(new DocTerms(4, asList(
-//                bytes(0x0A, 0x0B), bytes(0x0A, 0x0C), bytes(0x0A, 0x0D))));
-//
-//        List<SelectedGroup> result =
-//                ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsets(
-//                        input, 2, 2, 4, 5000);
-//
-//        printResult("示例3：纯二进制词输入", result);
-//    }
-
+    /** 将字符串转为 {@code byte[]} 词列表（演示用）；生产侧通常直接消费字节 token。 */
     private static List<byte[]> bytesTerms(String... terms) {
-        List<byte[]> out = new ArrayList<byte[]>(terms.length);
+        List<byte[]> out = new ArrayList<>(terms.length);
         for (String term : terms) {
             out.add(term.getBytes());
         }
         return out;
     }
 
-//    private static List<byte[]> asList(byte[]... arr) {
-//        List<byte[]> out = new ArrayList<byte[]>(arr.length);
-//        for (byte[] b : arr) {
-//            out.add(b);
-//        }
-//        return out;
-//    }
-//
-//    private static byte[] bytes(int... values) {
-//        byte[] out = new byte[values.length];
-//        for (int i = 0; i < values.length; i++) {
-//            out[i] = (byte) (values[i] & 0xFF);
-//        }
-//        return out;
-//    }
-
-    private static void printResult(
-            String title,
-            List<SelectedGroup> groups
-    ) {
+    private static void printResult(String title, List<SelectedGroup> groups) {
         System.out.println();
         System.out.println("========== " + title + " ==========");
         if (groups.isEmpty()) {
@@ -138,6 +82,15 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
         }
     }
 
+    private static void printStats(ExclusiveSelectionResult result) {
+        System.out.println("stats: frequentTermCount=" + result.getFrequentTermCount()
+                + ", candidateCount=" + result.getCandidateCount()
+                + ", intersectionCount=" + result.getIntersectionCount()
+                + ", maxCandidateCount=" + result.getMaxCandidateCount()
+                + ", truncated=" + result.isTruncatedByCandidateLimit());
+    }
+
+    /** 仅用于控制台可读；调试二进制词请用 {@link cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayUtils#toHex(byte[])}。 */
     private static String formatTerms(List<byte[]> terms) {
         StringBuilder sb = new StringBuilder();
         sb.append('[');
@@ -149,17 +102,5 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
         }
         sb.append(']');
         return sb.toString();
-    }
-
-    private static String toHex(byte[] bytes) {
-        final char[] hex = "0123456789ABCDEF".toCharArray();
-        char[] out = new char[bytes.length * 2];
-        int p = 0;
-        for (byte b : bytes) {
-            int v = b & 0xFF;
-            out[p++] = hex[v >>> 4];
-            out[p++] = hex[v & 0x0F];
-        }
-        return new String(out);
     }
 }

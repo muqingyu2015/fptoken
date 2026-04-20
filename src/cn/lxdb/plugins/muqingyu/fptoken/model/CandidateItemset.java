@@ -3,17 +3,16 @@ package cn.lxdb.plugins.muqingyu.fptoken.model;
 import java.util.BitSet;
 
 /**
- * 内部候选项集模型。
+ * 挖掘阶段的一条候选项集（内部表示）。
  *
- * 字段说明：
- * - termIds: 项集内词的 ID 列表（升序构造，便于后续比较/调试）。
- * - docBits: 该项集命中的文档集合（可直接转成 doclist）。
- * - support: |docBits|，用于频繁性判断和排序。
- * - estimatedSaving: 粗略估算节省值，用于贪心排序的第二优先级。
+ * <p><b>字段</b>：
+ * <ul>
+ *   <li>{@code termIds}：组成该项集的词 id，挖掘过程中按扩展顺序形成升序（便于调试与稳定比较）。</li>
+ *   <li>{@code docBits}：该项集命中的文档集合；支持度 {@code support = cardinality(docBits)}。</li>
+ *   <li>{@code estimatedSaving}：启发式价值 {@code max(0, (k - 1) * support)}，用于贪心/替换排序，非严格压缩率。</li>
+ * </ul>
  *
- * estimatedSaving 解释：
- * - 若一个项集长度为 k，支持度为 s，可理解为共享存储潜力与 (k-1)*s 相关。
- * - 这里是工程启发式，不是严格压缩率公式。
+ * @author muqingyu
  */
 public final class CandidateItemset {
     private final int[] termIds;
@@ -21,6 +20,10 @@ public final class CandidateItemset {
     private final int support;
     private final int estimatedSaving;
 
+    /**
+     * @param termIds 非 null；长度至少为 1
+     * @param docBits 非 null；与 {@code termIds} 的语义交集一致
+     */
     public CandidateItemset(int[] termIds, BitSet docBits) {
         this.termIds = termIds;
         this.docBits = docBits;
@@ -44,6 +47,7 @@ public final class CandidateItemset {
         return estimatedSaving;
     }
 
+    /** 项集中词的个数。 */
     public int length() {
         return termIds.length;
     }

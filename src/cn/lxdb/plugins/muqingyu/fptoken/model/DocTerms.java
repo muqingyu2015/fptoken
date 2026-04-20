@@ -6,18 +6,21 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * 作者：muqingyu
+ * 单条文档输入：文档标识 + 词序列（每条词为一条 {@code byte[]}）。
  *
- * 单条输入：docId + 词列表（byte[]）。
+ * <p>构造时会通过 {@link ByteArrayUtils#normalizeTerms(java.util.Collection)} 去掉空词，并在单文档内按出现顺序去重，
+ * 保证下游索引与挖掘看到的是规范化词集合。
  *
- * 说明：
- * - 构造时会自动做词去重和空词过滤。
- * - 保证下游算法拿到的是“规范化后的文档词集合”。
+ * @author muqingyu
  */
 public final class DocTerms {
     private final int docId;
     private final List<byte[]> terms;
 
+    /**
+     * @param docId 文档 id；须与 {@link cn.lxdb.plugins.muqingyu.fptoken.index.TermTidsetIndex} 中位图下标约定一致
+     * @param terms 词集合，不可为 null
+     */
     public DocTerms(int docId, Collection<byte[]> terms) {
         this.docId = docId;
         this.terms = ByteArrayUtils.normalizeTerms(Objects.requireNonNull(terms, "terms"));

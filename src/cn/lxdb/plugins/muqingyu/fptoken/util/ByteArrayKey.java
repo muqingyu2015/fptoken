@@ -1,24 +1,30 @@
 package cn.lxdb.plugins.muqingyu.fptoken.util;
 
 /**
- * 作者：muqingyu
+ * 以 byte[] <b>内容</b> 为逻辑的键：可用于 {@link java.util.HashMap} 等结构。
  *
- * byte[] 内容键，支持按内容比较与哈希。
+ * <p><b>语义</b>：
+ * <ul>
+ *   <li>构造时拷贝入参数组，调用方后续修改原数组不会影响键值。</li>
+ *   <li>{@link #equals(Object)} / {@link #hashCode()} 按字节序列；{@link #compareTo} 使用无符号字节序（见 {@link ByteArrayUtils#compareUnsigned}）。</li>
+ * </ul>
  *
- * 关键点：
- * - 构造时会拷贝数组，避免外部修改底层字节导致 Map 键失效。
- * - hashCode/equals 按字节内容实现，确保语义正确。
+ * @author muqingyu
  */
 public final class ByteArrayKey implements Comparable<ByteArrayKey> {
 
     private final byte[] value;
     private final int hash;
 
+    /**
+     * @param value 原始词字节，非 null
+     */
     public ByteArrayKey(byte[] value) {
         this.value = ByteArrayUtils.copy(value);
         this.hash = ByteArrayUtils.hash(this.value);
     }
 
+    /** 返回内部持有的字节数组引用（与构造时拷贝为同一块数组）。 */
     public byte[] bytes() {
         return value;
     }
