@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fptoken 文档导航</title>
+  <style>
+    body {
+      margin: 0;
+      background: #f6f8fb;
+      color: #111827;
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      line-height: 1.7;
+    }
+    .wrap {
+      max-width: 900px;
+      margin: 26px auto;
+      padding: 0 14px 20px;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 12px;
+    }
+    h1, h2 { margin: 0 0 10px; }
+    h1 { color: #1d4ed8; }
+    ul { margin: 0 0 0 20px; }
+    li { margin: 8px 0; }
+    a {
+      color: #1e40af;
+      text-decoration: none;
+    }
+    a:hover { text-decoration: underline; }
+    .desc { color: #4b5563; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card">
+      <h1>fptoken 文档导航</h1>
+      <p class="desc">用于快速访问项目说明、架构、流程、实现原理及专题分析文档。</p>
+    </section>
+
+    <section class="card">
+      <h2>核心项目文档</h2>
+      <ul>
+        <li>
+          <a href="./fptoken-project-documentation.html">fptoken 项目文档（推荐先读）</a>
+          <div class="desc">包含项目说明、背景、架构设计、流程图、实现原理、关键实现、类调用关系。</div>
+        </li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>专题设计文档</h2>
+      <ul>
+        <li>
+          <a href="./fptoken-design-and-implementation.html">第一步方案：频繁项集互斥最优筛选</a>
+        </li>
+        <li>
+          <a href="./posting-dedup-and-exclusive-fiset-design.html">倒排共享存储与互斥频繁项集设计方案</a>
+        </li>
+        <li>
+          <a href="./frequent-itemset-miner-performance.html">FrequentItemsetMiner 算法与性能分析</a>
+        </li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

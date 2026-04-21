@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fptoken 项目文档（架构、流程、实现原理）</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --line: #e5e7eb;
+      --text: #111827;
+      --sub: #4b5563;
+      --pri: #1d4ed8;
+      --ok: #047857;
+      --warn: #b45309;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      line-height: 1.75;
+    }
+    .wrap {
+      max-width: 1100px;
+      margin: 26px auto;
+      padding: 0 14px 32px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 14px;
+    }
+    h1, h2, h3 { margin: 0 0 10px; line-height: 1.4; }
+    h1 { color: var(--pri); font-size: 30px; }
+    h2 { color: #0f3f95; font-size: 22px; margin-top: 6px; }
+    h3 { font-size: 17px; margin-top: 8px; }
+    p { margin: 8px 0; }
+    ul, ol { margin: 8px 0 8px 22px; }
+    li { margin: 4px 0; }
+    .meta { color: var(--sub); font-size: 14px; }
+    .note {
+      margin: 10px 0;
+      border-left: 4px solid var(--pri);
+      background: #eff6ff;
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .note.ok { border-left-color: var(--ok); background: #ecfdf5; }
+    .note.warn { border-left-color: var(--warn); background: #fffbeb; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #f3f4f6; }
+    code {
+      background: #f3f4f6;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13px;
+    }
+    .toc a {
+      color: #1e40af;
+      text-decoration: none;
+    }
+    .toc a:hover {
+      text-decoration: underline;
+    }
+    .diagram {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px dashed #cbd5e1;
+      border-radius: 10px;
+      background: #f8fafc;
+      padding: 8px;
+    }
+    .foot {
+      font-size: 13px;
+      color: #6b7280;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card">
+      <h1>fptoken 项目文档</h1>
+      <p class="meta">覆盖：项目说明、项目背景、架构设计、流程图、实现原理、关键实现、类调用关系</p>
+      <div class="note ok">
+        文档基于当前代码实现整理，核心入口为 <code>ExclusiveFrequentItemsetSelector</code>。
+      </div>
+    </section>
+
+    <section class="card toc">
+      <h2>目录</h2>
+      <ol>
+        <li><a href="#desc">项目说明</a></li>
+        <li><a href="#background">项目背景</a></li>
+        <li><a href="#architecture">架构设计</a></li>
+        <li><a href="#flow">流程图</a></li>
+        <li><a href="#principle">实现原理</a></li>
+        <li><a href="#key-impl">重要实现与原理</a></li>
+        <li><a href="#relation">类调用关系与原理</a></li>
+        <li><a href="#appendix">附录：配置参数与行为约束</a></li>
+      </ol>
+    </section>
+
+    <section class="card" id="desc">
+      <h2>1. 项目说明</h2>
+      <p>
+        <b>fptoken</b> 是一个面向二进制/字节流场景的频繁模式发现与互斥筛选模块。它将输入的文档词项
+        （<code>DocTerms</code>）转换为垂直索引（词到文档位图），再进行频繁项集挖掘，最后输出词级互斥的候选组，
+        供检索优化、索引压缩或规则抽取使用。
+      </p>
+      <ul>
+        <li><b>输入：</b><code>List&lt;DocTerms&gt;</code>（每条文档包含 <code>docId</code> 和词字节数组集合）</li>
+        <li><b>输出：</b><code>ExclusiveSelectionResult</code>（组列表 + 统计信息）</li>
+        <li><b>核心能力：</b>频繁项集近似挖掘 + 词级互斥优化 + 统计可观测性</li>
+      </ul>
+    </section>
+
+    <section class="card" id="background">
+      <h2>2. 项目背景</h2>
+      <p>
+        从项目 README 可知，目标是改善二进制检索中常见方案（如 n-gram、Data Skipping Index）的缺陷：
+        控制索引膨胀、提升高命中词条检索稳定性，并兼顾低频场景效率。
+      </p>
+      <ul>
+        <li>传统 n-gram 在大规模数据下存储膨胀显著。</li>
+        <li>Data Skipping 在高命中词条时易退化。</li>
+        <li>本项目采用“频繁项集思想 + 互斥筛选”，通过模式结构化提升整体性价比。</li>
+      </ul>
+      <div class="note">
+        定位上，它不是单纯挖掘“最多模式”，而是输出更可执行、更去重的“高价值互斥模式集合”。
+      </div>
+    </section>
+
+    <section class="card" id="architecture">
+      <h2>3. 架构设计</h2>
+      <h3>3.1 分层结构</h3>
+      <div class="diagram">
+        <svg width="1040" height="340" viewBox="0 0 1040 340" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
+              <polygon points="0,0 10,4 0,8" fill="#1e40af"/>
+            </marker>
+          </defs>
+
+          <rect x="20" y="24" width="200" height="64" rx="10" fill="#dbeafe" stroke="#1e40af"/>
+          <text x="40" y="50" font-size="14" fill="#1e3a8a">API Facade</text>
+          <text x="40" y="70" font-size="13" fill="#1e3a8a">ExclusiveFrequentItemsetSelector</text>
+
+          <rect x="250" y="24" width="200" height="64" rx="10" fill="#e0f2fe" stroke="#0369a1"/>
+          <text x="270" y="50" font-size="14" fill="#0c4a6e">Config Layer</text>
+          <text x="270" y="70" font-size="13" fill="#0c4a6e">SelectorConfig</text>
+
+          <rect x="480" y="24" width="240" height="64" rx="10" fill="#ede9fe" stroke="#6d28d9"/>
+          <text x="500" y="50" font-size="14" fill="#4c1d95">Index Layer</text>
+          <text x="500" y="70" font-size="13" fill="#4c1d95">TermTidsetIndex (term -> BitSet)</text>
+
+          <rect x="750" y="24" width="260" height="64" rx="10" fill="#fee2e2" stroke="#b91c1c"/>
+          <text x="770" y="50" font-size="14" fill="#7f1d1d">Mining Layer</text>
+          <text x="770" y="70" font-size="13" fill="#7f1d1d">BeamFrequentItemsetMiner</text>
+
+          <rect x="220" y="146" width="290" height="72" rx="10" fill="#dcfce7" stroke="#15803d"/>
+          <text x="242" y="173" font-size="14" fill="#14532d">Selection Layer</text>
+          <text x="242" y="193" font-size="13" fill="#14532d">GreedyExclusiveItemsetPicker</text>
+          <text x="242" y="210" font-size="13" fill="#14532d">TwoPhaseExclusiveItemsetPicker (1-opt)</text>
+
+          <rect x="550" y="146" width="280" height="72" rx="10" fill="#fef3c7" stroke="#b45309"/>
+          <text x="572" y="173" font-size="14" fill="#78350f">Model Layer</text>
+          <text x="572" y="193" font-size="13" fill="#78350f">CandidateItemset / SelectedGroup</text>
+          <text x="572" y="210" font-size="13" fill="#78350f">ExclusiveSelectionResult</text>
+
+          <rect x="20" y="260" width="300" height="56" rx="10" fill="#f3f4f6" stroke="#4b5563"/>
+          <text x="40" y="286" font-size="13" fill="#111827">Utility: ByteArrayUtils / ByteArrayKey</text>
+          <text x="40" y="304" font-size="12" fill="#374151">byte[] 规范化、比较、哈希、hex 格式化</text>
+
+          <line x1="220" y1="56" x2="250" y2="56" stroke="#1e40af" stroke-width="2" marker-end="url(#arrow)"/>
+          <line x1="450" y1="56" x2="480" y2="56" stroke="#1e40af" stroke-width="2" marker-end="url(#arrow)"/>
+          <line x1="720" y1="56" x2="750" y2="56" stroke="#1e40af" stroke-width="2" marker-end="url(#arrow)"/>
+          <line x1="880" y1="88" x2="720" y2="146" stroke="#1e40af" stroke-width="2" marker-end="url(#arrow)"/>
+          <line x1="510" y1="182" x2="550" y2="182" stroke="#1e40af" stroke-width="2" marker-end="url(#arrow)"/>
+          <line x1="610" y1="88" x2="610" y2="146" stroke="#1e40af" stroke-width="2" marker-end="url(#arrow)"/>
+          <line x1="170" y1="260" x2="170" y2="218" stroke="#1e40af" stroke-width="2" marker-end="url(#arrow)"/>
+        </svg>
+      </div>
+
+      <h3>3.2 模块职责</h3>
+      <table>
+        <thead>
+          <tr><th>模块</th><th>主要职责</th><th>关键输出</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Facade</td>
+            <td>统一入口、参数编排、流程串联、统计结果封装</td>
+            <td><code>ExclusiveSelectionResult</code></td>
+          </tr>
+          <tr>
+            <td>Index</td>
+            <td>把文档词项转为 <code>termId -> BitSet(docId)</code> 垂直索引</td>
+            <td><code>TermTidsetIndex</code></td>
+          </tr>
+          <tr>
+            <td>Miner</td>
+            <td>Beam + BitSet 交集挖掘候选项集，受候选上限保护</td>
+            <td><code>FrequentItemsetMiningResult</code></td>
+          </tr>
+          <tr>
+            <td>Picker</td>
+            <td>在候选项集中做词级互斥优化（贪心 + 1-opt）</td>
+            <td><code>List&lt;CandidateItemset&gt;</code></td>
+          </tr>
+          <tr>
+            <td>Model/Util</td>
+            <td>数据对象与 byte[] 工具能力，保证比较与复制语义一致</td>
+            <td>安全 DTO + 工具方法</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card" id="flow">
+      <h2>4. 流程图</h2>
+      <h3>4.1 主流程（调用时序）</h3>
+      <div class="diagram">
+        <svg width="1040" height="520" viewBox="0 0 1040 520" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arr2" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
+              <polygon points="0,0 10,4 0,8" fill="#0f3f95"/>
+            </marker>
+          </defs>
+          <rect x="380" y="20" width="280" height="42" rx="8" fill="#1d4ed8"/>
+          <text x="442" y="47" fill="#fff" font-size="14">Start: selectExclusiveBestItemsetsWithStats()</text>
+
+          <rect x="350" y="86" width="340" height="50" rx="8" fill="#e5edff" stroke="#1d4ed8"/>
+          <text x="374" y="108" font-size="13">rows null/empty ?</text>
+          <text x="374" y="126" font-size="12">是：返回 emptyResult；否：继续</text>
+          <line x1="520" y1="62" x2="520" y2="86" stroke="#0f3f95" stroke-width="2" marker-end="url(#arr2)"/>
+
+          <rect x="350" y="160" width="340" height="42" rx="8" fill="#eef2ff" stroke="#6366f1"/>
+          <text x="377" y="186" font-size="13">构建 SelectorConfig（参数校验）</text>
+          <line x1="520" y1="136" x2="520" y2="160" stroke="#0f3f95" stroke-width="2" marker-end="url(#arr2)"/>
+
+          <rect x="330" y="226" width="380" height="50" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+          <text x="356" y="248" font-size="13">TermTidsetIndex.build(rows)</text>
+          <text x="356" y="266" font-size="12">输出 idToTerm + tidsetsByTermId</text>
+          <line x1="520" y1="202" x2="520" y2="226" stroke="#0f3f95" stroke-width="2" marker-end="url(#arr2)"/>
+
+          <rect x="320" y="300" width="400" height="50" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+          <text x="348" y="322" font-size="13">BeamFrequentItemsetMiner.mineWithStats(...)</text>
+          <text x="348" y="340" font-size="12">候选挖掘 + 统计 + 截断标志</text>
+          <line x1="520" y1="276" x2="520" y2="300" stroke="#0f3f95" stroke-width="2" marker-end="url(#arr2)"/>
+
+          <rect x="300" y="374" width="440" height="50" rx="8" fill="#dcfce7" stroke="#15803d"/>
+          <text x="328" y="396" font-size="13">TwoPhaseExclusiveItemsetPicker.pick(candidates, dictionarySize, maxSwapTrials)</text>
+          <text x="328" y="414" font-size="12">Greedy 初解 + 预算内 1-opt 替换</text>
+          <line x1="520" y1="350" x2="520" y2="374" stroke="#0f3f95" stroke-width="2" marker-end="url(#arr2)"/>
+
+          <rect x="300" y="448" width="440" height="50" rx="8" fill="#fef3c7" stroke="#b45309"/>
+          <text x="329" y="470" font-size="13">toSelectedGroups + buildResult</text>
+          <text x="329" y="488" font-size="12">termId 还原 + docBitSet 转 docId 列表 + 汇总统计</text>
+          <line x1="520" y1="424" x2="520" y2="448" stroke="#0f3f95" stroke-width="2" marker-end="url(#arr2)"/>
+        </svg>
+      </div>
+
+      <h3>4.2 数据流摘要</h3>
+      <p>
+        <code>DocTerms[] -> TermTidsetIndex(termId, BitSet) -> CandidateItemset[] -> SelectedGroup[] -> ExclusiveSelectionResult</code>
+      </p>
+    </section>
+
+    <section class="card" id="principle">
+      <h2>5. 实现原理</h2>
+      <h3>5.1 垂直索引原理</h3>
+      <ul>
+        <li>把“文档视角”转为“词视角”：每个词对应一个文档位图（BitSet）。</li>
+        <li>项集支持度可通过位图交集后基数计算：<code>support(X∪Y)=cardinality(T(X)&amp;T(Y))</code>。</li>
+        <li>相比逐文档扫描，交集路径更适合高频模式迭代扩展。</li>
+      </ul>
+
+      <h3>5.2 Beam 挖掘原理</h3>
+      <ul>
+        <li>先收集频繁 1-项，再逐层扩展前缀。</li>
+        <li>每层仅保留 top-K 前缀（Beam），控制组合爆炸。</li>
+        <li>支持早停：候选上限、空层、可选超时与 idle level。</li>
+      </ul>
+
+      <h3>5.3 互斥筛选原理</h3>
+      <ul>
+        <li>词级互斥：最终选择结果中的任意两个项集不能共享同一 termId。</li>
+        <li>第一阶段贪心按长度/收益/支持度排序快速拿到可行解。</li>
+        <li>第二阶段在交换预算内做 1-opt 替换，提升目标值但不破坏互斥约束。</li>
+      </ul>
+
+      <div class="note warn">
+        该方案偏工程近似最优，目标是稳定和可控；不是全局最优求解器。
+      </div>
+    </section>
+
+    <section class="card" id="key-impl">
+      <h2>6. 重要实现与原理</h2>
+      <table>
+        <thead>
+          <tr><th>实现点</th><th>原理说明</th><th>工程价值</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>TermTidsetIndex.build</code></td>
+            <td>为每个唯一词分配连续 termId，维护 <code>idToTerm</code> 与 <code>tidsetsByTermId</code> 双结构。</td>
+            <td>后续挖掘可 O(1) 取位图，termId 连续便于数组化高效访问。</td>
+          </tr>
+          <tr>
+            <td><code>BeamFrequentItemsetMiner.appendCandidate</code></td>
+            <td>写入候选前后都检查 <code>maxCandidateCount</code>，命中即标记 <code>truncatedByCandidateLimit</code>。</td>
+            <td>防止候选爆炸引发不可控资源消耗。</td>
+          </tr>
+          <tr>
+            <td><code>GreedyExclusiveItemsetPicker</code></td>
+            <td>位图标记已占用 termId，线性扫描冲突检测。</td>
+            <td>复杂度可控，作为低成本稳定基线。</td>
+          </tr>
+          <tr>
+            <td><code>TwoPhaseExclusiveItemsetPicker</code></td>
+            <td>以 Greedy 结果为初解，按 objective 做挑战者替换（1-opt）。</td>
+            <td>在有限预算下提升解质量，保持线上可预测延迟。</td>
+          </tr>
+          <tr>
+            <td>DTO 防御性复制</td>
+            <td>模型对象返回副本或不可变容器，避免外部误改内部状态。</td>
+            <td>提高 API 契约稳定性，降低调用方副作用风险。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card" id="relation">
+      <h2>7. 类调用关系与原理</h2>
+      <h3>7.1 核心调用关系图</h3>
+      <div class="diagram">
+        <svg width="1040" height="420" viewBox="0 0 1040 420" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arr3" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
+              <polygon points="0,0 10,4 0,8" fill="#1e3a8a"/>
+            </marker>
+          </defs>
+
+          <rect x="24" y="30" width="280" height="56" rx="10" fill="#dbeafe" stroke="#1d4ed8"/>
+          <text x="44" y="55" font-size="13" fill="#1e3a8a">ExclusiveFrequentItemsetSelector</text>
+          <text x="44" y="74" font-size="12" fill="#1e3a8a">流程编排与结果封装</text>
+
+          <rect x="372" y="30" width="240" height="56" rx="10" fill="#ede9fe" stroke="#7c3aed"/>
+          <text x="392" y="55" font-size="13" fill="#5b21b6">TermTidsetIndex</text>
+          <text x="392" y="74" font-size="12" fill="#5b21b6">rows -> termId/BitSet</text>
+
+          <rect x="676" y="30" width="300" height="56" rx="10" fill="#fee2e2" stroke="#dc2626"/>
+          <text x="696" y="55" font-size="13" fill="#7f1d1d">BeamFrequentItemsetMiner</text>
+          <text x="696" y="74" font-size="12" fill="#7f1d1d">候选挖掘 + 统计 + 截断</text>
+
+          <rect x="214" y="170" width="280" height="56" rx="10" fill="#dcfce7" stroke="#15803d"/>
+          <text x="234" y="195" font-size="13" fill="#14532d">GreedyExclusiveItemsetPicker</text>
+          <text x="234" y="214" font-size="12" fill="#14532d">快速互斥基线</text>
+
+          <rect x="548" y="170" width="280" height="56" rx="10" fill="#bbf7d0" stroke="#15803d"/>
+          <text x="568" y="195" font-size="13" fill="#14532d">TwoPhaseExclusiveItemsetPicker</text>
+          <text x="568" y="214" font-size="12" fill="#14532d">1-opt 替换提升</text>
+
+          <rect x="24" y="306" width="300" height="72" rx="10" fill="#fef3c7" stroke="#b45309"/>
+          <text x="44" y="332" font-size="13" fill="#78350f">Model: CandidateItemset / SelectedGroup</text>
+          <text x="44" y="351" font-size="12" fill="#78350f">数据载体 + 防御性语义</text>
+          <text x="44" y="368" font-size="12" fill="#78350f">support / estimatedSaving / docIds</text>
+
+          <rect x="382" y="306" width="280" height="72" rx="10" fill="#f3f4f6" stroke="#4b5563"/>
+          <text x="402" y="332" font-size="13" fill="#111827">Util: ByteArrayUtils / ByteArrayKey</text>
+          <text x="402" y="351" font-size="12" fill="#374151">copy/hash/compare/normalize</text>
+          <text x="402" y="368" font-size="12" fill="#374151">保证 byte[] 语义一致</text>
+
+          <line x1="304" y1="58" x2="372" y2="58" stroke="#1e3a8a" stroke-width="2" marker-end="url(#arr3)"/>
+          <line x1="612" y1="58" x2="676" y2="58" stroke="#1e3a8a" stroke-width="2" marker-end="url(#arr3)"/>
+          <line x1="826" y1="86" x2="688" y2="170" stroke="#1e3a8a" stroke-width="2" marker-end="url(#arr3)"/>
+          <line x1="354" y1="198" x2="548" y2="198" stroke="#1e3a8a" stroke-width="2" marker-end="url(#arr3)"/>
+          <line x1="214" y1="226" x2="174" y2="306" stroke="#1e3a8a" stroke-width="2" marker-end="url(#arr3)"/>
+          <line x1="494" y1="226" x2="522" y2="306" stroke="#1e3a8a" stroke-width="2" marker-end="url(#arr3)"/>
+          <line x1="520" y1="86" x2="520" y2="306" stroke="#1e3a8a" stroke-width="1.5" marker-end="url(#arr3)"/>
+        </svg>
+      </div>
+
+      <h3>7.2 关键调用链解释</h3>
+      <ol>
+        <li>Facade 收到请求后做空输入短路与配置构建。</li>
+        <li>Index 层把原始词映射成 <code>termId</code>，并构建每个词的文档位图。</li>
+        <li>Miner 在位图上进行 Beam 扩展，输出候选及统计字段。</li>
+        <li>Picker 对候选进行词级互斥筛选，得到最终候选子集。</li>
+        <li>Facade 完成 termId 还原、docId 展开、统计封装并返回结果。</li>
+      </ol>
+    </section>
+
+    <section class="card" id="appendix">
+      <h2>8. 附录：配置参数与行为约束</h2>
+      <table>
+        <thead>
+          <tr><th>参数</th><th>作用</th><th>约束</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>minSupport</code></td><td>最小支持度</td><td>&gt; 0</td></tr>
+          <tr><td><code>minItemsetSize</code></td><td>最小项集长度</td><td>&gt; 0</td></tr>
+          <tr><td><code>maxItemsetSize</code></td><td>最大项集长度</td><td>&gt;= minItemsetSize</td></tr>
+          <tr><td><code>maxCandidateCount</code></td><td>候选上限（硬保护）</td><td>&gt; 0</td></tr>
+        </tbody>
+      </table>
+      <div class="note">
+        实际运行中请结合批次大小、词密度、内存预算调参，优先保证 <code>maxCandidateCount</code> 与时延目标一致。
+      </div>
+    </section>
+
+    <section class="card foot">
+      <p>文档路径：<code>docs/fptoken-project-documentation.html</code></p>
+      <p>建议：后续可在该文档基础上补充“时序日志样例”、“性能基线表”、“版本变更记录”。</p>
+    </section>
+  </div>
+</body>
+</html>
