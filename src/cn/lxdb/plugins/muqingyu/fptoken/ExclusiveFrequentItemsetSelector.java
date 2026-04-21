@@ -188,11 +188,7 @@ public final class ExclusiveFrequentItemsetSelector {
 
         int docCount = rows.size();
         // Phase 1: 构建 term -> tidset 的垂直索引，并在入口处做一次“过热词”过滤以控制膨胀。
-        TermTidsetIndex termIndex = TermTidsetIndex.buildWithSupportBounds(
-                rows,
-                minSupport,
-                adaptiveMaxDocCoverageRatio(docCount)
-        );
+        TermTidsetIndex termIndex = TermTidsetIndex.buildWithSupportBounds(rows, minSupport, adaptiveMaxDocCoverageRatio());
         List<byte[]> termVocabulary = termIndex.getIdToTermUnsafe();
         if (termVocabulary.isEmpty()) {
             return emptyResult(maxCandidateCount);
@@ -210,7 +206,7 @@ public final class ExclusiveFrequentItemsetSelector {
         List<CandidateItemset> selectedCandidates = pickExclusiveCandidates(
                 minedCandidates,
                 termVocabulary.size(),
-                adaptiveMinNetGain(docCount, termVocabulary.size())
+                adaptiveMinNetGain()
         );
         List<SelectedGroup> selectedGroups = toSelectedGroups(selectedCandidates, termVocabulary);
         return buildResult(selectedGroups, miningStats, maxCandidateCount);
@@ -346,25 +342,12 @@ public final class ExclusiveFrequentItemsetSelector {
         return 10_000L;
     }
 
-    private static double adaptiveMaxDocCoverageRatio(int docCount) {
-        if (docCount < 2000) {
-            return 1.0d;
-        }
-        if (docCount < 8000) {
-            return 0.995d;
-        }
+    private static double adaptiveMaxDocCoverageRatio() {
         return EngineTuningConfig.DEFAULT_MAX_DOC_COVERAGE_RATIO;
     }
 
-    private static int adaptiveMinNetGain(int docCount, int vocabularySize) {
-        int base = EngineTuningConfig.DEFAULT_MIN_NET_GAIN;
-        if (docCount > 12000 || vocabularySize > 5000) {
-            return base + 4;
-        }
-        if (docCount < 2000 && vocabularySize < 1200) {
-            return Math.max(2, base - 4);
-        }
-        return base;
+    private static int adaptiveMinNetGain() {
+        return EngineTuningConfig.DEFAULT_MIN_NET_GAIN;
     }
 
     /**

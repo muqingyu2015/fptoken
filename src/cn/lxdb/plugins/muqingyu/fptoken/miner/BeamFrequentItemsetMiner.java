@@ -481,22 +481,21 @@ public final class BeamFrequentItemsetMiner {
             int support,
             MiningState miningState
     ) {
-        miningState.generatedCandidateCount++;
         CandidateItemset candidate = CandidateItemset.trusted(termIds, tidset, support);
         if (miningState.topCandidatesHeap.size() < miningState.maxCandidateCount) {
             miningState.topCandidatesHeap.offer(candidate);
-            updateCandidateFloor(miningState);
-            return false;
-        }
-        CandidateItemset currentWorst = miningState.topCandidatesHeap.peek();
-        if (currentWorst != null && compareCandidateBest(candidate, currentWorst) > 0) {
-            miningState.topCandidatesHeap.poll();
-            miningState.topCandidatesHeap.offer(candidate);
-            miningState.truncatedByCandidateLimit = true;
+            miningState.generatedCandidateCount++;
             updateCandidateFloor(miningState);
             return false;
         }
         miningState.truncatedByCandidateLimit = true;
+        CandidateItemset currentWorst = miningState.topCandidatesHeap.peek();
+        if (currentWorst != null && compareCandidateBest(candidate, currentWorst) > 0) {
+            miningState.topCandidatesHeap.poll();
+            miningState.topCandidatesHeap.offer(candidate);
+            updateCandidateFloor(miningState);
+            return false;
+        }
         return false;
     }
 
@@ -739,7 +738,7 @@ public final class BeamFrequentItemsetMiner {
     }
 
     private boolean canPruneByCandidateFloor(MiningState miningState, int optimisticSaving) {
-        if (!miningState.candidateFloorEnabled) {
+        if (!miningState.truncatedByCandidateLimit || !miningState.candidateFloorEnabled) {
             return false;
         }
         double optimisticAfterDecay = optimisticSaving * EngineTuningConfig.CANDIDATE_OPTIMISTIC_DECAY;
