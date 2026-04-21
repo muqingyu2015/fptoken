@@ -27,8 +27,10 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 /**
@@ -36,6 +38,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
  */
 @Tag("performance")
 @EnabledIfSystemProperty(named = "fptoken.runPerfTests", matches = "true")
+@Timeout(value = 10, unit = TimeUnit.SECONDS)
 class PerformanceAdvancedInfrastructureTest {
 
     // ===== 数据真实性分级（L1-L4） =====

@@ -20,12 +20,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 @Tag("performance")
 @EnabledIfSystemProperty(named = "fptoken.runPerfTests", matches = "true")
+@Timeout(value = 10, unit = TimeUnit.SECONDS)
 class CompressionAndFusionValidationTest {
 
     @Test

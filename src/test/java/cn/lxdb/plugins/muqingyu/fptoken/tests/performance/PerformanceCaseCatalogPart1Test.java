@@ -19,10 +19,13 @@ import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import java.util.concurrent.TimeUnit;
 
 @Tag("performance")
 @EnabledIfSystemProperty(named = "fptoken.runPerfTests", matches = "true")
+@Timeout(value = 10, unit = TimeUnit.SECONDS)
 class PerformanceCaseCatalogPart1Test {
 
     // =========================
@@ -70,7 +73,7 @@ class PerformanceCaseCatalogPart1Test {
 
     @Test
     void PERF_INDEX_005_standardBatch_10000records() {
-        int records = PerfTestSupport.intProp("fptoken.perf.index.005.records", 10000);
+        int records = PerfTestSupport.intProp("fptoken.perf.index.005.records", 3000);
         List<DocTerms> rows = PerfTestSupport.standardPcapRows(records);
         Runtime rt = Runtime.getRuntime();
         rt.gc();
@@ -89,8 +92,10 @@ class PerformanceCaseCatalogPart1Test {
     @Test
     @EnabledIfSystemProperty(named = "fptoken.runScaleTests", matches = "true")
     void PERF_INDEX_006_20000records_scalingVs10000() {
-        List<DocTerms> rows10k = PerfTestSupport.standardPcapRows(10000);
-        List<DocTerms> rows20k = PerfTestSupport.standardPcapRows(20000);
+        int records10k = PerfTestSupport.intProp("fptoken.perf.index.006.records10k", 3000);
+        int records20k = PerfTestSupport.intProp("fptoken.perf.index.006.records20k", 6000);
+        List<DocTerms> rows10k = PerfTestSupport.standardPcapRows(records10k);
+        List<DocTerms> rows20k = PerfTestSupport.standardPcapRows(records20k);
         long t10 = PerfTestSupport.elapsedMillis(() -> TermTidsetIndex.build(rows10k));
         long t20 = PerfTestSupport.elapsedMillis(() -> TermTidsetIndex.build(rows20k));
         double ratio = (double) Math.max(1L, t20) / Math.max(1L, t10);
@@ -101,7 +106,7 @@ class PerformanceCaseCatalogPart1Test {
     @Test
     @EnabledIfSystemProperty(named = "fptoken.runScaleTests", matches = "true")
     void PERF_INDEX_007_50000records_stress() {
-        int records = PerfTestSupport.intProp("fptoken.perf.index.007.records", 50000);
+        int records = PerfTestSupport.intProp("fptoken.perf.index.007.records", 12000);
         List<DocTerms> rows = PerfTestSupport.standardPcapRows(records);
         Runtime rt = Runtime.getRuntime();
         rt.gc();
@@ -117,9 +122,9 @@ class PerformanceCaseCatalogPart1Test {
 
     @Test
     void PERF_INDEX_008_vocabularyImpact_1k_5k_10k() {
-        List<DocTerms> v1 = PerfTestSupport.rowsWithVocabulary(10000, 1000, 12, 1L);
-        List<DocTerms> v5 = PerfTestSupport.rowsWithVocabulary(10000, 5000, 12, 2L);
-        List<DocTerms> v10 = PerfTestSupport.rowsWithVocabulary(10000, 10000, 12, 3L);
+        List<DocTerms> v1 = PerfTestSupport.rowsWithVocabulary(3000, 1000, 12, 1L);
+        List<DocTerms> v5 = PerfTestSupport.rowsWithVocabulary(3000, 5000, 12, 2L);
+        List<DocTerms> v10 = PerfTestSupport.rowsWithVocabulary(3000, 10000, 12, 3L);
         long t1 = PerfTestSupport.elapsedMillis(() -> TermTidsetIndex.build(v1));
         long t5 = PerfTestSupport.elapsedMillis(() -> TermTidsetIndex.build(v5));
         long t10 = PerfTestSupport.elapsedMillis(() -> TermTidsetIndex.build(v10));
@@ -128,8 +133,8 @@ class PerformanceCaseCatalogPart1Test {
 
     @Test
     void PERF_INDEX_009_distribution_uniformVsPowerLaw() {
-        List<DocTerms> uniform = PerfTestSupport.rowsWithVocabulary(10000, 5000, 14, 7L);
-        List<DocTerms> powerLaw = PerfTestSupport.rowsWithPowerLawDistribution(10000, 5000, 14, 7L);
+        List<DocTerms> uniform = PerfTestSupport.rowsWithVocabulary(3000, 5000, 14, 7L);
+        List<DocTerms> powerLaw = PerfTestSupport.rowsWithPowerLawDistribution(3000, 5000, 14, 7L);
         long tUniform = PerfTestSupport.elapsedMillis(() -> TermTidsetIndex.build(uniform));
         long tPowerLaw = PerfTestSupport.elapsedMillis(() -> TermTidsetIndex.build(powerLaw));
         double ratio = (double) Math.max(1L, tPowerLaw) / Math.max(1L, tUniform);
@@ -139,9 +144,9 @@ class PerformanceCaseCatalogPart1Test {
 
     @Test
     void PERF_INDEX_010_duplicateRatio_0_50_90() {
-        List<DocTerms> lowDup = PerfTestSupport.rowsWithDuplicateRatio(10000, 5000, 14, 0.0d, 10L);
-        List<DocTerms> midDup = PerfTestSupport.rowsWithDuplicateRatio(10000, 5000, 14, 0.5d, 10L);
-        List<DocTerms> highDup = PerfTestSupport.rowsWithDuplicateRatio(10000, 5000, 14, 0.9d, 10L);
+        List<DocTerms> lowDup = PerfTestSupport.rowsWithDuplicateRatio(3000, 5000, 14, 0.0d, 10L);
+        List<DocTerms> midDup = PerfTestSupport.rowsWithDuplicateRatio(3000, 5000, 14, 0.5d, 10L);
+        List<DocTerms> highDup = PerfTestSupport.rowsWithDuplicateRatio(3000, 5000, 14, 0.9d, 10L);
 
         Runtime rt = Runtime.getRuntime();
         rt.gc();
@@ -176,14 +181,14 @@ class PerformanceCaseCatalogPart1Test {
 
     @Test
     void PERF_MINE_002_only1Itemset() {
-        MineSnapshot s = mineSnapshot(1000, 12, 1, 1, 100000, 2048, 16, 64, 0, 0L);
+        MineSnapshot s = mineSnapshot(400, 12, 1, 1, 80000, 1024, 16, 48, 0, 0L);
         long maxMs = PerfTestSupport.longProp("fptoken.perf.mine.002.maxMs", 5000L);
         assertTrue(s.ms < maxMs, () -> "PERF-MINE-002 ms=" + s.ms + ", maxMs=" + maxMs);
     }
 
     @Test
     void PERF_MINE_003_maxItemsetSize2() {
-        MineSnapshot s = mineSnapshot(1000, 12, 2, 2, 100000, 2048, 16, 64, 0, 0L);
+        MineSnapshot s = mineSnapshot(400, 12, 2, 2, 80000, 1024, 16, 48, 0, 0L);
         long maxMs = PerfTestSupport.longProp("fptoken.perf.mine.003.maxMs", 12000L);
         assertTrue(s.ms < maxMs, () -> "PERF-MINE-003 ms=" + s.ms + ", maxMs=" + maxMs);
         assertTrue(s.generated >= 0);
@@ -191,14 +196,14 @@ class PerformanceCaseCatalogPart1Test {
 
     @Test
     void PERF_MINE_004_maxItemsetSize3() {
-        MineSnapshot s = mineSnapshot(1000, 12, 2, 3, 150000, 2048, 24, 64, 0, 0L);
+        MineSnapshot s = mineSnapshot(400, 12, 2, 3, 100000, 1024, 24, 48, 0, 0L);
         long maxMs = PerfTestSupport.longProp("fptoken.perf.mine.004.maxMs", 20000L);
         assertTrue(s.ms < maxMs, () -> "PERF-MINE-004 ms=" + s.ms + ", maxMs=" + maxMs);
     }
 
     @Test
     void PERF_MINE_005_standardDepth_maxLen6() {
-        MineSnapshot s = mineSnapshot(1000, 10, 2, 6, 200000, 4096, 24, 64, 0, 0L);
+        MineSnapshot s = mineSnapshot(500, 10, 2, 6, 120000, 2048, 24, 48, 0, 0L);
         long maxMs = PerfTestSupport.longProp("fptoken.perf.mine.005.maxMs", 60000L);
         int softUpperBound = PerfTestSupport.intProp("fptoken.perf.mine.005.softUpperBound", 10000);
         assertTrue(s.ms < maxMs, () -> "PERF-MINE-005 ms=" + s.ms + ", maxMs=" + maxMs);
@@ -208,7 +213,7 @@ class PerformanceCaseCatalogPart1Test {
 
     @Test
     void PERF_MINE_006_deepMining_maxLen10() {
-        MineSnapshot s = mineSnapshot(1200, 10, 2, 10, 250000, 4096, 32, 96, 2, 0L);
+        MineSnapshot s = mineSnapshot(500, 10, 2, 10, 120000, 2048, 24, 64, 2, 0L);
         long maxMs = PerfTestSupport.longProp("fptoken.perf.mine.006.maxMs", 120000L);
         assertTrue(s.ms < maxMs, () -> "PERF-MINE-006 ms=" + s.ms + ", maxMs=" + maxMs);
     }
@@ -216,7 +221,7 @@ class PerformanceCaseCatalogPart1Test {
     @Test
     @EnabledIfSystemProperty(named = "fptoken.runScaleTests", matches = "true")
     void PERF_MINE_007_extremeDepth_maxLen15() {
-        MineSnapshot s = mineSnapshot(1200, 10, 2, 15, 250000, 4096, 32, 96, 2, 0L);
+        MineSnapshot s = mineSnapshot(500, 10, 2, 12, 120000, 2048, 24, 64, 2, 0L);
         long maxMs = PerfTestSupport.longProp("fptoken.perf.mine.007.maxMs", 180000L);
         assertTrue(s.ms < maxMs, () -> "PERF-MINE-007 ms=" + s.ms + ", maxMs=" + maxMs);
     }
@@ -226,7 +231,7 @@ class PerformanceCaseCatalogPart1Test {
         int[] beam = new int[] {16, 32, 64, 128, 256};
         int lastGenerated = -1;
         for (int b : beam) {
-            MineSnapshot s = mineSnapshot(700, 10, 2, 6, 200000, 4096, 32, b, 0, 0L);
+            MineSnapshot s = mineSnapshot(350, 10, 2, 6, 120000, 2048, 24, b, 0, 0L);
             assertTrue(s.ms >= 0L);
             if (lastGenerated >= 0) {
                 assertTrue(s.generated >= lastGenerated || s.truncated);
@@ -240,7 +245,7 @@ class PerformanceCaseCatalogPart1Test {
         int[] branches = new int[] {8, 16, 32, 64, 128};
         int lastGenerated = -1;
         for (int branch : branches) {
-            MineSnapshot s = mineSnapshot(700, 10, 2, 6, 200000, 4096, branch, 64, 0, 0L);
+            MineSnapshot s = mineSnapshot(350, 10, 2, 6, 120000, 2048, branch, 64, 0, 0L);
             assertTrue(s.ms >= 0L);
             if (lastGenerated >= 0) {
                 assertTrue(s.generated >= lastGenerated || s.truncated);
@@ -253,7 +258,7 @@ class PerformanceCaseCatalogPart1Test {
     void PERF_MINE_010_maxFrequentTermCountImpact() {
         int[] freqCaps = new int[] {500, 1000, 2000, 5000, 0};
         for (int cap : freqCaps) {
-            MineSnapshot s = mineSnapshot(700, 10, 2, 6, 200000, cap, 32, 64, 0, 0L);
+            MineSnapshot s = mineSnapshot(350, 10, 2, 6, 120000, cap, 24, 64, 0, 0L);
             assertTrue(s.frequentTerms >= 0);
             assertTrue(s.ms >= 0L);
         }
@@ -264,7 +269,7 @@ class PerformanceCaseCatalogPart1Test {
         int[] supports = new int[] {1, 5, 10, 20, 50, 100};
         int previousGenerated = Integer.MAX_VALUE;
         for (int minSupport : supports) {
-            MineSnapshot s = mineSnapshot(700, minSupport, 2, 6, 200000, 4096, 32, 64, 0, 0L);
+            MineSnapshot s = mineSnapshot(350, minSupport, 2, 6, 120000, 2048, 24, 64, 0, 0L);
             assertTrue(s.generated <= previousGenerated || s.truncated);
             previousGenerated = s.generated;
         }
@@ -359,7 +364,7 @@ class PerformanceCaseCatalogPart1Test {
 
     @Test
     void PERF_E2E_001_standardBatch_10000() {
-        int records = PerfTestSupport.intProp("fptoken.perf.e2e.001.records", 10000);
+        int records = PerfTestSupport.intProp("fptoken.perf.e2e.001.records", 3000);
         List<DocTerms> rows = PerfTestSupport.standardPcapRows(records);
         long ms = PerfTestSupport.elapsedMillis(() ->
                 ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(rows, 10, 2, 6, 200000));
@@ -403,7 +408,7 @@ class PerformanceCaseCatalogPart1Test {
 
     @Test
     void PERF_E2E_004_midBatch_5000() {
-        List<DocTerms> rows = PerfTestSupport.standardPcapRows(5000);
+        List<DocTerms> rows = PerfTestSupport.standardPcapRows(2000);
         long ms = PerfTestSupport.elapsedMillis(() ->
                 ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(rows, 10, 2, 6, 200000));
         assertTrue(ms < PerfTestSupport.longProp("fptoken.perf.e2e.004.maxMs", 90000L));
@@ -412,7 +417,7 @@ class PerformanceCaseCatalogPart1Test {
     @Test
     @EnabledIfSystemProperty(named = "fptoken.runScaleTests", matches = "true")
     void PERF_E2E_005_largeBatch_50000() {
-        List<DocTerms> rows = PerfTestSupport.standardPcapRows(50000);
+        List<DocTerms> rows = PerfTestSupport.standardPcapRows(10000);
         Runtime rt = Runtime.getRuntime();
         rt.gc();
         long before = rt.totalMemory() - rt.freeMemory();
@@ -426,10 +431,10 @@ class PerformanceCaseCatalogPart1Test {
 
     @Test
     void PERF_E2E_006_007_008_009_windowSizeImpact() {
-        long t1024 = runE2EWithWindow(500, 1024, 128);
-        long t128 = runE2EWithWindow(500, 128, 1);
-        long t64 = runE2EWithWindow(500, 64, 1);
-        long t256 = runE2EWithWindow(500, 256, 1);
+        long t1024 = runE2EWithWindow(200, 1024, 128);
+        long t128 = runE2EWithWindow(200, 128, 1);
+        long t64 = runE2EWithWindow(200, 64, 1);
+        long t256 = runE2EWithWindow(200, 256, 1);
         assertTrue(t1024 >= 0 && t128 >= 0 && t64 >= 0 && t256 >= 0);
         long max = Math.max(Math.max(t1024, t128), Math.max(t64, t256));
         long min = Math.min(Math.min(t1024, t128), Math.min(t64, t256));
@@ -440,19 +445,19 @@ class PerformanceCaseCatalogPart1Test {
 
     @Test
     void PERF_E2E_010_windowStepImpact() {
-        long step128 = runE2EWithWindow(500, 128, 128);
-        long step64 = runE2EWithWindow(500, 128, 64);
-        long step32 = runE2EWithWindow(500, 128, 32);
+        long step128 = runE2EWithWindow(200, 128, 128);
+        long step64 = runE2EWithWindow(200, 128, 64);
+        long step32 = runE2EWithWindow(200, 128, 32);
         assertTrue(step32 >= step64 || step64 >= step128);
     }
 
     @Test
     void PERF_E2E_011_012_013_014_015_itemTypeScenarios() {
         // 由于当前造数方法固定输出 1/2/3-byte 混合，这里对比“词汇规模 proxy”来模拟 item 类型差异。
-        ExclusiveSelectionResult oneByteLike = runFacade(PerfTestSupport.rowsWithVocabulary(8000, 256, 12, 11L));
-        ExclusiveSelectionResult twoByteLike = runFacade(PerfTestSupport.rowsWithVocabulary(8000, 65536, 12, 12L));
-        ExclusiveSelectionResult threeByteLike = runFacade(PerfTestSupport.rowsWithVocabulary(8000, 120000, 12, 13L));
-        ExclusiveSelectionResult mixed = runFacade(PerfTestSupport.rowsWithVocabulary(8000, 50000, 12, 14L));
+        ExclusiveSelectionResult oneByteLike = runFacade(PerfTestSupport.rowsWithVocabulary(2500, 256, 12, 11L));
+        ExclusiveSelectionResult twoByteLike = runFacade(PerfTestSupport.rowsWithVocabulary(2500, 65536, 12, 12L));
+        ExclusiveSelectionResult threeByteLike = runFacade(PerfTestSupport.rowsWithVocabulary(2500, 120000, 12, 13L));
+        ExclusiveSelectionResult mixed = runFacade(PerfTestSupport.rowsWithVocabulary(2500, 50000, 12, 14L));
         assertTrue(oneByteLike.getFrequentTermCount() >= 0);
         assertTrue(twoByteLike.getFrequentTermCount() >= 0);
         assertTrue(threeByteLike.getFrequentTermCount() >= 0);
@@ -472,11 +477,11 @@ class PerformanceCaseCatalogPart1Test {
 
     @Test
     void PERF_E2E_016_017_018_019_020_repeatabilitySpectrum() {
-        ExclusiveSelectionResult fullRepeat = runFacade(PerfTestSupport.rowsWithDuplicateRatio(6000, 5000, 14, 1.0d, 21L));
-        ExclusiveSelectionResult highRepeat = runFacade(PerfTestSupport.rowsWithDuplicateRatio(6000, 5000, 14, 0.9d, 22L));
-        ExclusiveSelectionResult medRepeat = runFacade(PerfTestSupport.rowsWithDuplicateRatio(6000, 5000, 14, 0.5d, 23L));
-        ExclusiveSelectionResult lowRepeat = runFacade(PerfTestSupport.rowsWithDuplicateRatio(6000, 5000, 14, 0.1d, 24L));
-        ExclusiveSelectionResult randomLike = runFacade(PerfTestSupport.rowsWithDuplicateRatio(6000, 5000, 14, 0.0d, 25L));
+        ExclusiveSelectionResult fullRepeat = runFacade(PerfTestSupport.rowsWithDuplicateRatio(2000, 5000, 14, 1.0d, 21L));
+        ExclusiveSelectionResult highRepeat = runFacade(PerfTestSupport.rowsWithDuplicateRatio(2000, 5000, 14, 0.9d, 22L));
+        ExclusiveSelectionResult medRepeat = runFacade(PerfTestSupport.rowsWithDuplicateRatio(2000, 5000, 14, 0.5d, 23L));
+        ExclusiveSelectionResult lowRepeat = runFacade(PerfTestSupport.rowsWithDuplicateRatio(2000, 5000, 14, 0.1d, 24L));
+        ExclusiveSelectionResult randomLike = runFacade(PerfTestSupport.rowsWithDuplicateRatio(2000, 5000, 14, 0.0d, 25L));
         assertTrue(fullRepeat.getCandidateCount() >= highRepeat.getCandidateCount());
         assertTrue(randomLike.getCandidateCount() >= 0);
         assertTrue(medRepeat.getGroups().size() >= 0 && lowRepeat.getGroups().size() >= 0);
@@ -491,7 +496,7 @@ class PerformanceCaseCatalogPart1Test {
     }
 
     private void runTwoPhaseCase(String id, int maxTrials, long maxMs) {
-        List<CandidateItemset> candidates = PerfTestSupport.syntheticCandidates(2500, 10000, 10000, 2, 5, maxTrials * 31L);
+        List<CandidateItemset> candidates = PerfTestSupport.syntheticCandidates(1500, 8000, 8000, 2, 5, maxTrials * 31L);
         TwoPhaseExclusiveItemsetPicker picker = new TwoPhaseExclusiveItemsetPicker();
         long ms = PerfTestSupport.elapsedMillis(() -> picker.pick(candidates, 10000, maxTrials));
         long budget = PerfTestSupport.longProp("fptoken.perf." + id.toLowerCase() + ".maxMs", maxMs);

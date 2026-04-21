@@ -41,17 +41,24 @@ public final class ByteArrayTestSupport {
      * @param window 窗口原始字节（测试中可用较短数组以控规模）
      */
     public static List<byte[]> slidingItems123(byte[] window) {
+        return slidingItems123(window, 0, window.length);
+    }
+
+    /**
+     * 在给定数组的子区间上生成 1/2/3 字节滑动项，避免额外切片数组分配。
+     */
+    public static List<byte[]> slidingItems123(byte[] bytes, int offset, int length) {
         List<byte[]> terms = new ArrayList<>();
-        int w = window.length;
-        for (int i = 0; i < w; i++) {
-            if (i + 1 <= w) {
-                terms.add(Arrays.copyOfRange(window, i, i + 1));
+        int end = offset + length;
+        for (int i = offset; i < end; i++) {
+            if (i + 1 <= end) {
+                terms.add(Arrays.copyOfRange(bytes, i, i + 1));
             }
-            if (i + 2 <= w) {
-                terms.add(Arrays.copyOfRange(window, i, i + 2));
+            if (i + 2 <= end) {
+                terms.add(Arrays.copyOfRange(bytes, i, i + 2));
             }
-            if (i + 3 <= w) {
-                terms.add(Arrays.copyOfRange(window, i, i + 3));
+            if (i + 3 <= end) {
+                terms.add(Arrays.copyOfRange(bytes, i, i + 3));
             }
         }
         return terms;
@@ -77,8 +84,7 @@ public final class ByteArrayTestSupport {
         for (int p = 0; p < numRecords; p++) {
             byte[] record = pseudoRecord(p, recordLen);
             for (int off = 0; off + windowLen <= recordLen; off += windowStep) {
-                byte[] window = Arrays.copyOfRange(record, off, off + windowLen);
-                rows.add(doc(docId++, slidingItems123(window)));
+                rows.add(doc(docId++, slidingItems123(record, off, windowLen)));
             }
         }
         return rows;

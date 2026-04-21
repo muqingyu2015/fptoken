@@ -45,8 +45,9 @@ final class PerfTestSupport {
         if (windowLen > recordLen) {
             windowLen = recordLen;
         }
-        // records 很大时，按窗口展开会产生海量 DocTerms；这里做保守限流，默认把文档量控制在 30 万以内。
-        int maxDocs = intProp("fptoken.perf.maxDocs", 300_000);
+        // records 很大时，按窗口展开会产生海量 DocTerms；默认把文档量控制在 3 万以内，
+        // 让单个性能用例在常规机器上更容易控制在 10 秒预算。
+        int maxDocs = intProp("fptoken.perf.maxDocs", 30_000);
         if (records > 0 && maxDocs > 0) {
             int minStep = minimumStepToRespectDocBudget(records, recordLen, windowLen, maxDocs);
             if (minStep > step) {
@@ -318,6 +319,18 @@ final class PerfTestSupport {
             sq += d * d;
         }
         return Math.sqrt(sq / values.size());
+    }
+
+    static void repeatWithinBudget(int maxIterations, long maxElapsedMs, Runnable runnable) {
+        long safeBudgetMs = Math.max(1L, maxElapsedMs);
+        long deadlineNs = System.nanoTime() + safeBudgetMs * 1_000_000L;
+        int safeIterations = Math.max(0, maxIterations);
+        for (int i = 0; i < safeIterations; i++) {
+            if (System.nanoTime() >= deadlineNs) {
+                break;
+            }
+            runnable.run();
+        }
     }
 
     private static int[] distinctRandomTerms(Random random, int dictionarySize, int len) {

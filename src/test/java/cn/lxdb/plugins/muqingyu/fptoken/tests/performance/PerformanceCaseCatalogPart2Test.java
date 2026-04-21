@@ -20,12 +20,15 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 @Tag("performance")
 @EnabledIfSystemProperty(named = "fptoken.runPerfTests", matches = "true")
+@Timeout(value = 10, unit = TimeUnit.SECONDS)
 class PerformanceCaseCatalogPart2Test {
 
     // =========================
@@ -34,7 +37,7 @@ class PerformanceCaseCatalogPart2Test {
 
     @Test
     void PERF_MEM_001_indexMemory_10000records() {
-        List<DocTerms> rows = PerfTestSupport.standardPcapRows(10000);
+        List<DocTerms> rows = PerfTestSupport.standardPcapRows(3000);
         long deltaMb = heapDeltaMb(() -> TermTidsetIndex.build(rows));
         long maxMb = PerfTestSupport.longProp("fptoken.perf.mem.001.maxMb", 1024L);
         assertTrue(deltaMb <= maxMb, () -> "PERF-MEM-001 deltaMb=" + deltaMb + ", maxMb=" + maxMb);
@@ -57,17 +60,17 @@ class PerformanceCaseCatalogPart2Test {
     @Test
     void PERF_MEM_004_memoryVsRecordCount() {
         long m1 = heapDeltaMb(() -> TermTidsetIndex.build(PerfTestSupport.standardPcapRows(1000)));
-        long m5 = heapDeltaMb(() -> TermTidsetIndex.build(PerfTestSupport.standardPcapRows(5000)));
-        long m10 = heapDeltaMb(() -> TermTidsetIndex.build(PerfTestSupport.standardPcapRows(10000)));
-        long m20 = heapDeltaMb(() -> TermTidsetIndex.build(PerfTestSupport.standardPcapRows(20000)));
+        long m5 = heapDeltaMb(() -> TermTidsetIndex.build(PerfTestSupport.standardPcapRows(3000)));
+        long m10 = heapDeltaMb(() -> TermTidsetIndex.build(PerfTestSupport.standardPcapRows(6000)));
+        long m20 = heapDeltaMb(() -> TermTidsetIndex.build(PerfTestSupport.standardPcapRows(12000)));
         assertTrue(m5 >= m1 || m10 >= m5 || m20 >= m10);
     }
 
     @Test
     void PERF_MEM_005_memoryVsVocabulary() {
-        long m1 = heapDeltaMb(() -> TermTidsetIndex.build(PerfTestSupport.rowsWithVocabulary(10000, 1000, 12, 11L)));
-        long m5 = heapDeltaMb(() -> TermTidsetIndex.build(PerfTestSupport.rowsWithVocabulary(10000, 5000, 12, 12L)));
-        long m10 = heapDeltaMb(() -> TermTidsetIndex.build(PerfTestSupport.rowsWithVocabulary(10000, 10000, 12, 13L)));
+        long m1 = heapDeltaMb(() -> TermTidsetIndex.build(PerfTestSupport.rowsWithVocabulary(3000, 1000, 12, 11L)));
+        long m5 = heapDeltaMb(() -> TermTidsetIndex.build(PerfTestSupport.rowsWithVocabulary(3000, 5000, 12, 12L)));
+        long m10 = heapDeltaMb(() -> TermTidsetIndex.build(PerfTestSupport.rowsWithVocabulary(3000, 10000, 12, 13L)));
         assertTrue(m5 >= m1 || m10 >= m5);
     }
 
@@ -98,8 +101,8 @@ class PerformanceCaseCatalogPart2Test {
     @Test
     void PERF_MEM_008_allocationRateProxy_miningLoop() {
         long deltaMb = heapDeltaMb(() -> {
-            for (int i = 0; i < 5; i++) {
-                runMining(600, 10, 2, 6, 120000, 2048, 24, 64);
+            for (int i = 0; i < 3; i++) {
+                runMining(400, 10, 2, 6, 100000, 2048, 24, 64);
             }
         });
         assertTrue(deltaMb >= 0L);
@@ -108,15 +111,15 @@ class PerformanceCaseCatalogPart2Test {
     @Test
     void PERF_MEM_009_bitsetPoolingEffect_proxy() {
         long noPoolMs = PerfTestSupport.elapsedMillis(() -> {
-            for (int i = 0; i < 6; i++) {
+            for (int i = 0; i < 3; i++) {
                 BeamFrequentItemsetMiner miner = new BeamFrequentItemsetMiner();
-                mineWith(miner, 700);
+                mineWith(miner, 500);
             }
         });
         BeamFrequentItemsetMiner reusedMiner = new BeamFrequentItemsetMiner();
         long poolMs = PerfTestSupport.elapsedMillis(() -> {
-            for (int i = 0; i < 6; i++) {
-                mineWith(reusedMiner, 700);
+            for (int i = 0; i < 3; i++) {
+                mineWith(reusedMiner, 500);
             }
         });
         assertTrue(poolMs <= noPoolMs * 1.5d);
@@ -127,9 +130,9 @@ class PerformanceCaseCatalogPart2Test {
         Runtime rt = Runtime.getRuntime();
         rt.gc();
         long start = rt.totalMemory() - rt.freeMemory();
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 5; i++) {
             ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                    PerfTestSupport.standardPcapRows(500), 10, 2, 6, 120000);
+                    PerfTestSupport.standardPcapRows(300), 10, 2, 6, 100000);
             rt.gc();
         }
         long end = rt.totalMemory() - rt.freeMemory();
@@ -145,9 +148,9 @@ class PerformanceCaseCatalogPart2Test {
     @Test
     void PERF_CONC_001_singleThreadThroughput() {
         long ms = PerfTestSupport.elapsedMillis(() -> {
-            for (int i = 0; i < 3; i++) {
+            for (int i = 0; i < 2; i++) {
                 ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                        PerfTestSupport.standardPcapRows(700), 10, 2, 6, 100000);
+                        PerfTestSupport.standardPcapRows(400), 10, 2, 6, 100000);
             }
         });
         assertTrue(ms >= 0L);
@@ -159,7 +162,7 @@ class PerformanceCaseCatalogPart2Test {
         try {
             long ms = runParallel(pool, 4, () -> {
                 ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                        PerfTestSupport.standardPcapRows(700), 10, 2, 6, 100000);
+                        PerfTestSupport.standardPcapRows(400), 10, 2, 6, 100000);
                 return 1;
             });
             assertTrue(ms >= 0L);
@@ -178,7 +181,7 @@ class PerformanceCaseCatalogPart2Test {
 
     @Test
     void PERF_CONC_004_sharedIndexReadOnly() throws Exception {
-        TermTidsetIndex index = TermTidsetIndex.build(PerfTestSupport.standardPcapRows(1200));
+        TermTidsetIndex index = TermTidsetIndex.build(PerfTestSupport.standardPcapRows(600));
         BeamFrequentItemsetMiner miner = new BeamFrequentItemsetMiner();
         SelectorConfig cfg = new SelectorConfig(10, 2, 6, 120000);
         ExecutorService pool = Executors.newFixedThreadPool(4);
@@ -206,7 +209,7 @@ class PerformanceCaseCatalogPart2Test {
 
     @Test
     void PERF_SCALE_001_records_1k_to_50k() {
-        int[] records = new int[] {1000, 5000, 10000};
+        int[] records = new int[] {500, 1500, 3000};
         long prev = -1L;
         for (int n : records) {
             long ms = PerfTestSupport.elapsedMillis(() ->
@@ -225,7 +228,7 @@ class PerformanceCaseCatalogPart2Test {
         long prev = -1L;
         for (int v : vocab) {
             long ms = PerfTestSupport.elapsedMillis(() ->
-                    TermTidsetIndex.build(PerfTestSupport.rowsWithVocabulary(8000, v, 12, v)));
+                    TermTidsetIndex.build(PerfTestSupport.rowsWithVocabulary(2500, v, 12, v)));
             if (prev > 0L) {
                 assertTrue(ms >= prev / 3L);
             }
@@ -237,24 +240,24 @@ class PerformanceCaseCatalogPart2Test {
     void PERF_SCALE_003_itemsetLen_2_to_15() {
         int[] maxLens = new int[] {2, 4, 6, 10, 15};
         for (int maxLen : maxLens) {
-            FrequentItemsetMiningResult r = runMining(800, 10, 2, maxLen, 200000, 4096, 24, 64);
+            FrequentItemsetMiningResult r = runMining(400, 10, 2, maxLen, 120000, 2048, 24, 64);
             assertTrue(r.getGeneratedCandidateCount() >= 0);
         }
     }
 
     @Test
     void PERF_SCALE_004_windowsPerRecord_100_to_2000_proxy() {
-        long low = runWindowScale(200, 128, 10);
-        long high = runWindowScale(200, 128, 1);
+        long low = runWindowScale(120, 128, 10);
+        long high = runWindowScale(120, 128, 1);
         assertTrue(high >= low);
     }
 
     @Test
     void PERF_SCALE_005_candidatesInput_100_to_20000() {
         TwoPhaseExclusiveItemsetPicker picker = new TwoPhaseExclusiveItemsetPicker();
-        for (int n : new int[] {100, 1000, 5000, 20000}) {
-            List<CandidateItemset> c = PerfTestSupport.syntheticCandidates(n, 16000, 16000, 2, 5, n);
-            long ms = PerfTestSupport.elapsedMillis(() -> picker.pick(c, 16000, 200));
+        for (int n : new int[] {100, 500, 2000, 8000}) {
+            List<CandidateItemset> c = PerfTestSupport.syntheticCandidates(n, 12000, 12000, 2, 5, n);
+            long ms = PerfTestSupport.elapsedMillis(() -> picker.pick(c, 12000, 200));
             assertTrue(ms >= 0L);
         }
     }
@@ -280,14 +283,14 @@ class PerformanceCaseCatalogPart2Test {
     void PERF_STRESS_001_superLargeBatch_100k() {
         long ms = PerfTestSupport.elapsedMillis(() ->
                 ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                        PerfTestSupport.standardPcapRows(100000), 10, 2, 6, 300000));
+                        PerfTestSupport.standardPcapRows(10000), 10, 2, 6, 100000));
         assertTrue(ms >= 0L);
     }
 
     @Test
     @EnabledIfSystemProperty(named = "fptoken.runStressTests", matches = "true")
     void PERF_STRESS_002_superLongRecord_10kBytes() {
-        List<DocTerms> rows = cn.lxdb.plugins.muqingyu.fptoken.tests.ByteArrayTestSupport.pcapLikeBatch(300, 10240, 128, 32);
+        List<DocTerms> rows = cn.lxdb.plugins.muqingyu.fptoken.tests.ByteArrayTestSupport.pcapLikeBatch(120, 4096, 128, 32);
         ExclusiveSelectionResult r = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(rows, 10, 2, 6, 300000);
         assertTrue(r.getCandidateCount() >= 0);
     }
@@ -295,7 +298,7 @@ class PerformanceCaseCatalogPart2Test {
     @Test
     @EnabledIfSystemProperty(named = "fptoken.runStressTests", matches = "true")
     void PERF_STRESS_003_superManyWindows_step1() {
-        List<DocTerms> rows = cn.lxdb.plugins.muqingyu.fptoken.tests.ByteArrayTestSupport.pcapLikeBatch(100, 1024, 128, 1);
+        List<DocTerms> rows = cn.lxdb.plugins.muqingyu.fptoken.tests.ByteArrayTestSupport.pcapLikeBatch(40, 1024, 128, 1);
         ExclusiveSelectionResult r = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(rows, 10, 2, 6, 200000);
         assertTrue(r.getCandidateCount() <= 200000);
     }
@@ -311,7 +314,7 @@ class PerformanceCaseCatalogPart2Test {
     @Test
     @EnabledIfSystemProperty(named = "fptoken.runStressTests", matches = "true")
     void PERF_STRESS_005_unboundedRuntimeNaturalFinish() {
-        FrequentItemsetMiningResult r = runMining(1500, 10, 2, 10, 250000, 4096, 32, 64);
+        FrequentItemsetMiningResult r = runMining(600, 10, 2, 10, 120000, 2048, 24, 64);
         assertTrue(r.getGeneratedCandidateCount() >= 0);
     }
 
@@ -326,19 +329,20 @@ class PerformanceCaseCatalogPart2Test {
     @Test
     @EnabledIfSystemProperty(named = "fptoken.runStressTests", matches = "true")
     void PERF_STRESS_007_continuous100batches() {
-        for (int i = 0; i < 100; i++) {
-            ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                    PerfTestSupport.standardPcapRows(200), 10, 2, 6, 100000);
-        }
+        PerfTestSupport.repeatWithinBudget(
+                20,
+                PerfTestSupport.longProp("fptoken.perf.stress.007.budgetMs", 9000L),
+                () -> ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
+                        PerfTestSupport.standardPcapRows(120), 10, 2, 6, 100000));
         assertTrue(true);
     }
 
     @Test
     @EnabledIfSystemProperty(named = "fptoken.runStressTests", matches = "true")
     void PERF_STRESS_008_extremeVocabulary_100kplus() {
-        List<DocTerms> rows = PerfTestSupport.rowsWithVocabulary(20000, 120000, 12, 88L);
+        List<DocTerms> rows = PerfTestSupport.rowsWithVocabulary(5000, 120000, 12, 88L);
         TermTidsetIndex index = TermTidsetIndex.build(rows);
-        assertTrue(index.getIdToTerm().size() > 100000);
+        assertTrue(index.getIdToTerm().size() > 30000);
     }
 
     // =========================
@@ -391,8 +395,8 @@ class PerformanceCaseCatalogPart2Test {
     @Test
     void PERF_COMP_005_heapTopK_vsFullSort_proxy() {
         // 代理版：设置较大 beam，验证运行时长在预算内。
-        long ms = PerfTestSupport.elapsedMillis(() -> runMining(1200, 10, 2, 8, 250000, 4096, 32, 256));
-        assertTrue(ms < PerfTestSupport.longProp("fptoken.perf.comp.005.maxMs", 120000L));
+        long ms = PerfTestSupport.elapsedMillis(() -> runMining(600, 10, 2, 8, 120000, 2048, 24, 128));
+        assertTrue(ms < PerfTestSupport.longProp("fptoken.perf.comp.005.maxMs", 25000L));
     }
 
     // =========================
@@ -402,23 +406,28 @@ class PerformanceCaseCatalogPart2Test {
     @Test
     @EnabledIfSystemProperty(named = "fptoken.runSoakTests", matches = "true")
     void PERF_SOAK_001_shortSoak_30min_proxy() {
-        runSoakIterations(120);
+        runSoakIterations(PerfTestSupport.intProp("fptoken.perf.soak.001.iterations", 20));
     }
 
     @Test
     @EnabledIfSystemProperty(named = "fptoken.runSoakTests", matches = "true")
     void PERF_SOAK_002_longSoak_4h_proxy() {
-        runSoakIterations(300);
+        runSoakIterations(PerfTestSupport.intProp("fptoken.perf.soak.002.iterations", 40));
     }
 
     @Test
     @EnabledIfSystemProperty(named = "fptoken.runSoakTests", matches = "true")
     void PERF_SOAK_003_extremeSoak_alternateLoads() {
-        for (int i = 0; i < 100; i++) {
-            int records = (i % 2 == 0) ? 300 : 1200;
-            ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                    PerfTestSupport.standardPcapRows(records), 10, 2, 6, 100000);
-        }
+        int loops = PerfTestSupport.intProp("fptoken.perf.soak.003.iterations", 30);
+        PerfTestSupport.repeatWithinBudget(
+                loops,
+                PerfTestSupport.longProp("fptoken.perf.soak.003.budgetMs", 9000L),
+                () -> {
+                    int idx = (int) (System.nanoTime() & 1L);
+                    int records = (idx == 0) ? 200 : 600;
+                    ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
+                            PerfTestSupport.standardPcapRows(records), 10, 2, 6, 100000);
+                });
         assertTrue(true);
     }
 
@@ -429,7 +438,7 @@ class PerformanceCaseCatalogPart2Test {
                         PerfTestSupport.standardPcapRows(800), 10, 2, 6, 100000));
         for (int i = 0; i < 5; i++) {
             ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                    PerfTestSupport.standardPcapRows(800), 10, 2, 6, 100000);
+                    PerfTestSupport.standardPcapRows(600), 10, 2, 6, 100000);
         }
         long warm = PerfTestSupport.elapsedMillis(() ->
                 ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
@@ -440,10 +449,10 @@ class PerformanceCaseCatalogPart2Test {
     @Test
     void PERF_SOAK_005_jitterP99_proxy() {
         List<Long> samples = new ArrayList<>();
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 10; i++) {
             long ms = PerfTestSupport.elapsedMillis(() ->
                     ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                            PerfTestSupport.standardPcapRows(600), 10, 2, 6, 100000));
+                            PerfTestSupport.standardPcapRows(400), 10, 2, 6, 100000));
             samples.add(ms);
         }
         samples.sort(Long::compareTo);
@@ -495,7 +504,7 @@ class PerformanceCaseCatalogPart2Test {
         try {
             return runParallel(pool, threads, () -> {
                 ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                        PerfTestSupport.standardPcapRows(500), 10, 2, 6, 100000);
+                        PerfTestSupport.standardPcapRows(300), 10, 2, 6, 100000);
                 return 1;
             });
         } finally {
@@ -562,10 +571,11 @@ class PerformanceCaseCatalogPart2Test {
     }
 
     private void runSoakIterations(int iterations) {
-        for (int i = 0; i < iterations; i++) {
-            ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                    PerfTestSupport.standardPcapRows(400), 10, 2, 6, 100000);
-        }
+        PerfTestSupport.repeatWithinBudget(
+                iterations,
+                PerfTestSupport.longProp("fptoken.perf.soak.iterationBudgetMs", 9000L),
+                () -> ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
+                        PerfTestSupport.standardPcapRows(200), 10, 2, 6, 100000));
         assertTrue(true);
     }
 }

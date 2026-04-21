@@ -11,9 +11,11 @@ import cn.lxdb.plugins.muqingyu.fptoken.config.SelectorConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.model.ExclusiveSelectionResult;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 /**
@@ -23,6 +25,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
  */
 @Tag("performance")
 @EnabledIfSystemProperty(named = "fptoken.runBudgetPerfTests", matches = "true")
+@Timeout(value = 10, unit = TimeUnit.SECONDS)
 class PerformanceBudgetDesignDocTest {
 
     private static final long DEFAULT_TOTAL_BUDGET_MS = 600_000L;
