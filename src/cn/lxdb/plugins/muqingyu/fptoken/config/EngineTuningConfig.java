@@ -29,6 +29,10 @@ public final class EngineTuningConfig {
     public static final int FACADE_DEFAULT_BEAM_WIDTH = 32;
     /** 默认两阶段挑选中 1-opt 替换尝试上限。 */
     public static final int DEFAULT_MAX_SWAP_TRIALS = 100;
+    /** 互斥挑选中“净收益”默认最小阈值（estimatedSaving - termCost*len）。 */
+    public static final int DEFAULT_MIN_NET_GAIN = 8;
+    /** 互斥挑选中每个 term 的粗略字典开销估计（字节）。 */
+    public static final int PICKER_ESTIMATED_BYTES_PER_TERM = 2;
 
     // ===== Miner 内部运行参数（BeamFrequentItemsetMiner） =====
 
@@ -46,6 +50,19 @@ public final class EngineTuningConfig {
     public static final int TIMEOUT_CHECK_INTERVAL = 100;
     /** 结果列表初始容量上限，避免大参数触发过大初始分配。 */
     public static final int MAX_INITIAL_CANDIDATE_CAPACITY = 10_000;
+    /** 候选堆门槛激活比例：达到上限该比例后才启用“乐观收益剪枝”。 */
+    public static final double CANDIDATE_FLOOR_ACTIVATION_RATIO = 0.35d;
+    /** 候选乐观收益衰减比例（越小越激进）。 */
+    public static final double CANDIDATE_OPTIMISTIC_DECAY = 0.85d;
+
+    // ===== 索引与检索融合策略参数 =====
+
+    /** 过滤“过热词”默认文档覆盖率上限（1.0 表示不过滤）。 */
+    public static final double DEFAULT_MAX_DOC_COVERAGE_RATIO = 0.985d;
+    /** 高频命中阈值（命中率 >= 该值倾向频繁项集路由）。 */
+    public static final double LOOKUP_HIGH_HIT_RATE_THRESHOLD = 0.35d;
+    /** 低频命中阈值（命中率 <= 该值倾向 skipping 路由）。 */
+    public static final double LOOKUP_LOW_HIT_RATE_THRESHOLD = 0.05d;
 
     /**
      * 默认评分函数公式：长度和支持度都高的前缀优先。

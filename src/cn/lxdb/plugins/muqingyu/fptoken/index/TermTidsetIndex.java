@@ -82,6 +82,47 @@ public final class TermTidsetIndex {
     }
 
     /**
+     * 在构建完成后按支持度范围做一次压缩过滤，用于控制词典/位图体积。
+     *
+     * @param rows 文档输入
+     * @param minSupport 最小支持度（< 1 时按 1 处理）
+     * @param maxDocCoverageRatio 最大文档覆盖率，取值 (0,1]；>=1 表示不过滤“过热词”
+     */
+    public static TermTidsetIndex buildWithSupportBounds(
+            List<DocTerms> rows,
+            int minSupport,
+            double maxDocCoverageRatio
+    ) {
+        TermTidsetIndex base = build(rows);
+        if (base.getIdToTermUnsafe().isEmpty()) {
+            return base;
+        }
+        int docCount = rows.size();
+        int safeMinSupport = Math.max(1, minSupport);
+        double safeMaxCoverage = maxDocCoverageRatio <= 0d ? 1d : Math.min(1d, maxDocCoverageRatio);
+        if (safeMinSupport <= 1 && safeMaxCoverage >= 1d) {
+            return base;
+        }
+
+        int maxSupport = safeMaxCoverage >= 1d ? Integer.MAX_VALUE : (int) Math.floor(docCount * safeMaxCoverage);
+        List<byte[]> idToTerm = new ArrayList<>();
+        List<BitSet> tidsetsByTermId = new ArrayList<>();
+        List<byte[]> baseTerms = base.getIdToTermUnsafe();
+        List<BitSet> baseTidsets = base.getTidsetsByTermIdUnsafe();
+        for (int i = 0; i < baseTerms.size(); i++) {
+            BitSet bits = baseTidsets.get(i);
+            int support = bits.cardinality();
+            if (support >= safeMinSupport && support <= maxSupport) {
+                idToTerm.add(baseTerms.get(i));
+                tidsetsByTermId.add(bits);
+            }
+        }
+        return new TermTidsetIndex(
+                Collections.unmodifiableList(idToTerm),
+                Collections.unmodifiableList(tidsetsByTermId));
+    }
+
+    /**
      * 可读性别名：语义同 {@link #build(List)}。
      *
      * @param documents 文档列表

@@ -50,6 +50,12 @@ import java.util.List;
  */
 public final class ExclusiveFrequentItemsetSelector {
 
+    public enum LookupRoute {
+        FREQUENT_ITEMSET,
+        DATA_SKIPPING,
+        HYBRID
+    }
+
     private ExclusiveFrequentItemsetSelector() {
     }
 
@@ -180,22 +186,32 @@ public final class ExclusiveFrequentItemsetSelector {
                 maxCandidateCount
         );
 
-        // Phase 1: 构建 term -> tidset 的垂直索引。
-        TermTidsetIndex termIndex = TermTidsetIndex.build(rows);
+        int docCount = rows.size();
+        // Phase 1: 构建 term -> tidset 的垂直索引，并在入口处做一次“过热词”过滤以控制膨胀。
+        TermTidsetIndex termIndex = TermTidsetIndex.buildWithSupportBounds(
+                rows,
+                minSupport,
+                adaptiveMaxDocCoverageRatio(docCount)
+        );
         List<byte[]> termVocabulary = termIndex.getIdToTermUnsafe();
         if (termVocabulary.isEmpty()) {
             return emptyResult(maxCandidateCount);
         }
 
         // Phase 2: 在索引上执行近似频繁项挖掘。
-        FrequentItemsetMiningResult miningStats = mineCandidates(termIndex, config, termVocabulary.size());
+        MiningPlan miningPlan = buildMiningPlan(config, docCount, termVocabulary.size());
+        FrequentItemsetMiningResult miningStats = mineCandidates(termIndex, miningPlan);
         List<CandidateItemset> minedCandidates = miningStats.getCandidates();
         if (minedCandidates.isEmpty()) {
             return buildResult(Collections.<SelectedGroup>emptyList(), miningStats, maxCandidateCount);
         }
 
         // Phase 3: 在候选集上做互斥挑选，再转为对外模型。
-        List<CandidateItemset> selectedCandidates = pickExclusiveCandidates(minedCandidates, termVocabulary.size());
+        List<CandidateItemset> selectedCandidates = pickExclusiveCandidates(
+                minedCandidates,
+                termVocabulary.size(),
+                adaptiveMinNetGain(docCount, termVocabulary.size())
+        );
         List<SelectedGroup> selectedGroups = toSelectedGroups(selectedCandidates, termVocabulary);
         return buildResult(selectedGroups, miningStats, maxCandidateCount);
     }
@@ -227,20 +243,16 @@ public final class ExclusiveFrequentItemsetSelector {
      * @param config 支持度与长度、候选上限
      * @return 候选项与统计
      */
-    private static FrequentItemsetMiningResult mineCandidates(
-            TermTidsetIndex index,
-            SelectorConfig config,
-            int vocabularySize
-    ) {
+    private static FrequentItemsetMiningResult mineCandidates(TermTidsetIndex index, MiningPlan plan) {
         BeamFrequentItemsetMiner miner = new BeamFrequentItemsetMiner();
-        int adaptiveFrequentTermCount = adaptiveMaxFrequentTermCount(vocabularySize);
-        int adaptiveBeamWidth = adaptiveBeamWidth(vocabularySize);
         return miner.mineWithStats(
                 index.getTidsetsByTermIdUnsafe(),
-                config,
-                adaptiveFrequentTermCount,
-                EngineTuningConfig.DEFAULT_MAX_BRANCHING_FACTOR,
-                adaptiveBeamWidth
+                plan.config,
+                plan.maxFrequentTermCount,
+                plan.maxBranchingFactor,
+                plan.beamWidth,
+                plan.maxIdleLevels,
+                plan.maxRuntimeMillis
         );
     }
 
@@ -253,10 +265,16 @@ public final class ExclusiveFrequentItemsetSelector {
      */
     private static List<CandidateItemset> pickExclusiveCandidates(
             List<CandidateItemset> candidates,
-            int dictionarySize
+            int dictionarySize,
+            int minNetGain
     ) {
         TwoPhaseExclusiveItemsetPicker picker = new TwoPhaseExclusiveItemsetPicker();
-        return picker.pick(candidates, dictionarySize, adaptiveMaxSwapTrials(candidates.size()));
+        return picker.pick(
+                candidates,
+                dictionarySize,
+                adaptiveMaxSwapTrials(candidates.size()),
+                minNetGain
+        );
     }
 
     /**
@@ -291,6 +309,64 @@ public final class ExclusiveFrequentItemsetSelector {
         return 3000;
     }
 
+    private static int adaptiveMaxBranchingFactor(int vocabularySize) {
+        if (vocabularySize < 800) {
+            return 12;
+        }
+        if (vocabularySize < 3000) {
+            return EngineTuningConfig.DEFAULT_MAX_BRANCHING_FACTOR;
+        }
+        if (vocabularySize < 8000) {
+            return 20;
+        }
+        return 28;
+    }
+
+    private static int adaptiveMaxIdleLevels(int vocabularySize) {
+        if (vocabularySize < 1200) {
+            return 1;
+        }
+        if (vocabularySize < 4000) {
+            return 2;
+        }
+        return 3;
+    }
+
+    private static long adaptiveMaxRuntimeMillis(int docCount, int vocabularySize) {
+        long scale = (long) docCount + (long) vocabularySize;
+        if (scale < 8000L) {
+            return 1_500L;
+        }
+        if (scale < 20_000L) {
+            return 3_000L;
+        }
+        if (scale < 60_000L) {
+            return 6_000L;
+        }
+        return 10_000L;
+    }
+
+    private static double adaptiveMaxDocCoverageRatio(int docCount) {
+        if (docCount < 2000) {
+            return 1.0d;
+        }
+        if (docCount < 8000) {
+            return 0.995d;
+        }
+        return EngineTuningConfig.DEFAULT_MAX_DOC_COVERAGE_RATIO;
+    }
+
+    private static int adaptiveMinNetGain(int docCount, int vocabularySize) {
+        int base = EngineTuningConfig.DEFAULT_MIN_NET_GAIN;
+        if (docCount > 12000 || vocabularySize > 5000) {
+            return base + 4;
+        }
+        if (docCount < 2000 && vocabularySize < 1200) {
+            return Math.max(2, base - 4);
+        }
+        return base;
+    }
+
     /**
      * 候选少时减少 1-opt 尝试，候选多时提高上限但保留硬上界避免拖慢整体延迟。
      */
@@ -305,6 +381,27 @@ public final class ExclusiveFrequentItemsetSelector {
             return 150;
         }
         return Math.min(300, candidateCount / 20);
+    }
+
+    public static LookupRoute routeLookupByHitRate(double estimatedHitRate) {
+        if (estimatedHitRate <= EngineTuningConfig.LOOKUP_LOW_HIT_RATE_THRESHOLD) {
+            return LookupRoute.DATA_SKIPPING;
+        }
+        if (estimatedHitRate >= EngineTuningConfig.LOOKUP_HIGH_HIT_RATE_THRESHOLD) {
+            return LookupRoute.FREQUENT_ITEMSET;
+        }
+        return LookupRoute.HYBRID;
+    }
+
+    private static MiningPlan buildMiningPlan(SelectorConfig config, int docCount, int vocabularySize) {
+        return new MiningPlan(
+                config,
+                adaptiveMaxFrequentTermCount(vocabularySize),
+                adaptiveMaxBranchingFactor(vocabularySize),
+                adaptiveBeamWidth(vocabularySize),
+                adaptiveMaxIdleLevels(vocabularySize),
+                adaptiveMaxRuntimeMillis(docCount, vocabularySize)
+        );
     }
 
     /** 空输入或无词时的统一返回形态，避免调用方判 null。 */
@@ -392,5 +489,30 @@ public final class ExclusiveFrequentItemsetSelector {
             out.add(i);
         }
         return out;
+    }
+
+    private static final class MiningPlan {
+        private final SelectorConfig config;
+        private final int maxFrequentTermCount;
+        private final int maxBranchingFactor;
+        private final int beamWidth;
+        private final int maxIdleLevels;
+        private final long maxRuntimeMillis;
+
+        private MiningPlan(
+                SelectorConfig config,
+                int maxFrequentTermCount,
+                int maxBranchingFactor,
+                int beamWidth,
+                int maxIdleLevels,
+                long maxRuntimeMillis
+        ) {
+            this.config = config;
+            this.maxFrequentTermCount = maxFrequentTermCount;
+            this.maxBranchingFactor = maxBranchingFactor;
+            this.beamWidth = beamWidth;
+            this.maxIdleLevels = maxIdleLevels;
+            this.maxRuntimeMillis = maxRuntimeMillis;
+        }
     }
 }

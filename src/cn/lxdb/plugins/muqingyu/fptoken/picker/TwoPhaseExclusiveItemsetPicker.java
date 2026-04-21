@@ -1,5 +1,6 @@
 package cn.lxdb.plugins.muqingyu.fptoken.picker;
 
+import cn.lxdb.plugins.muqingyu.fptoken.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset;
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -37,6 +38,15 @@ public final class TwoPhaseExclusiveItemsetPicker {
             int dictionarySize,
             int maxSwapTrials
     ) {
+        return pick(candidates, dictionarySize, maxSwapTrials, EngineTuningConfig.DEFAULT_MIN_NET_GAIN);
+    }
+
+    public List<CandidateItemset> pick(
+            List<CandidateItemset> candidates,
+            int dictionarySize,
+            int maxSwapTrials,
+            int minNetGain
+    ) {
         if (candidates == null) {
             throw new IllegalArgumentException("candidates must not be null");
         }
@@ -46,12 +56,19 @@ public final class TwoPhaseExclusiveItemsetPicker {
         if (maxSwapTrials < 0) {
             throw new IllegalArgumentException("maxSwapTrials must be >= 0");
         }
+        if (minNetGain < 0) {
+            throw new IllegalArgumentException("minNetGain must be >= 0");
+        }
         validateCandidates(candidates);
 
         int bitsetSize = effectiveBitsetSize(candidates, dictionarySize);
+        List<CandidateItemset> filteredCandidates = filterByMinNetGain(candidates, minNetGain);
+        if (filteredCandidates.isEmpty()) {
+            return new ArrayList<>();
+        }
 
         GreedyExclusiveItemsetPicker greedy = new GreedyExclusiveItemsetPicker();
-        List<CandidateItemset> selected = new ArrayList<>(greedy.pick(candidates, dictionarySize));
+        List<CandidateItemset> selected = new ArrayList<>(greedy.pick(filteredCandidates, dictionarySize));
         if (selected.isEmpty() || maxSwapTrials <= 0) {
             return selected;
         }
@@ -61,17 +78,17 @@ public final class TwoPhaseExclusiveItemsetPicker {
         for (int i = 0; i < selected.size(); i++) {
             selectedScores[i] = objective(selected.get(i));
         }
-        long[] challengerScores = new long[candidates.size()];
-        for (int i = 0; i < candidates.size(); i++) {
-            challengerScores[i] = objective(candidates.get(i));
+        long[] challengerScores = new long[filteredCandidates.size()];
+        for (int i = 0; i < filteredCandidates.size(); i++) {
+            challengerScores[i] = objective(filteredCandidates.get(i));
         }
         Set<CandidateItemset> selectedSet = new HashSet<>(selected);
 
         BitSet currentSelectionBits = buildSelectionBitSet(selected, bitsetSize);
         BitSet scratch = new BitSet(bitsetSize);
         int usedSwapTrials = 0;
-        for (int i = 0; i < candidates.size() && usedSwapTrials < maxSwapTrials; i++) {
-            CandidateItemset challenger = candidates.get(i);
+        for (int i = 0; i < filteredCandidates.size() && usedSwapTrials < maxSwapTrials; i++) {
+            CandidateItemset challenger = filteredCandidates.get(i);
             if (selectedSet.contains(challenger)) {
                 continue;
             }
@@ -155,6 +172,20 @@ public final class TwoPhaseExclusiveItemsetPicker {
         }
     }
 
+    private static List<CandidateItemset> filterByMinNetGain(List<CandidateItemset> candidates, int minNetGain) {
+        if (minNetGain <= 0) {
+            return candidates;
+        }
+        List<CandidateItemset> out = new ArrayList<>(candidates.size());
+        for (int i = 0; i < candidates.size(); i++) {
+            CandidateItemset candidate = candidates.get(i);
+            if (netGain(candidate) >= minNetGain) {
+                out.add(candidate);
+            }
+        }
+        return out;
+    }
+
     private static void ensureTermIdInRange(int termId, int bitsetSize) {
         if (termId < 0 || termId >= bitsetSize) {
             throw new IllegalArgumentException(
@@ -183,8 +214,13 @@ public final class TwoPhaseExclusiveItemsetPicker {
      * 其次 {@link CandidateItemset#getSupport()}，再次项集长度；系数拉开量级避免比较歧义。
      */
     private long objective(CandidateItemset c) {
-        return ((long) c.getEstimatedSaving()) * 1000000L
+        return ((long) netGain(c)) * 1000000L
                 + ((long) c.getSupport()) * 1000L
                 + (long) c.length();
+    }
+
+    private static int netGain(CandidateItemset c) {
+        int dictionaryCost = c.length() * EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM;
+        return c.getEstimatedSaving() - dictionaryCost;
     }
 }

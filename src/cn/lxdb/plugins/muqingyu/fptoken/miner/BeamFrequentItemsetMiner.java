@@ -8,8 +8,8 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.List;
 import java.util.PriorityQueue;
+import java.util.List;
 
 /**
  * 这个类用 Beam Search 在大数据里找“经常一起出现”的词（或商品）组合。
@@ -132,7 +132,7 @@ public final class BeamFrequentItemsetMiner {
         int safeBeamWidth = beamWidth > 0 ? beamWidth : EngineTuningConfig.MINER_FALLBACK_BEAM_WIDTH;
         MiningState miningState = new MiningState(new ArrayList<>(
                 Math.min(config.getMaxCandidateCount(), EngineTuningConfig.MAX_INITIAL_CANDIDATE_CAPACITY)
-        ));
+        ), config.getMaxCandidateCount());
         int scratchBitSize = estimateScratchBitSize(tidsetsByTermId);
         long deadlineNanos = maxRuntimeMillis > 0
                 ? System.nanoTime() + maxRuntimeMillis * 1_000_000L
@@ -172,9 +172,6 @@ public final class BeamFrequentItemsetMiner {
                     deadlineNanos,
                     miningState
             );
-            if (miningState.truncatedByCandidateLimit) {
-                return toResult(miningState, frequentTermIdsArray.length);
-            }
             currentLevel = expansionResult.nextLevel;
             if (shouldStopAfterLevel(expansionResult, maxIdleLevels, miningState)) {
                 break;
@@ -254,7 +251,7 @@ public final class BeamFrequentItemsetMiner {
             );
             currentLevel.add(state);
             if (config.getMinItemsetSize() <= 1
-                    && appendCandidate(materializeTermIds(state), state.tidset, state.support, config, miningState)) {
+                    && appendCandidate(materializeTermIds(state), state.tidset, state.support, miningState)) {
                 break;
             }
         }
@@ -318,6 +315,10 @@ public final class BeamFrequentItemsetMiner {
                 if (upperBound < config.getMinSupport()) {
                     continue;
                 }
+                int optimisticSaving = score(prefix.length + 1, upperBound);
+                if (canPruneByCandidateFloor(miningState, optimisticSaving)) {
+                    continue;
+                }
                 // 先在临时位图上算交集，只有达标时才 clone，减少无效对象创建。
                 intersectionScratch.clear();
                 BitSet termTidset = tidsetsByTermId.get(termId);
@@ -359,7 +360,7 @@ public final class BeamFrequentItemsetMiner {
                 updateTopChildScores(topChildScores, beamWidth, childScore);
 
                 if (nextLen >= config.getMinItemsetSize()
-                        && appendCandidate(materializeTermIds(child), nextTidset, support, config, miningState)) {
+                        && appendCandidate(materializeTermIds(child), nextTidset, support, miningState)) {
                     return new LevelExpansionResult(toSortedList(nextLevelHeap), discoveredThisLevel, timedOut);
                 }
             }
@@ -470,32 +471,39 @@ public final class BeamFrequentItemsetMiner {
     }
 
     /**
-     * 追加一条候选并更新计数；若命中候选上限，返回 true 表示需要提前结束。
+     * 追加一条候选并更新计数。
+     *
+     * <p>候选容器采用 bounded top-k：当达到上限后，仅在新候选更优时替换当前最差候选。
      */
     private boolean appendCandidate(
             int[] termIds,
             BitSet tidset,
             int support,
-            SelectorConfig config,
             MiningState miningState
     ) {
-        if (miningState.out.size() >= config.getMaxCandidateCount()) {
-            miningState.truncatedByCandidateLimit = true;
-            return true;
-        }
-        miningState.out.add(CandidateItemset.trusted(termIds, tidset, support));
         miningState.generatedCandidateCount++;
-        if (miningState.out.size() >= config.getMaxCandidateCount()) {
-            miningState.truncatedByCandidateLimit = true;
-            return true;
+        CandidateItemset candidate = CandidateItemset.trusted(termIds, tidset, support);
+        if (miningState.topCandidatesHeap.size() < miningState.maxCandidateCount) {
+            miningState.topCandidatesHeap.offer(candidate);
+            updateCandidateFloor(miningState);
+            return false;
         }
+        CandidateItemset currentWorst = miningState.topCandidatesHeap.peek();
+        if (currentWorst != null && compareCandidateBest(candidate, currentWorst) > 0) {
+            miningState.topCandidatesHeap.poll();
+            miningState.topCandidatesHeap.offer(candidate);
+            miningState.truncatedByCandidateLimit = true;
+            updateCandidateFloor(miningState);
+            return false;
+        }
+        miningState.truncatedByCandidateLimit = true;
         return false;
     }
 
     /** 将内部可变状态打包为最终返回对象。 */
     private FrequentItemsetMiningResult toResult(MiningState miningState, int frequentTermCount) {
         return result(
-                miningState.out,
+                miningState.materializeTopCandidates(),
                 frequentTermCount,
                 miningState.generatedCandidateCount,
                 miningState.intersectionCount,
@@ -730,6 +738,44 @@ public final class BeamFrequentItemsetMiner {
         return Math.max(1, baseBeamWidth / EngineTuningConfig.BEAM_WIDTH_DIVISOR_2);
     }
 
+    private boolean canPruneByCandidateFloor(MiningState miningState, int optimisticSaving) {
+        if (!miningState.candidateFloorEnabled) {
+            return false;
+        }
+        double optimisticAfterDecay = optimisticSaving * EngineTuningConfig.CANDIDATE_OPTIMISTIC_DECAY;
+        return optimisticAfterDecay <= miningState.candidateSavingFloor;
+    }
+
+    private void updateCandidateFloor(MiningState miningState) {
+        if (miningState.topCandidatesHeap.isEmpty() || miningState.maxCandidateCount <= 0) {
+            return;
+        }
+        int activationSize = Math.max(
+                1,
+                (int) Math.floor(miningState.maxCandidateCount * EngineTuningConfig.CANDIDATE_FLOOR_ACTIVATION_RATIO)
+        );
+        miningState.candidateFloorEnabled = miningState.topCandidatesHeap.size() >= activationSize;
+        if (!miningState.candidateFloorEnabled) {
+            return;
+        }
+        CandidateItemset worst = miningState.topCandidatesHeap.peek();
+        if (worst != null) {
+            miningState.candidateSavingFloor = worst.getEstimatedSaving();
+        }
+    }
+
+    private int compareCandidateBest(CandidateItemset a, CandidateItemset b) {
+        int savingCompare = Integer.compare(a.getEstimatedSaving(), b.getEstimatedSaving());
+        if (savingCompare != 0) {
+            return savingCompare;
+        }
+        int supportCompare = Integer.compare(a.getSupport(), b.getSupport());
+        if (supportCompare != 0) {
+            return supportCompare;
+        }
+        return Integer.compare(a.length(), b.length());
+    }
+
     /**
      * Beam 搜索里的一条“前缀状态”（搜索树节点）。
      *
@@ -880,13 +926,49 @@ public final class BeamFrequentItemsetMiner {
     /** 挖掘过程中的共享可变状态，集中管理计数与候选输出。 */
     private static final class MiningState {
         private final List<CandidateItemset> out;
+        private final PriorityQueue<CandidateItemset> topCandidatesHeap;
+        private final int maxCandidateCount;
         private int generatedCandidateCount;
         private int intersectionCount;
         private boolean truncatedByCandidateLimit;
         private int idleLevelCount;
+        private int candidateSavingFloor;
+        private boolean candidateFloorEnabled;
 
-        private MiningState(List<CandidateItemset> out) {
+        private MiningState(List<CandidateItemset> out, int maxCandidateCount) {
             this.out = out;
+            this.maxCandidateCount = Math.max(1, maxCandidateCount);
+            this.topCandidatesHeap = new PriorityQueue<>(this.maxCandidateCount, (a, b) -> {
+                int savingCompare = Integer.compare(a.getEstimatedSaving(), b.getEstimatedSaving());
+                if (savingCompare != 0) {
+                    return savingCompare;
+                }
+                int supportCompare = Integer.compare(a.getSupport(), b.getSupport());
+                if (supportCompare != 0) {
+                    return supportCompare;
+                }
+                return Integer.compare(a.length(), b.length());
+            });
+        }
+
+        private List<CandidateItemset> materializeTopCandidates() {
+            if (topCandidatesHeap.isEmpty()) {
+                return Collections.emptyList();
+            }
+            out.clear();
+            out.addAll(topCandidatesHeap);
+            Collections.sort(out, (a, b) -> {
+                int savingCompare = Integer.compare(b.getEstimatedSaving(), a.getEstimatedSaving());
+                if (savingCompare != 0) {
+                    return savingCompare;
+                }
+                int supportCompare = Integer.compare(b.getSupport(), a.getSupport());
+                if (supportCompare != 0) {
+                    return supportCompare;
+                }
+                return Integer.compare(b.length(), a.length());
+            });
+            return out;
         }
     }
 }
