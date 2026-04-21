@@ -1,6 +1,8 @@
 package cn.lxdb.plugins.muqingyu.fptoken.model;
 
 import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayUtils;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
@@ -23,7 +25,7 @@ public final class DocTerms {
      */
     public DocTerms(int docId, Collection<byte[]> terms) {
         this.docId = docId;
-        this.terms = ByteArrayUtils.normalizeTerms(Objects.requireNonNull(terms, "terms"));
+        this.terms = Collections.unmodifiableList(ByteArrayUtils.normalizeTerms(Objects.requireNonNull(terms, "terms")));
     }
 
     public int getDocId() {
@@ -31,6 +33,15 @@ public final class DocTerms {
     }
 
     public List<byte[]> getTerms() {
+        List<byte[]> out = new ArrayList<>(terms.size());
+        for (byte[] t : terms) {
+            out.add(ByteArrayUtils.copy(t));
+        }
+        return out;
+    }
+
+    /** 仅供性能敏感内部调用；调用方不得修改列表元素。 */
+    public List<byte[]> getTermsUnsafe() {
         return terms;
     }
 }

@@ -4,7 +4,9 @@ import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
 import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.model.SelectedGroup;
+import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayUtils;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -30,6 +32,7 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
 
     public static void main(String[] args) {
         runBasicExample();
+        runPcapLikeExample();
     }
 
     /**
@@ -54,6 +57,33 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
                         input, minSupport, minItemsetSize);
 
         printResult("示例1：基础调用", result.getGroups());
+        printStats(result);
+    }
+
+    /**
+     * 业务化示例：
+     * <ul>
+     *   <li>模拟若干条“PCAP payload 记录”（HTTP 风格头 + 可变尾部）。</li>
+     *   <li>每条记录按固定窗口切片（windowLen/windowStep）。</li>
+     *   <li>每个窗口提取 1/2/3 字节 token，映射为一个 {@link DocTerms}。</li>
+     *   <li>调用带统计接口，观察候选规模、是否截断、最终互斥词组。</li>
+     * </ul>
+     */
+    private static void runPcapLikeExample() {
+        int windowLen = 16;
+        int windowStep = 8;
+        List<DocTerms> rows = buildPcapLikeRows(windowLen, windowStep);
+
+        int minSupport = 3;
+        int minItemsetSize = 2;
+        int maxItemsetSize = 6;
+        int maxCandidateCount = 30_000;
+
+        ExclusiveSelectionResult result =
+                ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
+                        rows, minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount);
+
+        printResultHex("示例2：PCAP滑窗 1/2/3-byte token", result.getGroups());
         printStats(result);
     }
 
@@ -90,6 +120,22 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
                 + ", truncated=" + result.isTruncatedByCandidateLimit());
     }
 
+    private static void printResultHex(String title, List<SelectedGroup> groups) {
+        System.out.println();
+        System.out.println("========== " + title + " ==========");
+        if (groups.isEmpty()) {
+            System.out.println("无结果");
+            return;
+        }
+        for (int i = 0; i < groups.size(); i++) {
+            SelectedGroup g = groups.get(i);
+            System.out.println((i + 1) + ". termsHex=" + formatTerms(g.getTerms())
+                    + ", support=" + g.getSupport()
+                    + ", saving=" + g.getEstimatedSaving()
+                    + ", docIds=" + g.getDocIds());
+        }
+    }
+
     /** 仅用于控制台可读；调试二进制词请用 {@link cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayUtils#toHex(byte[])}。 */
     private static String formatTerms(List<byte[]> terms) {
         StringBuilder sb = new StringBuilder();
@@ -102,5 +148,53 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
         }
         sb.append(']');
         return sb.toString();
+    }
+
+    private static List<DocTerms> buildPcapLikeRows(int windowLen, int windowStep) {
+        List<byte[]> payloads = new ArrayList<>();
+        payloads.add(payload(
+                "GET /a HTTP/1.1\r\nHost:demo\r\n",
+                new byte[] {0x11, 0x22, 0x33, 0x44, 0x55}));
+        payloads.add(payload(
+                "GET /b HTTP/1.1\r\nHost:demo\r\n",
+                new byte[] {0x11, 0x22, 0x66, 0x77, 0x55}));
+        payloads.add(payload(
+                "POST /x HTTP/1.1\r\nHost:demo\r\n",
+                new byte[] {0x11, 0x22, 0x33, 0x44, 0x21}));
+        payloads.add(payload(
+                "GET /c HTTP/1.1\r\nHost:demo\r\n",
+                new byte[] {0x11, 0x22, 0x33, 0x44, 0x31}));
+
+        List<DocTerms> rows = new ArrayList<>();
+        int docId = 0;
+        for (byte[] bytes : payloads) {
+            for (int off = 0; off + windowLen <= bytes.length; off += windowStep) {
+                byte[] window = Arrays.copyOfRange(bytes, off, off + windowLen);
+                rows.add(new DocTerms(docId++, slidingItems123(window)));
+            }
+        }
+        return rows;
+    }
+
+    private static List<byte[]> slidingItems123(byte[] window) {
+        List<byte[]> out = new ArrayList<>();
+        for (int i = 0; i < window.length; i++) {
+            out.add(Arrays.copyOfRange(window, i, i + 1));
+            if (i + 2 <= window.length) {
+                out.add(Arrays.copyOfRange(window, i, i + 2));
+            }
+            if (i + 3 <= window.length) {
+                out.add(Arrays.copyOfRange(window, i, i + 3));
+            }
+        }
+        return out;
+    }
+
+    private static byte[] payload(String header, byte[] tail) {
+        byte[] h = header.getBytes();
+        byte[] out = new byte[h.length + tail.length];
+        System.arraycopy(h, 0, out, 0, h.length);
+        System.arraycopy(tail, 0, out, h.length, tail.length);
+        return out;
     }
 }

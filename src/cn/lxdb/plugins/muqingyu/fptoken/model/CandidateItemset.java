@@ -1,6 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken.model;
 
 import java.util.BitSet;
+import java.util.Objects;
 
 /**
  * 挖掘阶段的一条候选项集（内部表示）。
@@ -21,7 +22,7 @@ public final class CandidateItemset {
     private final int estimatedSaving;
 
     /**
-     * @param termIds 非 null；长度至少为 1
+     * @param termIds 非 null；长度可为 0（用于鲁棒性测试场景）
      * @param docBits 非 null；与 {@code termIds} 的语义交集一致
      */
     public CandidateItemset(int[] termIds, BitSet docBits) {
@@ -29,22 +30,50 @@ public final class CandidateItemset {
     }
 
     /**
-     * @param termIds 非 null；长度至少为 1
+     * @param termIds 非 null；长度可为 0
      * @param docBits 非 null；与 {@code termIds} 的语义交集一致
      * @param support 预先算好的支持度，避免重复 cardinality()
      */
     public CandidateItemset(int[] termIds, BitSet docBits, int support) {
-        this.termIds = termIds;
-        this.docBits = docBits;
+        this(termIds, docBits, support, false);
+    }
+
+    private CandidateItemset(int[] termIds, BitSet docBits, int support, boolean trustedReferences) {
+        Objects.requireNonNull(termIds, "termIds");
+        Objects.requireNonNull(docBits, "docBits");
+        if (trustedReferences) {
+            this.termIds = termIds;
+            this.docBits = docBits;
+        } else {
+            this.termIds = java.util.Arrays.copyOf(termIds, termIds.length);
+            this.docBits = (BitSet) docBits.clone();
+        }
         this.support = support;
-        this.estimatedSaving = Math.max(0, (termIds.length - 1) * support);
+        this.estimatedSaving = computeEstimatedSaving(this.termIds.length, support);
+    }
+
+    /**
+     * 高性能内部路径：调用方保证 {@code termIds/docBits} 后续只读，不再修改引用内容。
+     */
+    public static CandidateItemset trusted(int[] termIds, BitSet docBits, int support) {
+        return new CandidateItemset(termIds, docBits, support, true);
     }
 
     public int[] getTermIds() {
+        return java.util.Arrays.copyOf(termIds, termIds.length);
+    }
+
+    /** 仅供性能敏感内部调用；调用方不得修改返回数组。 */
+    public int[] getTermIdsUnsafe() {
         return termIds;
     }
 
     public BitSet getDocBits() {
+        return (BitSet) docBits.clone();
+    }
+
+    /** 仅供性能敏感内部调用；调用方不得修改返回位图。 */
+    public BitSet getDocBitsUnsafe() {
         return docBits;
     }
 
@@ -59,5 +88,16 @@ public final class CandidateItemset {
     /** 项集中词的个数。 */
     public int length() {
         return termIds.length;
+    }
+
+    private static int computeEstimatedSaving(int termCount, int support) {
+        long raw = ((long) termCount - 1L) * (long) support;
+        if (raw <= 0L) {
+            return 0;
+        }
+        if (raw > Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return (int) raw;
     }
 }

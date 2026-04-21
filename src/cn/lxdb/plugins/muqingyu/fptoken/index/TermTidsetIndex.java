@@ -1,9 +1,11 @@
 package cn.lxdb.plugins.muqingyu.fptoken.index;
 
 import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayUtils;
 import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayKey;
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,14 +44,24 @@ public final class TermTidsetIndex {
      * @return 索引对象；若全无有效词则 {@link #getIdToTerm()} 为空列表
      */
     public static TermTidsetIndex build(List<DocTerms> rows) {
+        if (rows == null) {
+            throw new IllegalArgumentException("rows must not be null");
+        }
         Map<ByteArrayKey, Integer> termIdMap = new HashMap<>();
         List<byte[]> idToTerm = new ArrayList<>();
         List<BitSet> tidsetsByTermId = new ArrayList<>();
         int docCount = rows.size();
 
-        for (DocTerms row : rows) {
+        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
+            DocTerms row = rows.get(rowIndex);
+            if (row == null) {
+                throw new IllegalArgumentException("rows[" + rowIndex + "] must not be null");
+            }
             int docId = row.getDocId();
-            for (byte[] rawTerm : row.getTerms()) {
+            if (docId < 0) {
+                throw new IllegalArgumentException("docId must be >= 0, got " + docId);
+            }
+            for (byte[] rawTerm : row.getTermsUnsafe()) {
                 if (rawTerm == null || rawTerm.length == 0) {
                     continue;
                 }
@@ -64,16 +76,46 @@ public final class TermTidsetIndex {
                 tidsetsByTermId.get(termId.intValue()).set(docId);
             }
         }
-        return new TermTidsetIndex(idToTerm, tidsetsByTermId);
+        return new TermTidsetIndex(
+                Collections.unmodifiableList(idToTerm),
+                Collections.unmodifiableList(tidsetsByTermId));
+    }
+
+    /**
+     * 可读性别名：语义同 {@link #build(List)}。
+     *
+     * @param documents 文档列表
+     * @return 构建后的词-文档位图索引
+     */
+    public static TermTidsetIndex createFromDocuments(List<DocTerms> documents) {
+        return build(documents);
     }
 
     /** termId → 词字节；下标即 termId。 */
     public List<byte[]> getIdToTerm() {
-        return idToTerm;
+        List<byte[]> out = new ArrayList<>(idToTerm.size());
+        for (byte[] term : idToTerm) {
+            out.add(ByteArrayUtils.copy(term));
+        }
+        return out;
     }
 
     /** termId → 出现该词的文档位图。 */
     public List<BitSet> getTidsetsByTermId() {
+        List<BitSet> out = new ArrayList<>(tidsetsByTermId.size());
+        for (BitSet tidset : tidsetsByTermId) {
+            out.add((BitSet) tidset.clone());
+        }
+        return out;
+    }
+
+    /** 仅供性能敏感内部路径；调用方不得修改列表及其中元素。 */
+    public List<byte[]> getIdToTermUnsafe() {
+        return idToTerm;
+    }
+
+    /** 仅供性能敏感内部路径；调用方不得修改列表及其中元素。 */
+    public List<BitSet> getTidsetsByTermIdUnsafe() {
         return tidsetsByTermId;
     }
 }

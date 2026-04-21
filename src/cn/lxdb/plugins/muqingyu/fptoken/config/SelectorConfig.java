@@ -48,7 +48,17 @@ public final class SelectorConfig {
         return minSupport;
     }
 
+    /** 可读性别名：语义同 {@link #getMinSupport()}。 */
+    public int getMinimumRequiredSupport() {
+        return minSupport;
+    }
+
     public int getMinItemsetSize() {
+        return minItemsetSize;
+    }
+
+    /** 可读性别名：语义同 {@link #getMinItemsetSize()}。 */
+    public int getMinimumPatternLength() {
         return minItemsetSize;
     }
 
@@ -56,7 +66,65 @@ public final class SelectorConfig {
         return maxItemsetSize;
     }
 
+    /** 可读性别名：语义同 {@link #getMaxItemsetSize()}。 */
+    public int getMaximumPatternLength() {
+        return maxItemsetSize;
+    }
+
     public int getMaxCandidateCount() {
         return maxCandidateCount;
+    }
+
+    /** 可读性别名：语义同 {@link #getMaxCandidateCount()}。 */
+    public int getMaximumIntermediateResults() {
+        return maxCandidateCount;
+    }
+
+    /** Builder 入口：适合按名称设置配置字段，提高调用可读性。 */
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    /**
+     * 兼容旧构造器的命名式构建器。
+     * <p>默认值与构造校验一致：所有字段需被赋予合法值后才能 {@link #build()}。
+     */
+    public static final class Builder {
+        private int minimumRequiredSupport;
+        private int minimumPatternLength;
+        private int maximumPatternLength;
+        private int maximumIntermediateResults;
+
+        private Builder() {
+        }
+
+        public Builder minimumRequiredSupport(int value) {
+            this.minimumRequiredSupport = value;
+            return this;
+        }
+
+        public Builder minimumPatternLength(int value) {
+            this.minimumPatternLength = value;
+            return this;
+        }
+
+        public Builder maximumPatternLength(int value) {
+            this.maximumPatternLength = value;
+            return this;
+        }
+
+        public Builder maximumIntermediateResults(int value) {
+            this.maximumIntermediateResults = value;
+            return this;
+        }
+
+        public SelectorConfig build() {
+            return new SelectorConfig(
+                    minimumRequiredSupport,
+                    minimumPatternLength,
+                    maximumPatternLength,
+                    maximumIntermediateResults
+            );
+        }
     }
 }

@@ -3,7 +3,9 @@ package cn.lxdb.plugins.muqingyu.fptoken.picker;
 import cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset;
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 两阶段互斥选择：第一阶段用 {@link GreedyExclusiveItemsetPicker} 快速得可行解；第二阶段在预算内做 1-opt 替换以改进目标。
@@ -15,6 +17,10 @@ import java.util.List;
  *   <li>替换需保持互斥：除被替换位置外，其余已选项占用的 termId 与挑战者无交集。</li>
  *   <li>每个挑战者至多成功替换一次（内层成功后 {@code break}），不做多步连锁优化。</li>
  * </ul>
+ *
+ * <p>第二阶段位图容量与 {@link GreedyExclusiveItemsetPicker} 对齐：{@code max(dictionarySize, maxTermId+1)}，其中 {@code maxTermId} 在全部 {@code candidates} 上统计，以便在 {@code dictionarySize} 偏小时仍与第一阶段一致。
+ *
+ * <p>替换可行性判断与位图增量更新内联在 {@link #pick} 的内层循环中，避免额外方法调用开销。
  *
  * @author muqingyu
  */
@@ -31,25 +37,87 @@ public final class TwoPhaseExclusiveItemsetPicker {
             int dictionarySize,
             int maxSwapTrials
     ) {
+        if (candidates == null) {
+            throw new IllegalArgumentException("candidates must not be null");
+        }
+        if (dictionarySize <= 0) {
+            throw new IllegalArgumentException("dictionarySize must be > 0");
+        }
+        if (maxSwapTrials < 0) {
+            throw new IllegalArgumentException("maxSwapTrials must be >= 0");
+        }
+        validateCandidates(candidates);
+
+        int bitsetSize = effectiveBitsetSize(candidates, dictionarySize);
+
         GreedyExclusiveItemsetPicker greedy = new GreedyExclusiveItemsetPicker();
         List<CandidateItemset> selected = new ArrayList<>(greedy.pick(candidates, dictionarySize));
         if (selected.isEmpty() || maxSwapTrials <= 0) {
             return selected;
         }
 
+        // 预计算分数，避免在双层循环中重复 objective()。
+        long[] selectedScores = new long[selected.size()];
+        for (int i = 0; i < selected.size(); i++) {
+            selectedScores[i] = objective(selected.get(i));
+        }
+        long[] challengerScores = new long[candidates.size()];
+        for (int i = 0; i < candidates.size(); i++) {
+            challengerScores[i] = objective(candidates.get(i));
+        }
+        Set<CandidateItemset> selectedSet = new HashSet<>(selected);
+
+        BitSet currentSelectionBits = buildSelectionBitSet(selected, bitsetSize);
+        BitSet scratch = new BitSet(bitsetSize);
         int usedSwapTrials = 0;
         for (int i = 0; i < candidates.size() && usedSwapTrials < maxSwapTrials; i++) {
             CandidateItemset challenger = candidates.get(i);
-            long challengerScore = objective(challenger);
+            if (selectedSet.contains(challenger)) {
+                continue;
+            }
+            long challengerScore = challengerScores[i];
+            int[] challengerTermIds = challenger.getTermIdsUnsafe();
+            int challengerLen = challengerTermIds.length;
             for (int j = 0; j < selected.size() && usedSwapTrials < maxSwapTrials; j++) {
-                CandidateItemset incumbent = selected.get(j);
-                long incumbentScore = objective(incumbent);
-                if (challengerScore <= incumbentScore) {
+                if (challengerScore <= selectedScores[j]) {
                     continue;
                 }
                 usedSwapTrials++;
-                if (canReplace(selected, j, challenger, dictionarySize)) {
+                CandidateItemset incumbent = selected.get(j);
+                int[] incumbentTermIds = incumbent.getTermIdsUnsafe();
+                int incumbentLen = incumbentTermIds.length;
+
+                scratch.clear();
+                scratch.or(currentSelectionBits);
+                for (int k = 0; k < incumbentLen; k++) {
+                    int termId = incumbentTermIds[k];
+                    ensureTermIdInRange(termId, bitsetSize);
+                    scratch.clear(termId);
+                }
+                boolean conflict = false;
+                for (int k = 0; k < challengerLen; k++) {
+                    int termId = challengerTermIds[k];
+                    ensureTermIdInRange(termId, bitsetSize);
+                    if (scratch.get(termId)) {
+                        conflict = true;
+                        break;
+                    }
+                }
+                if (!conflict) {
+                    for (int k = 0; k < incumbentLen; k++) {
+                        int termId = incumbentTermIds[k];
+                        ensureTermIdInRange(termId, bitsetSize);
+                        currentSelectionBits.clear(termId);
+                    }
+                    for (int k = 0; k < challengerLen; k++) {
+                        int termId = challengerTermIds[k];
+                        ensureTermIdInRange(termId, bitsetSize);
+                        currentSelectionBits.set(termId);
+                    }
                     selected.set(j, challenger);
+                    selectedScores[j] = challengerScore;
+                    selectedSet.remove(incumbent);
+                    selectedSet.add(challenger);
                     break;
                 }
             }
@@ -58,35 +126,56 @@ public final class TwoPhaseExclusiveItemsetPicker {
     }
 
     /**
-     * 判断将 {@code selected[replaceIndex]} 换成 {@code challenger} 后是否仍词级互斥。
-     *
-     * @param selected 当前解
-     * @param replaceIndex 被替换下标
-     * @param challenger 候选替换项
-     * @param dictionarySize 位图容量
+     * 与 {@link GreedyExclusiveItemsetPicker} 相同：在 {@code candidates} 上扫描最大词 id，并与 {@code dictionarySize} 取较大者作为位图容量。
      */
-    private boolean canReplace(
-            List<CandidateItemset> selected,
-            int replaceIndex,
-            CandidateItemset challenger,
-            int dictionarySize
-    ) {
-        BitSet used = new BitSet(dictionarySize);
-        for (int i = 0; i < selected.size(); i++) {
-            if (i == replaceIndex) {
-                continue;
+    private static int effectiveBitsetSize(List<CandidateItemset> candidates, int dictionarySize) {
+        int max = -1;
+        for (int ci = 0, cn = candidates.size(); ci < cn; ci++) {
+            int[] termIds = candidates.get(ci).getTermIdsUnsafe();
+            int len = termIds.length;
+            for (int i = 0; i < len; i++) {
+                int termId = termIds[i];
+                if (termId < 0) {
+                    throw new IllegalArgumentException("termId must be >= 0, got " + termId);
+                }
+                if (termId > max) {
+                    max = termId;
+                }
             }
+        }
+        return Math.max(dictionarySize, max + 1);
+    }
+
+    private static void validateCandidates(List<CandidateItemset> candidates) {
+        for (int i = 0; i < candidates.size(); i++) {
+            CandidateItemset candidate = candidates.get(i);
+            if (candidate == null) {
+                throw new IllegalArgumentException("candidates[" + i + "] must not be null");
+            }
+        }
+    }
+
+    private static void ensureTermIdInRange(int termId, int bitsetSize) {
+        if (termId < 0 || termId >= bitsetSize) {
+            throw new IllegalArgumentException(
+                    "termId out of bounds: " + termId + ", expected [0, " + bitsetSize + ")");
+        }
+    }
+
+    /** 由当前解构建“已占用 termId”位图。 */
+    private BitSet buildSelectionBitSet(List<CandidateItemset> selected, int bitsetSize) {
+        BitSet used = new BitSet(bitsetSize);
+        for (int i = 0; i < selected.size(); i++) {
             CandidateItemset c = selected.get(i);
-            for (int termId : c.getTermIds()) {
+            int[] termIds = c.getTermIdsUnsafe();
+            int len = termIds.length;
+            for (int t = 0; t < len; t++) {
+                int termId = termIds[t];
+                ensureTermIdInRange(termId, bitsetSize);
                 used.set(termId);
             }
         }
-        for (int termId : challenger.getTermIds()) {
-            if (used.get(termId)) {
-                return false;
-            }
-        }
-        return true;
+        return used;
     }
 
     /**

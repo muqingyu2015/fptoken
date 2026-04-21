@@ -1,6 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken;
 
 import cn.lxdb.plugins.muqingyu.fptoken.config.SelectorConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.index.TermTidsetIndex;
 import cn.lxdb.plugins.muqingyu.fptoken.miner.BeamFrequentItemsetMiner;
 import cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset;
@@ -34,30 +35,27 @@ import java.util.List;
  *       统计字段按「无挖掘」语义置零（{@code maxCandidateCount} 仍为本次调用入参，便于日志对齐）。</li>
  * </ul>
  *
- * <p><b>默认性能参数</b>：见本类 {@code DEFAULT_*} 常量；需要与业务 SLA 一起调优时可改常量或后续扩展配置对象。
+ * <p><b>默认性能参数</b>：见 {@link EngineTuningConfig}。下列取值面向典型流量索引场景：<b>每批约 1 万条 pcap 记录</b>、单条约 1024 字节、<b>128 字节滑动窗口</b>，
+ * 窗口内以 <b>1/2/3 字节</b> 为 item 构造 {@link DocTerms}，再在本管道中做互斥频繁项集挖掘，供检索与压缩使用。
+ * 若批次规模、步长或词表构造方式不同，请相应调大/调小常量或与 SLA 一并评估。
+ *
+ * <p><b>调用方显式参数建议</b>（无法由本类代为默认，因与批次强相关）：
+ * <ul>
+ *   <li>{@code minSupport}：按「窗口」条数（即 {@code rows.size()}）设绝对支持度。文档量约 <i>包数 × 每包窗口数</i> 时，可从窗口数的 <b>0.05%～1%</b> 试起，
+ *       再按误报/漏报调；极稀疏模式可提高下限，极稠密可降低。</li>
+ *   <li>{@code minItemsetSize}：压缩与短语质量通常从 <b>2</b> 起（跳过单 item 项集）；若只要更长模板可提到 3。</li>
+ * </ul>
  *
  * @author muqingyu
  */
 public final class ExclusiveFrequentItemsetSelector {
 
-    /** 默认最大项集长度；增大可召回更长词组，但组合与耗时上升。 */
-    private static final int DEFAULT_MAX_ITEMSET_SIZE = 6;
-    /** 默认候选项硬上限；达到后挖掘提前结束，{@link ExclusiveSelectionResult#isTruncatedByCandidateLimit()} 为 true。 */
-    private static final int DEFAULT_MAX_CANDIDATE_COUNT = 200000;
-    /** 默认参与 Beam 扩展的频繁 1-项数量上限；截断低频词以控搜索空间。 */
-    private static final int DEFAULT_MAX_FREQUENT_TERM_COUNT = 1000;
-    /** 默认每个前缀每层最多扩展的子分支数；限制单层宽度。 */
-    private static final int DEFAULT_MAX_BRANCHING_FACTOR = 16;
-    /** 默认 Beam 每层保留的前缀数；越大越准、越慢。 */
-    private static final int DEFAULT_BEAM_WIDTH = 32;
-    /** 默认两阶段挑选中 1-opt 替换的尝试次数上限。 */
-    private static final int DEFAULT_MAX_SWAP_TRIALS = 80;
-
     private ExclusiveFrequentItemsetSelector() {
     }
 
     /**
-     * 使用 {@link #DEFAULT_MAX_ITEMSET_SIZE}、{@link #DEFAULT_MAX_CANDIDATE_COUNT}，仅返回互斥词组列表。
+     * 使用 {@link EngineTuningConfig#DEFAULT_MAX_ITEMSET_SIZE}、
+     * {@link EngineTuningConfig#DEFAULT_MAX_CANDIDATE_COUNT}，仅返回互斥词组列表。
      *
      * @param rows 文档及词列表；见类注释「输入与索引约定」
      * @param minSupport 最小支持度（文档数），须为正整数
@@ -73,9 +71,22 @@ public final class ExclusiveFrequentItemsetSelector {
                 rows,
                 minSupport,
                 minItemsetSize,
-                DEFAULT_MAX_ITEMSET_SIZE,
-                DEFAULT_MAX_CANDIDATE_COUNT
+                EngineTuningConfig.DEFAULT_MAX_ITEMSET_SIZE,
+                EngineTuningConfig.DEFAULT_MAX_CANDIDATE_COUNT
         ).getGroups();
+    }
+
+    /**
+     * 可读性更友好的别名入口：语义与 {@link #selectExclusiveBestItemsets(List, int, int)} 完全一致。
+     *
+     * <p>保留原有 API 以兼容既有调用方；新调用方可优先使用此名称。
+     */
+    public static List<SelectedGroup> findMutuallyExclusivePatterns(
+            List<DocTerms> inputDocuments,
+            int minimumRequiredSupport,
+            int minimumPatternLength
+    ) {
+        return selectExclusiveBestItemsets(inputDocuments, minimumRequiredSupport, minimumPatternLength);
     }
 
     /**
@@ -100,6 +111,26 @@ public final class ExclusiveFrequentItemsetSelector {
     }
 
     /**
+     * 可读性更友好的别名入口：语义与
+     * {@link #selectExclusiveBestItemsets(List, int, int, int, int)} 完全一致。
+     */
+    public static List<SelectedGroup> findMutuallyExclusivePatterns(
+            List<DocTerms> inputDocuments,
+            int minimumRequiredSupport,
+            int minimumPatternLength,
+            int maximumPatternLength,
+            int maximumIntermediateResults
+    ) {
+        return selectExclusiveBestItemsets(
+                inputDocuments,
+                minimumRequiredSupport,
+                minimumPatternLength,
+                maximumPatternLength,
+                maximumIntermediateResults
+        );
+    }
+
+    /**
      * 使用默认 {@code maxItemsetSize}、{@code maxCandidateCount}，返回词组与完整统计。
      *
      * @param rows 文档及词列表
@@ -116,8 +147,8 @@ public final class ExclusiveFrequentItemsetSelector {
                 rows,
                 minSupport,
                 minItemsetSize,
-                DEFAULT_MAX_ITEMSET_SIZE,
-                DEFAULT_MAX_CANDIDATE_COUNT
+                EngineTuningConfig.DEFAULT_MAX_ITEMSET_SIZE,
+                EngineTuningConfig.DEFAULT_MAX_CANDIDATE_COUNT
         );
     }
 
@@ -149,20 +180,44 @@ public final class ExclusiveFrequentItemsetSelector {
                 maxCandidateCount
         );
 
-        TermTidsetIndex index = TermTidsetIndex.build(rows);
-        if (index.getIdToTerm().isEmpty()) {
+        // Phase 1: 构建 term -> tidset 的垂直索引。
+        TermTidsetIndex termIndex = TermTidsetIndex.build(rows);
+        List<byte[]> termVocabulary = termIndex.getIdToTermUnsafe();
+        if (termVocabulary.isEmpty()) {
             return emptyResult(maxCandidateCount);
         }
 
-        FrequentItemsetMiningResult miningResult = mineCandidates(index, config);
-        List<CandidateItemset> candidates = miningResult.getCandidates();
-        if (candidates.isEmpty()) {
-            return buildResult(Collections.<SelectedGroup>emptyList(), miningResult, maxCandidateCount);
+        // Phase 2: 在索引上执行近似频繁项挖掘。
+        FrequentItemsetMiningResult miningStats = mineCandidates(termIndex, config, termVocabulary.size());
+        List<CandidateItemset> minedCandidates = miningStats.getCandidates();
+        if (minedCandidates.isEmpty()) {
+            return buildResult(Collections.<SelectedGroup>emptyList(), miningStats, maxCandidateCount);
         }
 
-        List<CandidateItemset> selected = pickExclusiveCandidates(candidates, index.getIdToTerm().size());
-        List<SelectedGroup> groups = toSelectedGroups(selected, index.getIdToTerm());
-        return buildResult(groups, miningResult, maxCandidateCount);
+        // Phase 3: 在候选集上做互斥挑选，再转为对外模型。
+        List<CandidateItemset> selectedCandidates = pickExclusiveCandidates(minedCandidates, termVocabulary.size());
+        List<SelectedGroup> selectedGroups = toSelectedGroups(selectedCandidates, termVocabulary);
+        return buildResult(selectedGroups, miningStats, maxCandidateCount);
+    }
+
+    /**
+     * 可读性更友好的别名入口：语义与
+     * {@link #selectExclusiveBestItemsetsWithStats(List, int, int, int, int)} 完全一致。
+     */
+    public static ExclusiveSelectionResult findMutuallyExclusivePatternsWithStats(
+            List<DocTerms> inputDocuments,
+            int minimumRequiredSupport,
+            int minimumPatternLength,
+            int maximumPatternLength,
+            int maximumIntermediateResults
+    ) {
+        return selectExclusiveBestItemsetsWithStats(
+                inputDocuments,
+                minimumRequiredSupport,
+                minimumPatternLength,
+                maximumPatternLength,
+                maximumIntermediateResults
+        );
     }
 
     /**
@@ -172,14 +227,20 @@ public final class ExclusiveFrequentItemsetSelector {
      * @param config 支持度与长度、候选上限
      * @return 候选项与统计
      */
-    private static FrequentItemsetMiningResult mineCandidates(TermTidsetIndex index, SelectorConfig config) {
+    private static FrequentItemsetMiningResult mineCandidates(
+            TermTidsetIndex index,
+            SelectorConfig config,
+            int vocabularySize
+    ) {
         BeamFrequentItemsetMiner miner = new BeamFrequentItemsetMiner();
+        int adaptiveFrequentTermCount = adaptiveMaxFrequentTermCount(vocabularySize);
+        int adaptiveBeamWidth = adaptiveBeamWidth(vocabularySize);
         return miner.mineWithStats(
-                index.getTidsetsByTermId(),
+                index.getTidsetsByTermIdUnsafe(),
                 config,
-                DEFAULT_MAX_FREQUENT_TERM_COUNT,
-                DEFAULT_MAX_BRANCHING_FACTOR,
-                DEFAULT_BEAM_WIDTH
+                adaptiveFrequentTermCount,
+                EngineTuningConfig.DEFAULT_MAX_BRANCHING_FACTOR,
+                adaptiveBeamWidth
         );
     }
 
@@ -195,7 +256,55 @@ public final class ExclusiveFrequentItemsetSelector {
             int dictionarySize
     ) {
         TwoPhaseExclusiveItemsetPicker picker = new TwoPhaseExclusiveItemsetPicker();
-        return picker.pick(candidates, dictionarySize, DEFAULT_MAX_SWAP_TRIALS);
+        return picker.pick(candidates, dictionarySize, adaptiveMaxSwapTrials(candidates.size()));
+    }
+
+    /**
+     * 基于词汇量做分段：小词表收窄 beam，超大词表放宽 beam。
+     */
+    private static int adaptiveBeamWidth(int vocabularySize) {
+        if (vocabularySize < 500) {
+            return 24;
+        }
+        if (vocabularySize < 2000) {
+            return EngineTuningConfig.FACADE_DEFAULT_BEAM_WIDTH;
+        }
+        if (vocabularySize < 5000) {
+            return 48;
+        }
+        return 64;
+    }
+
+    /**
+     * 词汇量越大，允许参与扩展的高频词上限越高，避免过早截断。
+     */
+    private static int adaptiveMaxFrequentTermCount(int vocabularySize) {
+        if (vocabularySize < 500) {
+            return 500;
+        }
+        if (vocabularySize < 2000) {
+            return EngineTuningConfig.DEFAULT_MAX_FREQUENT_TERM_COUNT;
+        }
+        if (vocabularySize < 5000) {
+            return 2000;
+        }
+        return 3000;
+    }
+
+    /**
+     * 候选少时减少 1-opt 尝试，候选多时提高上限但保留硬上界避免拖慢整体延迟。
+     */
+    private static int adaptiveMaxSwapTrials(int candidateCount) {
+        if (candidateCount < 500) {
+            return 30;
+        }
+        if (candidateCount < 2000) {
+            return EngineTuningConfig.DEFAULT_MAX_SWAP_TRIALS;
+        }
+        if (candidateCount < 5000) {
+            return 150;
+        }
+        return Math.min(300, candidateCount / 20);
     }
 
     /** 空输入或无词时的统一返回形态，避免调用方判 null。 */
@@ -233,26 +342,40 @@ public final class ExclusiveFrequentItemsetSelector {
      * <ul>
      *   <li>词字节通过 {@link ByteArrayUtils#copy(byte[])} 拷贝，避免暴露索引内部数组引用。</li>
      *   <li>doc 列表由 {@link #bitSetToDocIds(BitSet)} 按升序 docId 输出。</li>
+     *   <li>还原词前校验 {@code termId ∈ [0, idToTerm.size())}，避免损坏的候选项触发 {@link List#get} 越界。</li>
      * </ul>
      */
     private static List<SelectedGroup> toSelectedGroups(
-            List<CandidateItemset> selected,
-            List<byte[]> idToTerm
+            List<CandidateItemset> selectedCandidates,
+            List<byte[]> termVocabulary
     ) {
-        List<SelectedGroup> out = new ArrayList<>(selected.size());
-        for (CandidateItemset candidate : selected) {
-            List<byte[]> terms = new ArrayList<>(candidate.getTermIds().length);
-            for (int termId : candidate.getTermIds()) {
-                terms.add(ByteArrayUtils.copy(idToTerm.get(termId)));
+        int vocabularySize = termVocabulary.size();
+        int selectedCount = selectedCandidates.size();
+        List<SelectedGroup> out = new ArrayList<>(selectedCount);
+        for (int selectedIndex = 0; selectedIndex < selectedCount; selectedIndex++) {
+            CandidateItemset candidate = selectedCandidates.get(selectedIndex);
+            int[] candidateTermIds = candidate.getTermIdsUnsafe();
+            List<byte[]> terms = new ArrayList<>(candidateTermIds.length);
+            for (int i = 0; i < candidateTermIds.length; i++) {
+                int termId = candidateTermIds[i];
+                assertTermIdWithinVocabulary(termId, vocabularySize);
+                terms.add(ByteArrayUtils.copy(termVocabulary.get(termId)));
             }
             out.add(new SelectedGroup(
                     terms,
-                    bitSetToDocIds(candidate.getDocBits()),
+                    bitSetToDocIds(candidate.getDocBitsUnsafe()),
                     candidate.getSupport(),
                     candidate.getEstimatedSaving()
             ));
         }
         return out;
+    }
+
+    private static void assertTermIdWithinVocabulary(int termId, int vocabularySize) {
+        if (termId < 0 || termId >= vocabularySize) {
+            throw new IllegalArgumentException(
+                    "termId out of bounds: " + termId + ", expected [0, " + vocabularySize + ")");
+        }
     }
 
     /**
@@ -263,7 +386,8 @@ public final class ExclusiveFrequentItemsetSelector {
      * @return 升序 docId 列表
      */
     private static List<Integer> bitSetToDocIds(BitSet docBits) {
-        List<Integer> out = new ArrayList<>();
+        int cardinality = docBits.cardinality();
+        List<Integer> out = new ArrayList<>(cardinality);
         for (int i = docBits.nextSetBit(0); i >= 0; i = docBits.nextSetBit(i + 1)) {
             out.add(i);
         }

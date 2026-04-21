@@ -1,6 +1,9 @@
 package cn.lxdb.plugins.muqingyu.fptoken.model;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 门面 API 的完整返回：互斥词组列表 + 挖掘/预算相关统计，便于线上日志与参数回放。
@@ -40,7 +43,7 @@ public final class ExclusiveSelectionResult {
             int maxCandidateCount,
             boolean truncatedByCandidateLimit
     ) {
-        this.groups = groups;
+        this.groups = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(groups, "groups")));
         this.frequentTermCount = frequentTermCount;
         this.candidateCount = candidateCount;
         this.intersectionCount = intersectionCount;

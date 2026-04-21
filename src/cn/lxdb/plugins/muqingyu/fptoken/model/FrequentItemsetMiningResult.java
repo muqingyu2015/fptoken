@@ -1,6 +1,9 @@
 package cn.lxdb.plugins.muqingyu.fptoken.model;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * {@link cn.lxdb.plugins.muqingyu.fptoken.miner.BeamFrequentItemsetMiner} 的输出：候选项列表与过程统计。
@@ -31,7 +34,7 @@ public final class FrequentItemsetMiningResult {
             int intersectionCount,
             boolean truncatedByCandidateLimit
     ) {
-        this.candidates = candidates;
+        this.candidates = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(candidates, "candidates")));
         this.frequentTermCount = frequentTermCount;
         this.generatedCandidateCount = generatedCandidateCount;
         this.intersectionCount = intersectionCount;

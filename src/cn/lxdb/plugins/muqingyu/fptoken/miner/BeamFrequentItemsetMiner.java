@@ -1,5 +1,6 @@
 package cn.lxdb.plugins.muqingyu.fptoken.miner;
 
+import cn.lxdb.plugins.muqingyu.fptoken.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.config.SelectorConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset;
 import cn.lxdb.plugins.muqingyu.fptoken.model.FrequentItemsetMiningResult;
@@ -40,36 +41,18 @@ public final class BeamFrequentItemsetMiner {
         int calculate(int length, int support);
     }
 
-    /** 调用方没给合法 beamWidth 时，默认用这个值。 */
-    private static final int DEFAULT_BEAM_WIDTH = 64;
-    /** depth > 2 时的 beam 收缩除数。 */
-    private static final int BEAM_WIDTH_DIVISOR_1 = 2;
-    /** depth > 4 时的 beam 收缩除数。 */
-    private static final int BEAM_WIDTH_DIVISOR_2 = 4;
-    /** BitSet 每个 word 的 bit 数。 */
-    private static final int BITS_PER_WORD = 64;
-    /** 临时 BitSet 的最小初始容量。 */
-    private static final int MIN_BITSET_CAPACITY = 64;
-    /** 超时检查间隔，避免每次循环都调用 System.nanoTime()。 */
-    private static final int TIMEOUT_CHECK_INTERVAL = 100;
-    /** 结果列表的初始容量上限，避免超大参数直接撑爆初始分配。 */
-    private static final int MAX_INITIAL_CANDIDATE_CAPACITY = 10000;
-    /** 默认评分策略：长度和支持度都高的前缀更容易保留。 */
-    private static final ScoreFunction DEFAULT_SCORE_FUNCTION =
-            (length, support) -> (length - 1) * support;
-
     private final ScoreFunction scoreFunction;
     /** 单线程场景下复用的临时位图，避免频繁分配。 */
-    private BitSet pooledScratch = new BitSet(MIN_BITSET_CAPACITY);
+    private BitSet pooledScratch = new BitSet(EngineTuningConfig.MIN_BITSET_CAPACITY);
     /** 当前 pooledScratch 的目标容量记录。 */
-    private int pooledScratchCapacityBits = MIN_BITSET_CAPACITY;
+    private int pooledScratchCapacityBits = EngineTuningConfig.MIN_BITSET_CAPACITY;
 
     public BeamFrequentItemsetMiner() {
-        this(DEFAULT_SCORE_FUNCTION);
+        this(null);
     }
 
     public BeamFrequentItemsetMiner(ScoreFunction scoreFunction) {
-        this.scoreFunction = scoreFunction != null ? scoreFunction : DEFAULT_SCORE_FUNCTION;
+        this.scoreFunction = scoreFunction != null ? scoreFunction : EngineTuningConfig::defaultScore;
     }
 
     /**
@@ -101,6 +84,19 @@ public final class BeamFrequentItemsetMiner {
     }
 
     /**
+     * 可读性更友好的别名入口；语义与 {@link #mineWithStats(List, SelectorConfig, int, int, int)} 完全一致。
+     */
+    public FrequentItemsetMiningResult mine(
+            List<BitSet> tidsetsByTermId,
+            SelectorConfig config,
+            int maxFrequentTermCount,
+            int maxBranchingFactor,
+            int beamWidth
+    ) {
+        return mineWithStats(tidsetsByTermId, config, maxFrequentTermCount, maxBranchingFactor, beamWidth);
+    }
+
+    /**
      * 带早停策略的挖掘入口：
      * <ul>
      *   <li>maxIdleLevels：连续多少层没有新候选就停止（{@code <= 0} 表示关闭）。</li>
@@ -119,22 +115,23 @@ public final class BeamFrequentItemsetMiner {
         if (tidsetsByTermId == null || tidsetsByTermId.isEmpty()) {
             return result(Collections.<CandidateItemset>emptyList(), 0, 0, 0, false);
         }
+        validateMiningInputs(tidsetsByTermId, config);
         // 先把每个单词的支持度缓存下来，后面排序时不用重复算。
         int[] supportsByTermId = new int[tidsetsByTermId.size()];
         int[] tidsetWordsByTermId = collectTidsetWordSizes(tidsetsByTermId);
-        List<Integer> frequentTermIds = collectFrequentTermIds(
+        int[] frequentTermIdsArray = resolveFrequentTermIds(
                 tidsetsByTermId,
                 config.getMinSupport(),
                 supportsByTermId,
                 maxFrequentTermCount
         );
-        if (frequentTermIds.isEmpty()) {
+        if (frequentTermIdsArray.length == 0) {
             return result(Collections.<CandidateItemset>emptyList(), 0, 0, 0, false);
         }
 
-        int safeBeamWidth = beamWidth > 0 ? beamWidth : DEFAULT_BEAM_WIDTH;
+        int safeBeamWidth = beamWidth > 0 ? beamWidth : EngineTuningConfig.MINER_FALLBACK_BEAM_WIDTH;
         MiningState miningState = new MiningState(new ArrayList<>(
-                Math.min(config.getMaxCandidateCount(), MAX_INITIAL_CANDIDATE_CAPACITY)
+                Math.min(config.getMaxCandidateCount(), EngineTuningConfig.MAX_INITIAL_CANDIDATE_CAPACITY)
         ));
         int scratchBitSize = estimateScratchBitSize(tidsetsByTermId);
         long deadlineNanos = maxRuntimeMillis > 0
@@ -142,7 +139,7 @@ public final class BeamFrequentItemsetMiner {
                 : 0L;
 
         List<PrefixState> currentLevel = performFirstLevelExpansion(
-                frequentTermIds,
+                frequentTermIdsArray,
                 tidsetsByTermId,
                 supportsByTermId,
                 tidsetWordsByTermId,
@@ -150,7 +147,7 @@ public final class BeamFrequentItemsetMiner {
                 miningState
         );
         if (miningState.truncatedByCandidateLimit) {
-            return toResult(miningState, frequentTermIds.size());
+            return toResult(miningState, frequentTermIdsArray.length);
         }
         // 先做一次 beam 截断，只保留头部前缀，避免后续扩展爆炸。
         currentLevel = topK(currentLevel, safeBeamWidth);
@@ -160,43 +157,94 @@ public final class BeamFrequentItemsetMiner {
             if (isTimedOut(deadlineNanos) || currentLevel.isEmpty()) {
                 break;
             }
+            int adaptiveWidth = adaptiveBeamWidth(depth, safeBeamWidth);
             LevelExpansionResult expansionResult = expandLevel(
                     currentLevel,
-                    frequentTermIds,
+                    frequentTermIdsArray,
                     tidsetsByTermId,
                     supportsByTermId,
                     tidsetWordsByTermId,
                     config,
                     maxBranchingFactor,
                     safeBeamWidth,
+                    adaptiveWidth,
                     scratchBitSize,
                     deadlineNanos,
                     miningState
             );
             if (miningState.truncatedByCandidateLimit) {
-                return toResult(miningState, frequentTermIds.size());
+                return toResult(miningState, frequentTermIdsArray.length);
             }
-            int adaptiveWidth = adaptiveBeamWidth(depth, safeBeamWidth);
-            currentLevel = topK(expansionResult.nextLevel, adaptiveWidth);
+            currentLevel = expansionResult.nextLevel;
             if (shouldStopAfterLevel(expansionResult, maxIdleLevels, miningState)) {
                 break;
             }
         }
 
-        return toResult(miningState, frequentTermIds.size());
+        return toResult(miningState, frequentTermIdsArray.length);
+    }
+
+    /**
+     * 可读性更友好的别名入口；语义与
+     * {@link #mineWithStats(List, SelectorConfig, int, int, int, int, long)} 完全一致。
+     */
+    public FrequentItemsetMiningResult mine(
+            List<BitSet> tidsetsByTermId,
+            SelectorConfig config,
+            int maxFrequentTermCount,
+            int maxBranchingFactor,
+            int beamWidth,
+            int maxIdleLevels,
+            long maxRuntimeMillis
+    ) {
+        return mineWithStats(
+                tidsetsByTermId,
+                config,
+                maxFrequentTermCount,
+                maxBranchingFactor,
+                beamWidth,
+                maxIdleLevels,
+                maxRuntimeMillis
+        );
+    }
+
+    private void validateMiningInputs(List<BitSet> tidsetsByTermId, SelectorConfig config) {
+        if (config == null) {
+            throw new IllegalArgumentException("config must not be null");
+        }
+        for (int i = 0; i < tidsetsByTermId.size(); i++) {
+            if (tidsetsByTermId.get(i) == null) {
+                throw new IllegalArgumentException("tidsetsByTermId[" + i + "] must not be null");
+            }
+        }
+    }
+
+    private int[] resolveFrequentTermIds(
+            List<BitSet> tidsetsByTermId,
+            int minSupport,
+            int[] supportsByTermId,
+            int maxFrequentTermCount
+    ) {
+        List<Integer> frequentTermIds = collectFrequentTermIds(
+                tidsetsByTermId,
+                minSupport,
+                supportsByTermId,
+                maxFrequentTermCount
+        );
+        return toIntArray(frequentTermIds);
     }
 
     /** 第 1 层扩展：构造 1-项前缀；若允许 1-项集则直接写入候选。 */
     private List<PrefixState> performFirstLevelExpansion(
-            List<Integer> frequentTermIds,
+            int[] frequentTermIds,
             List<BitSet> tidsetsByTermId,
             int[] supportsByTermId,
             int[] tidsetWordsByTermId,
             SelectorConfig config,
             MiningState miningState
     ) {
-        List<PrefixState> currentLevel = new ArrayList<>(frequentTermIds.size());
-        for (int i = 0; i < frequentTermIds.size(); i++) {
+        List<PrefixState> currentLevel = new ArrayList<>(frequentTermIds.length);
+        for (int i = 0; i < frequentTermIds.length; i++) {
             PrefixState state = singleTermPrefix(
                     i,
                     frequentTermIds,
@@ -216,13 +264,14 @@ public final class BeamFrequentItemsetMiner {
     /** 扩展一层前缀并返回下一层。 */
     private LevelExpansionResult expandLevel(
             List<PrefixState> currentLevel,
-            List<Integer> frequentTermIds,
+            int[] frequentTermIds,
             List<BitSet> tidsetsByTermId,
             int[] supportsByTermId,
             int[] tidsetWordsByTermId,
             SelectorConfig config,
             int maxBranchingFactor,
             int beamWidth,
+            int nextLevelWidth,
             int scratchBitSize,
             long deadlineNanos,
             MiningState miningState
@@ -233,17 +282,17 @@ public final class BeamFrequentItemsetMiner {
         if (isTimedOut(deadlineNanos)) {
             return new LevelExpansionResult(Collections.<PrefixState>emptyList(), 0, true);
         }
-        List<PrefixState> nextLevel = new ArrayList<>();
+        PriorityQueue<PrefixState> nextLevelHeap = createNextLevelHeap(nextLevelWidth);
         int discoveredThisLevel = 0;
         BitSet intersectionScratch = getScratchBitSet(scratchBitSize);
-        PriorityQueue<Integer> topChildScores = beamWidth > 0
-                ? new PriorityQueue<>(beamWidth)
+        IntMinHeap topChildScores = beamWidth > 0
+                ? new IntMinHeap(beamWidth)
                 : null;
         boolean timedOut = false;
         int timeoutCheckCounter = 0;
 
         for (PrefixState prefix : currentLevel) {
-            int remainingTerms = frequentTermIds.size() - (prefix.lastPosition + 1);
+            int remainingTerms = frequentTermIds.length - (prefix.lastPosition + 1);
             // 即使把后续词都加上，也达不到最小项集长度，提前跳过这个前缀。
             if (prefix.length + remainingTerms < config.getMinItemsetSize()) {
                 continue;
@@ -254,15 +303,15 @@ public final class BeamFrequentItemsetMiner {
                 continue;
             }
             int expandedChildren = 0;
-            for (int nextPos = prefix.lastPosition + 1; nextPos < frequentTermIds.size(); nextPos++) {
-                if ((++timeoutCheckCounter % TIMEOUT_CHECK_INTERVAL) == 0 && isTimedOut(deadlineNanos)) {
+            for (int nextPos = prefix.lastPosition + 1; nextPos < frequentTermIds.length; nextPos++) {
+                if ((++timeoutCheckCounter % EngineTuningConfig.TIMEOUT_CHECK_INTERVAL) == 0 && isTimedOut(deadlineNanos)) {
                     timedOut = true;
                     break;
                 }
                 if (maxBranchingFactor > 0 && expandedChildren >= maxBranchingFactor) {
                     break;
                 }
-                int termId = frequentTermIds.get(nextPos).intValue();
+                int termId = frequentTermIds[nextPos];
                 // 支持度上界剪枝：交集支持度不可能超过两侧支持度较小者。
                 int termSupport = supportsByTermId[termId];
                 int upperBound = prefix.upperBoundWith(termSupport);
@@ -305,20 +354,20 @@ public final class BeamFrequentItemsetMiner {
                         childScore,
                         bitSetWordSize(nextTidset)
                 );
-                nextLevel.add(child);
+                addToNextLevelHeap(nextLevelHeap, nextLevelWidth, child);
                 discoveredThisLevel++;
                 updateTopChildScores(topChildScores, beamWidth, childScore);
 
                 if (nextLen >= config.getMinItemsetSize()
                         && appendCandidate(materializeTermIds(child), nextTidset, support, config, miningState)) {
-                    return new LevelExpansionResult(nextLevel, discoveredThisLevel, timedOut);
+                    return new LevelExpansionResult(toSortedList(nextLevelHeap), discoveredThisLevel, timedOut);
                 }
             }
             if (timedOut) {
                 break;
             }
         }
-        return new LevelExpansionResult(nextLevel, discoveredThisLevel, timedOut);
+        return new LevelExpansionResult(toSortedList(nextLevelHeap), discoveredThisLevel, timedOut);
     }
 
     /** 估算 scratch BitSet 初始容量，减少交集过程中 BitSet 内部扩容。 */
@@ -330,7 +379,7 @@ public final class BeamFrequentItemsetMiner {
                 maxLength = len;
             }
         }
-        return Math.max(MIN_BITSET_CAPACITY, maxLength);
+        return Math.max(EngineTuningConfig.MIN_BITSET_CAPACITY, maxLength);
     }
 
     /** 统计每个 term 位图实际占用的 word 数。 */
@@ -345,46 +394,46 @@ public final class BeamFrequentItemsetMiner {
     /** 估算 BitSet 当前有效 word 数（每个 word = 64 bits）。 */
     private int bitSetWordSize(BitSet bitSet) {
         int length = bitSet.length();
-        return length <= 0 ? 0 : ((length - 1) / BITS_PER_WORD) + 1;
+        return length <= 0 ? 0 : ((length - 1) / EngineTuningConfig.BITS_PER_WORD) + 1;
     }
 
     /** 若前缀可达到的最高 child 分数都低于当前 topK 门槛，则可安全剪枝。 */
     private boolean canPrunePrefixByScore(
-            PriorityQueue<Integer> topChildScores,
+            IntMinHeap topChildScores,
             int beamWidth,
             int optimisticChildScore
     ) {
         if (beamWidth <= 0 || topChildScores == null || topChildScores.size() < beamWidth) {
             return false;
         }
-        return optimisticChildScore < topChildScores.peek().intValue();
+        return optimisticChildScore < topChildScores.peek();
     }
 
     /** 若 child 分数已低于当前 topK 门槛，则不再创建 child 对象。 */
     private boolean canPruneChildByScore(
-            PriorityQueue<Integer> topChildScores,
+            IntMinHeap topChildScores,
             int beamWidth,
             int childScore
     ) {
         if (beamWidth <= 0 || topChildScores == null || topChildScores.size() < beamWidth) {
             return false;
         }
-        return childScore < topChildScores.peek().intValue();
+        return childScore < topChildScores.peek();
     }
 
     /** 维护“当前已发现 child 分数”的 topK 最小堆，堆顶即当前门槛分。 */
-    private void updateTopChildScores(PriorityQueue<Integer> topChildScores, int beamWidth, int childScore) {
+    private void updateTopChildScores(IntMinHeap topChildScores, int beamWidth, int childScore) {
         if (beamWidth <= 0 || topChildScores == null) {
             return;
         }
         if (topChildScores.size() < beamWidth) {
-            topChildScores.offer(childScore);
+            topChildScores.add(childScore);
             return;
         }
-        int threshold = topChildScores.peek().intValue();
+        int threshold = topChildScores.peek();
         if (childScore > threshold) {
             topChildScores.poll();
-            topChildScores.offer(childScore);
+            topChildScores.add(childScore);
         }
     }
 
@@ -434,7 +483,7 @@ public final class BeamFrequentItemsetMiner {
             miningState.truncatedByCandidateLimit = true;
             return true;
         }
-        miningState.out.add(new CandidateItemset(termIds, tidset, support));
+        miningState.out.add(CandidateItemset.trusted(termIds, tidset, support));
         miningState.generatedCandidateCount++;
         if (miningState.out.size() >= config.getMaxCandidateCount()) {
             miningState.truncatedByCandidateLimit = true;
@@ -477,12 +526,12 @@ public final class BeamFrequentItemsetMiner {
      */
     private PrefixState singleTermPrefix(
             int frequentTermIndex,
-            List<Integer> frequentTermIds,
+            int[] frequentTermIds,
             List<BitSet> tidsetsByTermId,
             int[] supportsByTermId,
             int[] tidsetWordsByTermId
     ) {
-        int termId = frequentTermIds.get(frequentTermIndex).intValue();
+        int termId = frequentTermIds[frequentTermIndex];
         BitSet tidset = (BitSet) tidsetsByTermId.get(termId).clone();
         int support = supportsByTermId[termId];
         return new PrefixState(
@@ -552,6 +601,14 @@ public final class BeamFrequentItemsetMiner {
         return out;
     }
 
+    private int[] toIntArray(List<Integer> ints) {
+        int[] out = new int[ints.size()];
+        for (int i = 0; i < ints.size(); i++) {
+            out[i] = ints.get(i).intValue();
+        }
+        return out;
+    }
+
     /**
      * 在一层候选前缀里做 Top-K。
      * 这里用固定大小的最小堆，不再全量排序，复杂度从 O(NlogN) 降到 O(NlogK)。
@@ -599,6 +656,41 @@ public final class BeamFrequentItemsetMiner {
         return Integer.compare(a.lastPosition, b.lastPosition);
     }
 
+    /** 创建下一层 bounded topK 堆（堆顶是当前最差前缀）。 */
+    private PriorityQueue<PrefixState> createNextLevelHeap(int width) {
+        if (width <= 0) {
+            return new PriorityQueue<>(1, (a, b) -> comparePrefixBest(b, a));
+        }
+        return new PriorityQueue<>(width, (a, b) -> comparePrefixBest(b, a));
+    }
+
+    /** 将 child 放入 bounded topK 堆，超限时淘汰最差元素。 */
+    private void addToNextLevelHeap(PriorityQueue<PrefixState> heap, int width, PrefixState child) {
+        if (width <= 0) {
+            return;
+        }
+        if (heap.size() < width) {
+            heap.offer(child);
+            return;
+        }
+        PrefixState worst = heap.peek();
+        if (worst != null && comparePrefixBest(child, worst) >= 0) {
+            return;
+        }
+        heap.poll();
+        heap.offer(child);
+    }
+
+    /** 将 bounded heap 结果转成“最好优先”的有序列表。 */
+    private List<PrefixState> toSortedList(PriorityQueue<PrefixState> heap) {
+        if (heap == null || heap.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<PrefixState> out = new ArrayList<>(heap);
+        Collections.sort(out, (a, b) -> comparePrefixBest(a, b));
+        return out;
+    }
+
     /** 统一比较规则：支持度高的更好；同支持度时 termId 小的更好。 */
     private int compareTermBest(int termA, int termB, int[] supportsByTermId) {
         int supportCompare = Integer.compare(supportsByTermId[termB], supportsByTermId[termA]);
@@ -610,7 +702,7 @@ public final class BeamFrequentItemsetMiner {
 
     /** 将链式前缀状态还原成对外使用的 termId 数组。 */
     private int[] materializeTermIds(PrefixState state) {
-        return state.getTermIds();
+        return state.getTermIdsUnsafe();
     }
 
     /**
@@ -624,7 +716,7 @@ public final class BeamFrequentItemsetMiner {
     /** 自适应 beam 宽度：层越深保留越少，降低深层搜索开销。 */
     private int adaptiveBeamWidth(int depth, int baseBeamWidth) {
         if (baseBeamWidth <= 0) {
-            return DEFAULT_BEAM_WIDTH;
+            return EngineTuningConfig.MINER_FALLBACK_BEAM_WIDTH;
         }
         if (baseBeamWidth == 1) {
             return 1;
@@ -633,9 +725,9 @@ public final class BeamFrequentItemsetMiner {
             return baseBeamWidth;
         }
         if (depth <= 4) {
-            return Math.max(1, baseBeamWidth / BEAM_WIDTH_DIVISOR_1);
+            return Math.max(1, baseBeamWidth / EngineTuningConfig.BEAM_WIDTH_DIVISOR_1);
         }
-        return Math.max(1, baseBeamWidth / BEAM_WIDTH_DIVISOR_2);
+        return Math.max(1, baseBeamWidth / EngineTuningConfig.BEAM_WIDTH_DIVISOR_2);
     }
 
     /**
@@ -689,12 +781,12 @@ public final class BeamFrequentItemsetMiner {
             return Math.min(support, termSupport);
         }
 
-        /** 获取完整 termIds；首次按链表物化并缓存，后续返回副本。 */
-        private int[] getTermIds() {
+        /** 获取完整 termIds；首次按链表物化并缓存，后续复用同一只读数组。 */
+        private int[] getTermIdsUnsafe() {
             if (cachedTermIds == null) {
                 cachedTermIds = materializeFromChain();
             }
-            return cachedTermIds.clone();
+            return cachedTermIds;
         }
 
         /** 将链式路径还原成完整 termIds。 */
@@ -719,6 +811,69 @@ public final class BeamFrequentItemsetMiner {
             this.nextLevel = nextLevel;
             this.discoveredCount = discoveredCount;
             this.timedOut = timedOut;
+        }
+    }
+
+    /** 扩展层局部 topK 分数的轻量最小堆，避免 Integer 装箱。 */
+    private static final class IntMinHeap {
+        private final int[] heap;
+        private int size;
+
+        private IntMinHeap(int capacity) {
+            this.heap = new int[Math.max(1, capacity)];
+        }
+
+        private int size() {
+            return size;
+        }
+
+        private int peek() {
+            return heap[0];
+        }
+
+        private void add(int value) {
+            heap[size] = value;
+            siftUp(size);
+            size++;
+        }
+
+        private int poll() {
+            int out = heap[0];
+            size--;
+            heap[0] = heap[size];
+            siftDown(0);
+            return out;
+        }
+
+        private void siftUp(int idx) {
+            while (idx > 0) {
+                int p = (idx - 1) >>> 1;
+                if (heap[p] <= heap[idx]) {
+                    break;
+                }
+                int t = heap[p];
+                heap[p] = heap[idx];
+                heap[idx] = t;
+                idx = p;
+            }
+        }
+
+        private void siftDown(int idx) {
+            while (true) {
+                int l = (idx << 1) + 1;
+                if (l >= size) {
+                    return;
+                }
+                int r = l + 1;
+                int s = (r < size && heap[r] < heap[l]) ? r : l;
+                if (heap[idx] <= heap[s]) {
+                    return;
+                }
+                int t = heap[idx];
+                heap[idx] = heap[s];
+                heap[s] = t;
+                idx = s;
+            }
         }
     }
 

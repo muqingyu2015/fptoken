@@ -1,7 +1,10 @@
 package cn.lxdb.plugins.muqingyu.fptoken.model;
 
 import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayUtils;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 对外输出的一条互斥词组：词字节列表、命中文档 id、支持度与启发式节省值。
@@ -23,18 +26,28 @@ public final class SelectedGroup {
      * @param estimatedSaving 与 {@link CandidateItemset#getEstimatedSaving()} 一致含义
      */
     public SelectedGroup(List<byte[]> terms, List<Integer> docIds, int support, int estimatedSaving) {
-        this.terms = terms;
-        this.docIds = docIds;
+        Objects.requireNonNull(terms, "terms");
+        Objects.requireNonNull(docIds, "docIds");
+        List<byte[]> copiedTerms = new ArrayList<>(terms.size());
+        for (byte[] t : terms) {
+            copiedTerms.add(ByteArrayUtils.copy(Objects.requireNonNull(t, "term")));
+        }
+        this.terms = Collections.unmodifiableList(copiedTerms);
+        this.docIds = Collections.unmodifiableList(new ArrayList<>(docIds));
         this.support = support;
         this.estimatedSaving = estimatedSaving;
     }
 
     public List<byte[]> getTerms() {
-        return terms;
+        List<byte[]> out = new ArrayList<>(terms.size());
+        for (byte[] t : terms) {
+            out.add(ByteArrayUtils.copy(t));
+        }
+        return out;
     }
 
     public List<Integer> getDocIds() {
-        return docIds;
+        return new ArrayList<>(docIds);
     }
 
     public int getSupport() {
