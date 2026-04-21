@@ -25,9 +25,18 @@ public final class CandidateItemset {
      * @param docBits 非 null；与 {@code termIds} 的语义交集一致
      */
     public CandidateItemset(int[] termIds, BitSet docBits) {
+        this(termIds, docBits, docBits.cardinality());
+    }
+
+    /**
+     * @param termIds 非 null；长度至少为 1
+     * @param docBits 非 null；与 {@code termIds} 的语义交集一致
+     * @param support 预先算好的支持度，避免重复 cardinality()
+     */
+    public CandidateItemset(int[] termIds, BitSet docBits, int support) {
         this.termIds = termIds;
         this.docBits = docBits;
-        this.support = docBits.cardinality();
+        this.support = support;
         this.estimatedSaving = Math.max(0, (termIds.length - 1) * support);
     }
 
