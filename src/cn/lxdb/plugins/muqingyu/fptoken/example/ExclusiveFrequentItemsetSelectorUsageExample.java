@@ -4,7 +4,6 @@ import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
 import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.model.SelectedGroup;
-import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayUtils;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -31,8 +30,41 @@ import java.util.List;
 public final class ExclusiveFrequentItemsetSelectorUsageExample {
 
     public static void main(String[] args) {
+        runSamplingTuningExample();
         runBasicExample();
         runPcapLikeExample();
+    }
+
+    /**
+     * 采样参数设置示例：
+     * <ul>
+     *   <li>代码内直接设置采样开关 / 比例 / 最小样本数 / support 缩放。</li>
+     * </ul>
+     */
+    private static void runSamplingTuningExample() {
+        double oldRatio = ExclusiveFrequentItemsetSelector.getSampleRatio();
+        int oldMinSample = ExclusiveFrequentItemsetSelector.getMinSampleCount();
+        double oldScale = ExclusiveFrequentItemsetSelector.getSamplingSupportScale();
+        try {
+            ExclusiveFrequentItemsetSelector.setSamplingEnabled(true);
+            ExclusiveFrequentItemsetSelector.setSampleRatio(0.30d);
+            ExclusiveFrequentItemsetSelector.setMinSampleCount(50);
+            // 0.0 表示按实际样本占比自动缩放 minSupport
+            ExclusiveFrequentItemsetSelector.setSamplingSupportScale(0.0d);
+
+            List<DocTerms> rows = buildSamplingDemoRows(320);
+            ExclusiveSelectionResult result =
+                    ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
+                            rows, 40, 2, 4, 100_000);
+            printResult("示例0：采样参数设置与调用", result.getGroups());
+            printStats(result);
+        } finally {
+            // 示例结束后恢复，避免影响其他调用。
+            ExclusiveFrequentItemsetSelector.setSampleRatio(oldRatio);
+            ExclusiveFrequentItemsetSelector.setMinSampleCount(oldMinSample);
+            ExclusiveFrequentItemsetSelector.setSamplingSupportScale(oldScale);
+            ExclusiveFrequentItemsetSelector.setSamplingEnabled(true);
+        }
     }
 
     /**
@@ -196,5 +228,25 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
         System.arraycopy(h, 0, out, 0, h.length);
         System.arraycopy(tail, 0, out, h.length, tail.length);
         return out;
+    }
+
+    private static List<DocTerms> buildSamplingDemoRows(int docCount) {
+        List<DocTerms> rows = new ArrayList<>(docCount);
+        for (int i = 0; i < docCount; i++) {
+            List<byte[]> terms = new ArrayList<>();
+            terms.add("coreA".getBytes());
+            terms.add("coreB".getBytes());
+            if (i % 2 == 0) {
+                terms.add("even".getBytes());
+            }
+            if (i % 3 == 0) {
+                terms.add("mod3".getBytes());
+            }
+            if (i % 5 == 0) {
+                terms.add("mod5".getBytes());
+            }
+            rows.add(new DocTerms(i, terms));
+        }
+        return rows;
     }
 }

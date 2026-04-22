@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fptoken 项目介绍 PPT</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: #111936;
+      --card2: #0f1730;
+      --line: #283253;
+      --text: #e5ecff;
+      --sub: #a8b6de;
+      --pri: #7aa2ff;
+      --ok: #4ade80;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 20% 0%, #15224a 0%, var(--bg) 45%, #070b18 100%);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      line-height: 1.7;
+    }
+    .deck {
+      width: min(1200px, 92vw);
+      margin: 20px auto 30px;
+      display: grid;
+      gap: 16px;
+    }
+    .slide {
+      background: linear-gradient(160deg, var(--card) 0%, var(--card2) 100%);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 22px 24px;
+      min-height: 78vh;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    h1, h2, h3 {
+      margin: 0 0 12px;
+      line-height: 1.35;
+    }
+    h1 { font-size: clamp(34px, 5vw, 52px); color: #cfe0ff; }
+    h2 { font-size: clamp(26px, 3.4vw, 36px); color: #c0d4ff; }
+    h3 { font-size: 20px; color: #bfd1ff; margin-top: 6px; }
+    p { margin: 8px 0; font-size: clamp(16px, 2vw, 19px); color: var(--sub); }
+    ul { margin: 8px 0 0 24px; padding: 0; }
+    li { margin: 8px 0; font-size: clamp(16px, 2vw, 20px); color: #d4def8; }
+    .k {
+      color: var(--pri);
+      font-weight: 700;
+    }
+    .tag {
+      display: inline-block;
+      margin-right: 8px;
+      margin-top: 6px;
+      padding: 3px 10px;
+      border: 1px solid #4860a8;
+      border-radius: 999px;
+      color: #d4e1ff;
+      background: #1a2752;
+      font-size: 13px;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 10px;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .flow {
+      margin-top: 10px;
+      border: 1px dashed #4e639e;
+      border-radius: 12px;
+      padding: 14px;
+      font-size: clamp(15px, 1.7vw, 19px);
+      color: #d4def8;
+      word-break: break-word;
+    }
+    .ok { color: var(--ok); font-weight: 700; }
+    .warn { color: var(--warn); font-weight: 700; }
+    .foot {
+      margin-top: auto;
+      color: #8ea3d8;
+      font-size: 13px;
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+    }
+    @media (max-width: 900px) {
+      .slide { min-height: auto; }
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck">
+    <section class="slide">
+      <h1>fptoken 项目介绍</h1>
+      <p>高频模式挖掘与互斥选择引擎（面向字节词项 / DocID 倒排场景）</p>
+      <div>
+        <span class="tag">Eclipse Project</span>
+        <span class="tag">Frequent Itemset</span>
+        <span class="tag">Sampling + Full Recompute</span>
+        <span class="tag">447 tests / 0 failed</span>
+      </div>
+      <div class="foot">版本日期：2026-04-22</div>
+    </section>
+
+    <section class="slide">
+      <h2>1. 解决什么问题</h2>
+      <ul>
+        <li>在大量文档中识别 <span class="k">高频共现词组</span>（频繁项集）。</li>
+        <li>从候选中挑选 <span class="k">互斥且收益高</span> 的组合，避免重叠冗余。</li>
+        <li>在保证质量前提下，通过采样与剪枝降低计算成本。</li>
+      </ul>
+      <div class="grid-2">
+        <div class="panel">
+          <h3>输入</h3>
+          <p><span class="k">List&lt;DocTerms&gt;</span>：每条记录是 <span class="k">docId + terms(byte[])</span></p>
+        </div>
+        <div class="panel">
+          <h3>输出</h3>
+          <p><span class="k">ExclusiveSelectionResult</span>：互斥词组、support、docIds、统计信息</p>
+        </div>
+      </div>
+      <div class="foot">核心入口：`ExclusiveFrequentItemsetSelector`</div>
+    </section>
+
+    <section class="slide">
+      <h2>2. 总体架构</h2>
+      <div class="flow">
+        Rows → TermTidsetIndex.buildWithSupportBounds
+        → (Sampling Gate: 可选) Sample Mask + scaled minSupport
+        → BeamFrequentItemsetMiner（候选挖掘）
+        → Full Tidset Recompute（全量回算）
+        → GreedyExclusiveItemsetPicker（互斥筛选）
+        → SelectedGroup + Stats
+      </div>
+      <ul>
+        <li><span class="k">两阶段索引</span>：先按支持度过滤，再构建位图，减少内存与交集次数。</li>
+        <li><span class="k">抽样策略</span>：只在合适规模下启用，最终通过全量回算保证正确性。</li>
+        <li><span class="k">互斥挑选</span>：优先长项集和收益，且保证词项不冲突。</li>
+      </ul>
+      <div class="foot">关键模块：index / miner / picker 三层解耦</div>
+    </section>
+
+    <section class="slide">
+      <h2>3. 抽样机制（重点）</h2>
+      <div class="grid-2">
+        <div class="panel">
+          <h3>配置项</h3>
+          <ul>
+            <li><span class="k">setSampleRatio(double)</span></li>
+            <li><span class="k">setMinSampleCount(int)</span></li>
+            <li><span class="k">setSamplingSupportScale(double)</span></li>
+          </ul>
+          <p>方式：<span class="k">在业务代码启动阶段直接设置</span></p>
+        </div>
+        <div class="panel">
+          <h3>绕过条件</h3>
+          <ul>
+            <li><span class="k">sampleRatio &lt;= 0</span></li>
+            <li><span class="k">minSupport &lt;= 1</span></li>
+            <li><span class="k">docCount &lt; 200</span></li>
+            <li><span class="k">sampleSize &gt;= docCount</span></li>
+          </ul>
+        </div>
+      </div>
+      <ul>
+        <li>抽样使用固定随机种子，结果可复现。</li>
+        <li>采样结果会做 <span class="k">全量回算</span>，避免虚假支持度。</li>
+      </ul>
+      <div class="foot">入口类包含 `setSampleRatio/setMinSampleCount/setSamplingSupportScale`</div>
+    </section>
+
+    <section class="slide">
+      <h2>4. 当前质量与测试覆盖</h2>
+      <ul>
+        <li class="ok">全量默认测试：447 found / 294 started / 294 passed / 0 failed</li>
+        <li>新增抽样专项：ratio=0、ratio=1、小样本绕过、minSupport=1 绕过、采样确定性。</li>
+        <li>集成质量对比：采样路径保留主高频模式，覆盖率下降受控。</li>
+      </ul>
+      <div class="grid-2">
+        <div class="panel">
+          <h3>稳定性修复</h3>
+          <p>并发路径改为 ThreadLocal scratch，避免共享 BitSet 引发越界。</p>
+        </div>
+        <div class="panel">
+          <h3>性能优化</h3>
+          <p>OpenHashTable 增加 termId→key O(1) 查找，降低回查成本。</p>
+        </div>
+      </div>
+      <div class="foot">测试入口：`scripts/run-fptoken-tests.ps1`</div>
+    </section>
+
+    <section class="slide">
+      <h2>5. 如何使用（最简版）</h2>
+      <div class="panel">
+        <p>1) 准备 `List&lt;DocTerms&gt;`，每条包含 `docId` 与词项字节数组。</p>
+        <p>2) 设置参数：`minSupport`、`minItemsetSize`，可选 `maxItemsetSize/maxCandidateCount`。</p>
+        <p>3) 调用：`selectExclusiveBestItemsetsWithStats(...)`。</p>
+        <p>4) 读取 `groups + stats`，用于压缩、规则发现或后续策略。</p>
+      </div>
+      <ul>
+        <li>示例代码：`example/ExclusiveFrequentItemsetSelectorUsageExample`（已含 sample 设置示例）。</li>
+        <li>文档入口：`docs/index.html`。</li>
+      </ul>
+      <div class="foot">建议：生产环境统一字节编码（如 UTF-8）并固定参数快照</div>
+    </section>
+
+    <section class="slide">
+      <h2>6. 后续演进建议</h2>
+      <ul>
+        <li>增加运行时观测：输出“是否走采样路径 + sampleSize + observedRatio”。</li>
+        <li>补充自动参数建议器：按数据规模推荐 ratio/minSupport 区间。</li>
+        <li>增强文档化：把质量门槛（覆盖率下限）沉淀为标准验收项。</li>
+        <li class="warn">坚持单线程优化优先，避免过早引入复杂并发模型。</li>
+      </ul>
+      <p>谢谢。</p>
+      <div class="foot">fptoken intro deck · intro.html</div>
+    </section>
+  </main>
+</body>
+</html>

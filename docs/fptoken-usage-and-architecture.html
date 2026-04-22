@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FPToken 设计原理与使用指南</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #1f2937;
+      --sub: #4b5563;
+      --line: #e5e7eb;
+      --pri: #1d4ed8;
+      --ok: #065f46;
+      --warn: #9a3412;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      line-height: 1.75;
+    }
+    .wrap {
+      max-width: 1000px;
+      margin: 26px auto;
+      padding: 0 14px 40px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 20px 22px;
+      margin-bottom: 14px;
+    }
+    h1, h2, h3 { margin: 0 0 10px; line-height: 1.4; }
+    h1 { color: var(--pri); font-size: 28px; }
+    h2 { color: #0f3f95; font-size: 22px; margin-top: 4px; }
+    h3 { font-size: 17px; margin-top: 8px; }
+    p { margin: 8px 0; }
+    ul, ol { margin: 8px 0 8px 22px; }
+    li { margin: 4px 0; }
+    .meta { color: var(--sub); font-size: 14px; }
+    .tag {
+      display: inline-block;
+      padding: 3px 10px;
+      margin-right: 6px;
+      margin-top: 6px;
+      font-size: 12px;
+      border-radius: 999px;
+      border: 1px solid #bfdbfe;
+      color: #1e40af;
+      background: #dbeafe;
+    }
+    .note {
+      border-left: 4px solid var(--pri);
+      background: #eff6ff;
+      border-radius: 8px;
+      padding: 9px 11px;
+      margin: 10px 0;
+    }
+    .note.ok { border-left-color: var(--ok); background: #ecfdf5; }
+    .note.warn { border-left-color: var(--warn); background: #fff7ed; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 9px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #f3f4f6; }
+    code, pre {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13px;
+    }
+    code {
+      background: #f3f4f6;
+      border-radius: 4px;
+      padding: 1px 6px;
+    }
+    pre {
+      margin: 10px 0;
+      background: #0b1020;
+      color: #e5e7eb;
+      border-radius: 8px;
+      padding: 12px;
+      overflow: auto;
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(100px, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+      align-items: center;
+    }
+    .box {
+      border: 1px solid #c7d2fe;
+      background: #eef2ff;
+      color: #1e3a8a;
+      border-radius: 10px;
+      text-align: center;
+      padding: 10px 8px;
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .arrow {
+      text-align: center;
+      color: #475569;
+      font-size: 18px;
+      font-weight: bold;
+    }
+    .step-list li b { color: #0f3f95; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card" style="border-color:#bfdbfe;background:#eff6ff;">
+      <h2 style="margin-bottom:6px;color:#1e3a8a;">2026 全量更新说明</h2>
+      <p style="margin:0;color:#1e3a8a;">本页已对齐当前代码和测试：采样配置文件生效、两阶段索引构建、OpenHashTable 回归、并发 scratch 修复；当前全量测试结果为 <code>443/443</code> 通过。</p>
+    </section>
+    <section class="card">
+      <h1>FPToken 设计原理与使用指南</h1>
+      <p class="meta">适用版本：当前 Eclipse 项目版 | 场景重点：高频模式挖掘、互斥筛选、单线程稳定运行</p>
+      <div>
+        <span class="tag">频繁项集</span>
+        <span class="tag">高频优先</span>
+        <span class="tag">抽样加速</span>
+        <span class="tag">两阶段索引</span>
+        <span class="tag">互斥选择</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>1. 设计思路</h2>
+      <ol class="step-list">
+        <li><b>目标导向：</b>你要的是高频、可压缩、可落地的模式，而不是“穷举所有可能组合”。</li>
+        <li><b>先缩空间再计算：</b>通过支持度过滤、覆盖率上限和候选上限，把搜索空间压到可控范围。</li>
+        <li><b>先挖掘再决策：</b>先产出候选项集，再做互斥筛选，保证最终结果互不重叠、可执行。</li>
+        <li><b>近似但可控：</b>Beam Search + 两阶段 picker，追求工程效率，同时保留关键统计指标（候选数、截断标记、交集次数）。</li>
+        <li><b>可配置：</b>抽样比例、最小样本数、支持度缩放都可通过配置文件动态调整。</li>
+      </ol>
+      <div class="note ok">
+        当前实现非常适合“高频优先 + 单线程稳定输出”的业务诉求。
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2. 核心原理</h2>
+
+      <h3>2.1 两阶段索引构建（TermTidsetIndex）</h3>
+      <ul>
+        <li>第一阶段统计词频，过滤掉低频词和过热词（可按 <code>maxDocCoverageRatio</code> 控制）。</li>
+        <li>第二阶段仅为保留词构建位图（BitSet），减少内存峰值和无效交集计算。</li>
+      </ul>
+
+      <h3>2.2 高频抽样路径（可选）</h3>
+      <ul>
+        <li>先抽样文档做候选挖掘，再回到全量数据做支持度回算。</li>
+        <li>支持度阈值可按采样比例自动缩放：<code>sampledMinSupport = minSupport * scale</code>。</li>
+        <li>当样本太小、比例为 0、或其他边界条件触发时，会自动回退全量路径。</li>
+      </ul>
+
+      <h3>2.3 候选挖掘（BeamFrequentItemsetMiner）</h3>
+      <ul>
+        <li>按支持度筛选频繁词，逐层扩展前缀，使用 Beam Width 和分支上限控制爆炸。</li>
+        <li>用位图交集计算支持度，按分数保留 top-k 前缀和 top-k 候选。</li>
+        <li>支持超时和 idle-level 提前停止，避免长尾计算。</li>
+      </ul>
+
+      <h3>2.4 互斥选择（TwoPhaseExclusiveItemsetPicker）</h3>
+      <ul>
+        <li>第一阶段贪心构造可行解；第二阶段在 swap 预算内做局部替换优化。</li>
+        <li>确保最终选中项集两两互斥（不共享 termId）。</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>3. 调用流程图</h2>
+      <div class="flow" aria-label="调用流程图">
+        <div class="box">输入数据<br/>List&lt;DocTerms&gt;</div>
+        <div class="arrow">→</div>
+        <div class="box">索引构建<br/>build / buildWithSupportBounds</div>
+        <div class="arrow">→</div>
+        <div class="box">候选挖掘<br/>BeamFrequentItemsetMiner</div>
+        <div class="arrow">→</div>
+        <div class="box">互斥筛选<br/>TwoPhaseExclusiveItemsetPicker</div>
+      </div>
+
+      <pre>主流程（简化）
+selectExclusiveBestItemsetsWithStats(rows, minSupport, minLen, maxLen, maxCandidates)
+  ├─ 1) 构建索引（可选两阶段支持度过滤）
+  ├─ 2) 走采样路径或全量路径
+  │    ├─ 2.1 采样挖掘（可选）
+  │    └─ 2.2 全量回算支持度
+  ├─ 3) 生成 CandidateItemset 列表
+  ├─ 4) 互斥选择（两阶段 picker）
+  └─ 5) 输出 ExclusiveSelectionResult（groups + stats）</pre>
+    </section>
+
+    <section class="card">
+      <h2>4. 使用方法</h2>
+
+      <h3>4.1 Java 代码调用（推荐）</h3>
+      <pre>import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
+import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.model.ExclusiveSelectionResult;
+import java.util.List;
+
+List&lt;DocTerms&gt; rows = ...; // 你的文档-词项数据
+ExclusiveSelectionResult result =
+    ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
+        rows,
+        100,   // minSupport
+        2,     // minItemsetSize
+        6,     // maxItemsetSize
+        200000 // maxCandidateCount
+    );
+
+System.out.println("groups=" + result.getGroups().size());
+System.out.println("candidates=" + result.getCandidateCount());
+System.out.println("frequentTerms=" + result.getFrequentTermCount());
+System.out.println("truncated=" + result.isTruncatedByCandidateLimit());</pre>
+
+      <h3>4.2 抽样参数配置</h3>
+      <p>当前版本采用<strong>代码内配置</strong>（不再读取 properties 文件）：</p>
+      <pre>ExclusiveFrequentItemsetSelector.setSamplingEnabled(true);
+ExclusiveFrequentItemsetSelector.setSampleRatio(0.30d);
+ExclusiveFrequentItemsetSelector.setMinSampleCount(50);
+ExclusiveFrequentItemsetSelector.setSamplingSupportScale(0.0d); // 自动按采样比例缩放</pre>
+
+      <table>
+        <thead>
+          <tr>
+            <th>参数</th>
+            <th>含义</th>
+            <th>建议</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>sampleRatio</code></td>
+            <td>抽样比例（0~1）</td>
+            <td>高频目标建议 0.2~0.4；设为 0 则走全量路径</td>
+          </tr>
+          <tr>
+            <td><code>minSampleCount</code></td>
+            <td>最小采样文档数</td>
+            <td>建议 50~200，根据数据规模调整</td>
+          </tr>
+          <tr>
+            <td><code>supportScale</code></td>
+            <td>采样支持度缩放系数</td>
+            <td>0 表示自动按样本比例缩放，通常最稳</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="note warn">
+        如果你明确不要抽样，可以在启动时将 <code>sampleRatio=0</code> 或在代码中关闭 sampling 开关。
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>5. 运行测试（全量验证）</h2>
+      <pre>./scripts/run-fptoken-tests.ps1 -Perf -Scale -Budget -Stress -Soak</pre>
+      <p>该命令会执行单元、集成、性能、规模和压力相关用例，用于完整回归验证。</p>
+    </section>
+  </div>
+</body>
+</html>

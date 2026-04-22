@@ -3,68 +3,47 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>fptoken 文档导航</title>
+  <title>fptoken 文档导航（2026 全量更新）</title>
   <style>
-    body {
-      margin: 0;
-      background: #f6f8fb;
-      color: #111827;
-      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
-      line-height: 1.7;
-    }
-    .wrap {
-      max-width: 900px;
-      margin: 26px auto;
-      padding: 0 14px 20px;
-    }
-    .card {
-      background: #fff;
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      padding: 18px 20px;
-      margin-bottom: 12px;
-    }
+    body { margin: 0; background: #f6f8fb; color: #111827; font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif; line-height: 1.7; }
+    .wrap { max-width: 980px; margin: 24px auto; padding: 0 14px 24px; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 18px 20px; margin-bottom: 12px; }
     h1, h2 { margin: 0 0 10px; }
     h1 { color: #1d4ed8; }
     ul { margin: 0 0 0 20px; }
     li { margin: 8px 0; }
-    a {
-      color: #1e40af;
-      text-decoration: none;
-    }
+    a { color: #1e40af; text-decoration: none; }
     a:hover { text-decoration: underline; }
     .desc { color: #4b5563; font-size: 14px; }
+    .tip { border-left: 4px solid #1d4ed8; background: #eff6ff; border-radius: 8px; padding: 8px 10px; margin-top: 10px; }
+    .meta { color: #6b7280; font-size: 13px; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <section class="card">
       <h1>fptoken 文档导航</h1>
-      <p class="desc">用于快速访问项目说明、架构、流程、实现原理及专题分析文档。</p>
+      <p class="desc">本页及下列 HTML 已按当前代码状态统一刷新（Eclipse 项目结构、采样配置化、两阶段索引、全量测试通过）。</p>
+      <p class="meta">文档版本：2026-04-22</p>
+      <div class="tip">当前项目最近一次全量验证结果：442+ 用例版本升级后为 443 个测试，均通过。</div>
     </section>
 
     <section class="card">
-      <h2>核心项目文档</h2>
+      <h2>建议阅读顺序</h2>
       <ul>
-        <li>
-          <a href="./fptoken-project-documentation.html">fptoken 项目文档（推荐先读）</a>
-          <div class="desc">包含项目说明、背景、架构设计、流程图、实现原理、关键实现、类调用关系。</div>
-        </li>
+        <li><a href="./fptoken-project-documentation.html">1) fptoken 项目文档（总览）</a><div class="desc">背景、架构、模块职责、调用关系、运行与测试方法。</div></li>
+        <li><a href="./fptoken-usage-and-architecture.html">2) 设计原理与使用指南</a><div class="desc">面向使用者：设计思路、原理、流程图、接入示例。</div></li>
+        <li><a href="./frequent-itemset-miner-performance.html">3) 挖掘算法与性能说明</a><div class="desc">Beam 挖掘、剪枝策略、性能门限与测试策略。</div></li>
       </ul>
     </section>
 
     <section class="card">
-      <h2>专题设计文档</h2>
+      <h2>专题文档</h2>
       <ul>
-        <li>
-          <a href="./fptoken-design-and-implementation.html">第一步方案：频繁项集互斥最优筛选</a>
-        </li>
-        <li>
-          <a href="./posting-dedup-and-exclusive-fiset-design.html">倒排共享存储与互斥频繁项集设计方案</a>
-        </li>
-        <li>
-          <a href="./frequent-itemset-miner-performance.html">FrequentItemsetMiner 算法与性能分析</a>
-        </li>
+        <li><a href="./fptoken-design-and-implementation.html">频繁项集互斥最优筛选设计</a></li>
+        <li><a href="./posting-dedup-and-exclusive-fiset-design.html">倒排共享存储与互斥频繁项集方案</a></li>
+        <li><a href="./binary-search-lucene-design.html">二进制检索（Lucene 方向）设计草案</a></li>
+        <li><a href="./binary-search-lucene-references.html">二进制检索参考资料</a></li>
       </ul>
     </section>
   </div>

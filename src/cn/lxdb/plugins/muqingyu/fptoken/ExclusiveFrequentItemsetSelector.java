@@ -17,11 +17,7 @@ import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Properties;
 import java.util.Random;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
  * 互斥频繁项集选择的门面(Facade):对调用方屏蔽索引、挖掘与挑选的实现细节。
@@ -182,17 +178,6 @@ public final class ExclusiveFrequentItemsetSelector {
     private static double samplingSupportScale = EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE;
     /** 采样开关：设为 false 则回退为全量挖掘（用于对比测试）。 */
     private static boolean samplingEnabled = true;
-    /** 采样配置文件路径（可通过 -Dfptoken.config.file 覆盖）。 */
-    private static final String DEFAULT_CONFIG_FILE = "config/fptoken.properties";
-    private static final String CONFIG_PATH_PROPERTY = "fptoken.config.file";
-    private static final String SAMPLE_RATIO_KEY = "fptoken.sampling.sampleRatio";
-    private static final String MIN_SAMPLE_COUNT_KEY = "fptoken.sampling.minSampleCount";
-    private static final String SUPPORT_SCALE_KEY = "fptoken.sampling.supportScale";
-
-    static {
-        reloadSamplingConfig();
-    }
-
     /**
      * 设置采样开关（用于对比测试）。
      * @param enabled true 启用采样（默认），false 全量挖掘
@@ -226,34 +211,13 @@ public final class ExclusiveFrequentItemsetSelector {
     }
 
     /**
-     * 从配置文件重载采样参数。未配置项保持当前值。
-     * 默认读取 {@code config/fptoken.properties}，
-     * 也可通过 JVM 参数 {@code -Dfptoken.config.file=/path/to/file} 指定。
+     * 保留方法签名以兼容旧调用方。
+     * 采样参数不再从 properties 文件读取，请改用 {@link #setSampleRatio(double)}、
+     * {@link #setMinSampleCount(int)}、{@link #setSamplingSupportScale(double)} 在代码中配置。
      */
+    @Deprecated
     public static synchronized void reloadSamplingConfig() {
-        String configPath = System.getProperty(CONFIG_PATH_PROPERTY, DEFAULT_CONFIG_FILE);
-        Path file = Paths.get(configPath);
-        if (!Files.exists(file) || !Files.isRegularFile(file)) {
-            return;
-        }
-        Properties properties = new Properties();
-        try (java.io.Reader reader = Files.newBufferedReader(file)) {
-            properties.load(reader);
-            String ratio = properties.getProperty(SAMPLE_RATIO_KEY);
-            if (ratio != null && !ratio.trim().isEmpty()) {
-                setSampleRatio(Double.parseDouble(ratio.trim()));
-            }
-            String minCount = properties.getProperty(MIN_SAMPLE_COUNT_KEY);
-            if (minCount != null && !minCount.trim().isEmpty()) {
-                setMinSampleCount(Integer.parseInt(minCount.trim()));
-            }
-            String supportScale = properties.getProperty(SUPPORT_SCALE_KEY);
-            if (supportScale != null && !supportScale.trim().isEmpty()) {
-                setSamplingSupportScale(Double.parseDouble(supportScale.trim()));
-            }
-        } catch (Exception ignored) {
-            // 配置文件为可选能力：解析失败时保留当前值，不中断主流程。
-        }
+        // no-op: sampling is code-configured only.
     }
 
     /** 当前采样比率（便于测试与运行期观测）。 */
