@@ -5,14 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
-import cn.lxdb.plugins.muqingyu.fptoken.config.SelectorConfig;
-import cn.lxdb.plugins.muqingyu.fptoken.index.TermTidsetIndex;
-import cn.lxdb.plugins.muqingyu.fptoken.miner.BeamFrequentItemsetMiner;
-import cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset;
-import cn.lxdb.plugins.muqingyu.fptoken.model.ExclusiveSelectionResult;
-import cn.lxdb.plugins.muqingyu.fptoken.picker.TwoPhaseExclusiveItemsetPicker;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.SelectorConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.index.TermTidsetIndex;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.miner.BeamFrequentItemsetMiner;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.CandidateItemset;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.picker.TwoPhaseExclusiveItemsetPicker;
 import cn.lxdb.plugins.muqingyu.fptoken.tests.ByteArrayTestSupport;
-import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayUtils;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -27,7 +27,7 @@ class SelectorPipelineIntegrationTest {
 
     @Test
     void facadeAndManualPipeline_matchOnStatsAndSelectionFingerprint() {
-        List<cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms> rows = new ArrayList<>();
+        List<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms> rows = new ArrayList<>();
         byte[] a = ByteArrayTestSupport.hex("AA");
         byte[] b = ByteArrayTestSupport.hex("BB");
         byte[] c = ByteArrayTestSupport.hex("CC");
@@ -68,7 +68,7 @@ class SelectorPipelineIntegrationTest {
 
     @Test
     void integrationResult_keepsMutualExclusionAndLengthBounds() {
-        List<cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms> rows = ByteArrayTestSupport.pcapLikeBatch(30, 64, 16, 8);
+        List<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms> rows = ByteArrayTestSupport.pcapLikeBatch(30, 64, 16, 8);
         ExclusiveSelectionResult r = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
                 rows, 5, 2, 5, 50_000);
 
@@ -79,7 +79,7 @@ class SelectorPipelineIntegrationTest {
 
     @Test
     void tinyCandidateLimit_matchesManualPipelineTruncationSignal() {
-        List<cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms> rows = new ArrayList<>();
+        List<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms> rows = new ArrayList<>();
         byte[] a = ByteArrayTestSupport.hex("AA");
         byte[] b = ByteArrayTestSupport.hex("BB");
         byte[] c = ByteArrayTestSupport.hex("CC");
@@ -109,7 +109,7 @@ class SelectorPipelineIntegrationTest {
 
     @Test
     void sparseDocIds_facadeAndManualPipeline_keepSameSelectionFingerprint() {
-        List<cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms> rows = new ArrayList<>();
+        List<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms> rows = new ArrayList<>();
         byte[] term = ByteArrayTestSupport.hex("DEAD");
         rows.add(ByteArrayTestSupport.doc(5, term));
         rows.add(ByteArrayTestSupport.doc(13, term));
@@ -141,7 +141,7 @@ class SelectorPipelineIntegrationTest {
 
     @Test
     void negativeDocId_consistentFailureFromFacadeAndManualIndexBuild() {
-        List<cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms> rows = new ArrayList<>();
+        List<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms> rows = new ArrayList<>();
         rows.add(ByteArrayTestSupport.doc(-1, ByteArrayTestSupport.hex("AA")));
         assertThrows(IllegalArgumentException.class,
                 () -> ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(rows, 1, 1, 3, 1000));

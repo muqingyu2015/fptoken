@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import cn.lxdb.plugins.muqingyu.fptoken.config.SelectorConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.SelectorConfig;
 import org.junit.jupiter.api.Test;
 
 class SelectorConfigTest {

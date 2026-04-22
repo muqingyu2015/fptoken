@@ -3,7 +3,7 @@ package cn.lxdb.plugins.muqingyu.fptoken.tests.unit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
-import cn.lxdb.plugins.muqingyu.fptoken.config.EngineTuningConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import org.junit.jupiter.api.Test;
 
 class ExclusiveFrequentItemsetSelectorConfigFileTest {

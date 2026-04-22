@@ -8,9 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset;
-import cn.lxdb.plugins.muqingyu.fptoken.picker.GreedyExclusiveItemsetPicker;
-import cn.lxdb.plugins.muqingyu.fptoken.picker.TwoPhaseExclusiveItemsetPicker;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.CandidateItemset;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.picker.GreedyExclusiveItemsetPicker;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.picker.TwoPhaseExclusiveItemsetPicker;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;

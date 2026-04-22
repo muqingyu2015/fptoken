@@ -1,6 +1,6 @@
 package cn.lxdb.plugins.muqingyu.fptoken.tests.performance;
 
-import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.tests.ByteArrayTestSupport;
 import java.util.ArrayList;
 import java.util.List;

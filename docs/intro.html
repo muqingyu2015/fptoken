@@ -111,9 +111,9 @@
         <span class="tag">Eclipse Project</span>
         <span class="tag">Frequent Itemset</span>
         <span class="tag">Sampling + Full Recompute</span>
-        <span class="tag">447 tests / 0 failed</span>
+        <span class="tag">452 tests / 0 failed</span>
       </div>
-      <div class="foot">版本日期：2026-04-22</div>
+      <div class="foot">版本日期：2026-04-22（文档同步）</div>
     </section>
 
     <section class="slide">
@@ -186,7 +186,7 @@
     <section class="slide">
       <h2>4. 当前质量与测试覆盖</h2>
       <ul>
-        <li class="ok">全量默认测试：447 found / 294 started / 294 passed / 0 failed</li>
+        <li class="ok">全量默认测试：452 found / 298 started / 298 passed / 0 failed</li>
         <li>新增抽样专项：ratio=0、ratio=1、小样本绕过、minSupport=1 绕过、采样确定性。</li>
         <li>集成质量对比：采样路径保留主高频模式，覆盖率下降受控。</li>
       </ul>
@@ -212,7 +212,8 @@
         <p>4) 读取 `groups + stats`，用于压缩、规则发现或后续策略。</p>
       </div>
       <ul>
-        <li>示例代码：`example/ExclusiveFrequentItemsetSelectorUsageExample`（已含 sample 设置示例）。</li>
+        <li>示例代码：`demo/ExclusiveFrequentItemsetSelectorUsageExample`（已含 sample 设置示例）。</li>
+        <li>可读别名 API：`cn.lxdb.plugins.muqingyu.fptoken.api.MutuallyExclusivePatternSelector`（根包兼容类已移除）。</li>
         <li>文档入口：`docs/index.html`。</li>
       </ul>
       <div class="foot">建议：生产环境统一字节编码（如 UTF-8）并固定参数快照</div>

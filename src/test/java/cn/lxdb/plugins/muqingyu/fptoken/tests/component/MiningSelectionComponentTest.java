@@ -3,11 +3,11 @@ package cn.lxdb.plugins.muqingyu.fptoken.tests.component;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import cn.lxdb.plugins.muqingyu.fptoken.config.SelectorConfig;
-import cn.lxdb.plugins.muqingyu.fptoken.index.TermTidsetIndex;
-import cn.lxdb.plugins.muqingyu.fptoken.miner.BeamFrequentItemsetMiner;
-import cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset;
-import cn.lxdb.plugins.muqingyu.fptoken.picker.TwoPhaseExclusiveItemsetPicker;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.SelectorConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.index.TermTidsetIndex;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.miner.BeamFrequentItemsetMiner;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.CandidateItemset;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.picker.TwoPhaseExclusiveItemsetPicker;
 import cn.lxdb.plugins.muqingyu.fptoken.tests.ByteArrayTestSupport;
 import cn.lxdb.plugins.muqingyu.fptoken.tests.CandidateFixture;
 import java.util.ArrayList;
@@ -19,7 +19,7 @@ class MiningSelectionComponentTest {
 
     @Test
     void minerAndPicker_pipelineProducesMutexSubset() {
-        List<cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms> rows = new ArrayList<>();
+        List<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms> rows = new ArrayList<>();
         byte[] a = ByteArrayTestSupport.hex("AA");
         byte[] b = ByteArrayTestSupport.hex("BB");
         byte[] c = ByteArrayTestSupport.hex("CC");
@@ -42,7 +42,7 @@ class MiningSelectionComponentTest {
 
     @Test
     void minerAndPicker_pipelineHandlesNoFrequentCandidates() {
-        List<cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms> rows = new ArrayList<>();
+        List<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms> rows = new ArrayList<>();
         for (int i = 0; i < 30; i++) {
             rows.add(ByteArrayTestSupport.doc(i, new byte[] {(byte) i}));
         }
@@ -61,7 +61,7 @@ class MiningSelectionComponentTest {
 
     @Test
     void minerAndPicker_pipelineRespectsTinyCandidateLimit() {
-        List<cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms> rows = new ArrayList<>();
+        List<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms> rows = new ArrayList<>();
         byte[] a = ByteArrayTestSupport.hex("AA");
         byte[] b = ByteArrayTestSupport.hex("BB");
         byte[] c = ByteArrayTestSupport.hex("CC");
@@ -83,7 +83,7 @@ class MiningSelectionComponentTest {
 
     @Test
     void minerAndPicker_pipelineHandlesRowsWithOnlyEmptyTerms() {
-        List<cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms> rows = new ArrayList<>();
+        List<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms> rows = new ArrayList<>();
         rows.add(ByteArrayTestSupport.doc(0, java.util.Collections.emptyList()));
         rows.add(ByteArrayTestSupport.doc(1, java.util.Collections.emptyList()));
 

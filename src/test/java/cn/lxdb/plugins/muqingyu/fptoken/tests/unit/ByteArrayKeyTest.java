@@ -7,8 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayKey;
-import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayUtils;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import java.util.Arrays;
 import java.util.HashSet;
 import org.junit.jupiter.api.Test;

@@ -1,8 +1,8 @@
 package cn.lxdb.plugins.muqingyu.fptoken.tests;
 
-import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
-import cn.lxdb.plugins.muqingyu.fptoken.model.SelectedGroup;
-import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayUtils;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -145,7 +145,7 @@ public final class ByteArrayTestSupport {
         return true;
     }
 
-    /** 与 {@link cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset} 中启发式一致。 */
+    /** 与 {@link cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.CandidateItemset} 中启发式一致。 */
     public static int expectedEstimatedSaving(int termCount, int support) {
         return Math.max(0, (termCount - 1) * support);
     }

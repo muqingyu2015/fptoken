@@ -6,8 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import cn.lxdb.plugins.muqingyu.fptoken.index.TermTidsetIndex;
-import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.index.TermTidsetIndex;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;

@@ -127,7 +127,7 @@
   <div class="wrap">
     <section class="card" style="border-color:#bfdbfe;background:#eff6ff;">
       <h2 style="margin-bottom:6px;color:#1e3a8a;">2026 全量更新说明</h2>
-      <p style="margin:0;color:#1e3a8a;">本页已对齐当前代码和测试：采样配置文件生效、两阶段索引构建、OpenHashTable 回归、并发 scratch 修复；当前全量测试结果为 <code>443/443</code> 通过。</p>
+      <p style="margin:0;color:#1e3a8a;">本页已对齐当前代码和测试：采样采用代码内配置（不读取 properties）、两阶段索引构建、OpenHashTable 回归、并发 scratch 修复；当前测试结果为 <code>452 found / 298 started / 298 passed / 0 failed</code>（默认执行集）。</p>
     </section>
     <section class="card">
       <h1>FPToken 设计原理与使用指南</h1>
@@ -148,7 +148,7 @@
         <li><b>先缩空间再计算：</b>通过支持度过滤、覆盖率上限和候选上限，把搜索空间压到可控范围。</li>
         <li><b>先挖掘再决策：</b>先产出候选项集，再做互斥筛选，保证最终结果互不重叠、可执行。</li>
         <li><b>近似但可控：</b>Beam Search + 两阶段 picker，追求工程效率，同时保留关键统计指标（候选数、截断标记、交集次数）。</li>
-        <li><b>可配置：</b>抽样比例、最小样本数、支持度缩放都可通过配置文件动态调整。</li>
+        <li><b>可配置：</b>抽样比例、最小样本数、支持度缩放均通过代码启动阶段设置。</li>
       </ol>
       <div class="note ok">
         当前实现非常适合“高频优先 + 单线程稳定输出”的业务诉求。
@@ -231,6 +231,7 @@ System.out.println("groups=" + result.getGroups().size());
 System.out.println("candidates=" + result.getCandidateCount());
 System.out.println("frequentTerms=" + result.getFrequentTermCount());
 System.out.println("truncated=" + result.isTruncatedByCandidateLimit());</pre>
+      <p>可读别名 API（用于语义化命名）位于 <code>cn.lxdb.plugins.muqingyu.fptoken.api.MutuallyExclusivePatternSelector</code>，根包兼容类已移除。</p>
 
       <h3>4.2 抽样参数配置</h3>
       <p>当前版本采用<strong>代码内配置</strong>（不再读取 properties 文件）：</p>

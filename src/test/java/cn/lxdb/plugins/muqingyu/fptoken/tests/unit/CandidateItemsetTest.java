@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.CandidateItemset;
 import java.util.BitSet;
 import org.junit.jupiter.api.Test;
 

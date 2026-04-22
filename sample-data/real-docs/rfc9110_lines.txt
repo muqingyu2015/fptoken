@@ -1,0 +1,2400 @@
+
+
+Internet Engineering Task Force (IETF) R. Fielding, Ed.
+Request for Comments: 9110 Adobe
+STD: 97 M. Nottingham, Ed.
+Obsoletes: 2818, 7230, 7231, 7232, 7233, 7235, Fastly
+ 7538, 7615, 7694 J. Reschke, Ed.
+Updates: 3864 greenbytes
+Category: Standards Track June 2022
+ISSN: 2070-1721
+
+ HTTP Semantics
+
+Abstract
+
+ The Hypertext Transfer Protocol (HTTP) is a stateless applicati
+ level protocol for distributed, collaborative, hypertext inform
+ systems. This document describes the overall architecture of HT
+ establishes common terminology, and defines aspects of the prot
+ that are shared by all versions. In this definition are core
+ protocol elements, extensibility mechanisms, and the "http" and
+ "https" Uniform Resource Identifier (URI) schemes.
+
+ This document updates RFC 3864 and obsoletes RFCs 2818, 7231, 7
+ 7233, 7235, 7538, 7615, 7694, and portions of 7230.
+
+Status of This Memo
+
+ This is an Internet Standards Track document.
+
+ This document is a product of the Internet Engineering Task For
+ (IETF). It represents the consensus of the IETF community. It h
+ received public review and has been approved for publication by
+ Internet Engineering Steering Group (IESG). Further information
+ Internet Standards is available in Section 2 of RFC 7841.
+
+ Information about the current status of this document, any erra
+ and how to provide feedback on it may be obtained at
+ https://www.rfc-editor.org/info/rfc9110.
+
+Copyright Notice
+
+ Copyright (c) 2022 IETF Trust and the persons identified as the
+ document authors. All rights reserved.
+
+ This document is subject to BCP 78 and the IETF Trust's Legal
+ Provisions Relating to IETF Documents
+ (https://trustee.ietf.org/license-info) in effect on the date o
+ publication of this document. Please review these documents
+ carefully, as they describe your rights and restrictions with r
+ to this document. Code Components extracted from this document 
+ include Revised BSD License text as described in Section 4.e of
+ Trust Legal Provisions and are provided without warranty as des
+ in the Revised BSD License.
+
+ This document may contain material from IETF Documents or IETF
+ Contributions published or made publicly available before Novem
+ 10, 2008. The person(s) controlling the copyright in some of th
+ material may not have granted the IETF Trust the right to allow
+ modifications of such material outside the IETF Standards Proce
+ Without obtaining an adequate license from the person(s) contro
+ the copyright in such materials, this document may not be modif
+ outside the IETF Standards Process, and derivative works of it 
+ not be created outside the IETF Standards Process, except to fo
+ it for publication as an RFC or to translate it into languages 
+ than English.
+
+Table of Contents
+
+ 1. Introduction
+ 1.1. Purpose
+ 1.2. History and Evolution
+ 1.3. Core Semantics
+ 1.4. Specifications Obsoleted by This Document
+ 2. Conformance
+ 2.1. Syntax Notation
+ 2.2. Requirements Notation
+ 2.3. Length Requirements
+ 2.4. Error Handling
+ 2.5. Protocol Version
+ 3. Terminology and Core Concepts
+ 3.1. Resources
+ 3.2. Representations
+ 3.3. Connections, Clients, and Servers
+ 3.4. Messages
+ 3.5. User Agents
+ 3.6. Origin Server
+ 3.7. Intermediaries
+ 3.8. Caches
+ 3.9. Example Message Exchange
+ 4. Identifiers in HTTP
+ 4.1. URI References
+ 4.2. HTTP-Related URI Schemes
+ 4.2.1. http URI Scheme
+ 4.2.2. https URI Scheme
+ 4.2.3. http(s) Normalization and Comparison
+ 4.2.4. Deprecation of userinfo in http(s) URIs
+ 4.2.5. http(s) References with Fragment Identifiers
+ 4.3. Authoritative Access
+ 4.3.1. URI Origin
+ 4.3.2. http Origins
+ 4.3.3. https Origins
+ 4.3.4. https Certificate Verification
+ 4.3.5. IP-ID Reference Identity
+ 5. Fields
+ 5.1. Field Names
+ 5.2. Field Lines and Combined Field Value
+ 5.3. Field Order
+ 5.4. Field Limits
+ 5.5. Field Values
+ 5.6. Common Rules for Defining Field Values
+ 5.6.1. Lists (#rule ABNF Extension)
+ 5.6.1.1. Sender Requirements
+ 5.6.1.2. Recipient Requirements
+ 5.6.2. Tokens
+ 5.6.3. Whitespace
+ 5.6.4. Quoted Strings
+ 5.6.5. Comments
+ 5.6.6. Parameters
+ 5.6.7. Date/Time Formats
+ 6. Message Abstraction
+ 6.1. Framing and Completeness
+ 6.2. Control Data
+ 6.3. Header Fields
+ 6.4. Content
+ 6.4.1. Content Semantics
+ 6.4.2. Identifying Content
+ 6.5. Trailer Fields
+ 6.5.1. Limitations on Use of Trailers
+ 6.5.2. Processing Trailer Fields
+ 6.6. Message Metadata
+ 6.6.1. Date
+ 6.6.2. Trailer
+ 7. Routing HTTP Messages
+ 7.1. Determining the Target Resource
+ 7.2. Host and :authority
+ 7.3. Routing Inbound Requests
+ 7.3.1. To a Cache
+ 7.3.2. To a Proxy
+ 7.3.3. To the Origin
+ 7.4. Rejecting Misdirected Requests
+ 7.5. Response Correlation
+ 7.6. Message Forwarding
+ 7.6.1. Connection
+ 7.6.2. Max-Forwards
+ 7.6.3. Via
+ 7.7. Message Transformations
+ 7.8. Upgrade
+ 8. Representation Data and Metadata
+ 8.1. Representation Data
+ 8.2. Representation Metadata
+ 8.3. Content-Type
+ 8.3.1. Media Type
+ 8.3.2. Charset
+ 8.3.3. Multipart Types
+ 8.4. Content-Encoding
+ 8.4.1. Content Codings
+ 8.4.1.1. Compress Coding
+ 8.4.1.2. Deflate Coding
+ 8.4.1.3. Gzip Coding
+ 8.5. Content-Language
+ 8.5.1. Language Tags
+ 8.6. Content-Length
+ 8.7. Content-Location
+ 8.8. Validator Fields
+ 8.8.1. Weak versus Strong
+ 8.8.2. Last-Modified
+ 8.8.2.1. Generation
+ 8.8.2.2. Comparison
+ 8.8.3. ETag
+ 8.8.3.1. Generation
+ 8.8.3.2. Comparison
+ 8.8.3.3. Example: Entity Tags Varying on Content-Negotiated
+ Resources
+ 9. Methods
+ 9.1. Overview
+ 9.2. Common Method Properties
+ 9.2.1. Safe Methods
+ 9.2.2. Idempotent Methods
+ 9.2.3. Methods and Caching
+ 9.3. Method Definitions
+ 9.3.1. GET
+ 9.3.2. HEAD
+ 9.3.3. POST
+ 9.3.4. PUT
+ 9.3.5. DELETE
+ 9.3.6. CONNECT
+ 9.3.7. OPTIONS
+ 9.3.8. TRACE
+ 10. Message Context
+ 10.1. Request Context Fields
+ 10.1.1. Expect
+ 10.1.2. From
+ 10.1.3. Referer
+ 10.1.4. TE
+ 10.1.5. User-Agent
+ 10.2. Response Context Fields
+ 10.2.1. Allow
+ 10.2.2. Location
+ 10.2.3. Retry-After
+ 10.2.4. Server
+ 11. HTTP Authentication
+ 11.1. Authentication Scheme
+ 11.2. Authentication Parameters
+ 11.3. Challenge and Response
+ 11.4. Credentials
+ 11.5. Establishing a Protection Space (Realm)
+ 11.6. Authenticating Users to Origin Servers
+ 11.6.1. WWW-Authenticate
+ 11.6.2. Authorization
+ 11.6.3. Authentication-Info
+ 11.7. Authenticating Clients to Proxies
+ 11.7.1. Proxy-Authenticate
+ 11.7.2. Proxy-Authorization
+ 11.7.3. Proxy-Authentication-Info
+ 12. Content Negotiation
+ 12.1. Proactive Negotiation
+ 12.2. Reactive Negotiation
+ 12.3. Request Content Negotiation
+ 12.4. Content Negotiation Field Features
+ 12.4.1. Absence
+ 12.4.2. Quality Values
+ 12.4.3. Wildcard Values
+ 12.5. Content Negotiation Fields
+ 12.5.1. Accept
+ 12.5.2. Accept-Charset
+ 12.5.3. Accept-Encoding
+ 12.5.4. Accept-Language
+ 12.5.5. Vary
+ 13. Conditional Requests
+ 13.1. Preconditions
+ 13.1.1. If-Match
+ 13.1.2. If-None-Match
+ 13.1.3. If-Modified-Since
+ 13.1.4. If-Unmodified-Since
+ 13.1.5. If-Range
+ 13.2. Evaluation of Preconditions
+ 13.2.1. When to Evaluate
+ 13.2.2. Precedence of Preconditions
+ 14. Range Requests
+ 14.1. Range Units
+ 14.1.1. Range Specifiers
+ 14.1.2. Byte Ranges
+ 14.2. Range
+ 14.3. Accept-Ranges
+ 14.4. Content-Range
+ 14.5. Partial PUT
+ 14.6. Media Type multipart/byteranges
+ 15. Status Codes
+ 15.1. Overview of Status Codes
+ 15.2. Informational 1xx
+ 15.2.1. 100 Continue
+ 15.2.2. 101 Switching Protocols
+ 15.3. Successful 2xx
+ 15.3.1. 200 OK
+ 15.3.2. 201 Created
+ 15.3.3. 202 Accepted
+ 15.3.4. 203 Non-Authoritative Information
+ 15.3.5. 204 No Content
+ 15.3.6. 205 Reset Content
+ 15.3.7. 206 Partial Content
+ 15.3.7.1. Single Part
+ 15.3.7.2. Multiple Parts
+ 15.3.7.3. Combining Parts
+ 15.4. Redirection 3xx
+ 15.4.1. 300 Multiple Choices
+ 15.4.2. 301 Moved Permanently
+ 15.4.3. 302 Found
+ 15.4.4. 303 See Other
+ 15.4.5. 304 Not Modified
+ 15.4.6. 305 Use Proxy
+ 15.4.7. 306 (Unused)
+ 15.4.8. 307 Temporary Redirect
+ 15.4.9. 308 Permanent Redirect
+ 15.5. Client Error 4xx
+ 15.5.1. 400 Bad Request
+ 15.5.2. 401 Unauthorized
+ 15.5.3. 402 Payment Required
+ 15.5.4. 403 Forbidden
+ 15.5.5. 404 Not Found
+ 15.5.6. 405 Method Not Allowed
+ 15.5.7. 406 Not Acceptable
+ 15.5.8. 407 Proxy Authentication Required
+ 15.5.9. 408 Request Timeout
+ 15.5.10. 409 Conflict
+ 15.5.11. 410 Gone
+ 15.5.12. 411 Length Required
+ 15.5.13. 412 Precondition Failed
+ 15.5.14. 413 Content Too Large
+ 15.5.15. 414 URI Too Long
+ 15.5.16. 415 Unsupported Media Type
+ 15.5.17. 416 Range Not Satisfiable
+ 15.5.18. 417 Expectation Failed
+ 15.5.19. 418 (Unused)
+ 15.5.20. 421 Misdirected Request
+ 15.5.21. 422 Unprocessable Content
+ 15.5.22. 426 Upgrade Required
+ 15.6. Server Error 5xx
+ 15.6.1. 500 Internal Server Error
+ 15.6.2. 501 Not Implemented
+ 15.6.3. 502 Bad Gateway
+ 15.6.4. 503 Service Unavailable
+ 15.6.5. 504 Gateway Timeout
+ 15.6.6. 505 HTTP Version Not Supported
+ 16. Extending HTTP
+ 16.1. Method Extensibility
+ 16.1.1. Method Registry
+ 16.1.2. Considerations for New Methods
+ 16.2. Status Code Extensibility
+ 16.2.1. Status Code Registry
+ 16.2.2. Considerations for New Status Codes
+ 16.3. Field Extensibility
+ 16.3.1. Field Name Registry
+ 16.3.2. Considerations for New Fields
+ 16.3.2.1. Considerations for New Field Names
+ 16.3.2.2. Considerations for New Field Values
+ 16.4. Authentication Scheme Extensibility
+ 16.4.1. Authentication Scheme Registry
+ 16.4.2. Considerations for New Authentication Schemes
+ 16.5. Range Unit Extensibility
+ 16.5.1. Range Unit Registry
+ 16.5.2. Considerations for New Range Units
+ 16.6. Content Coding Extensibility
+ 16.6.1. Content Coding Registry
+ 16.6.2. Considerations for New Content Codings
+ 16.7. Upgrade Token Registry
+ 17. Security Considerations
+ 17.1. Establishing Authority
+ 17.2. Risks of Intermediaries
+ 17.3. Attacks Based on File and Path Names
+ 17.4. Attacks Based on Command, Code, or Query Injection
+ 17.5. Attacks via Protocol Element Length
+ 17.6. Attacks Using Shared-Dictionary Compression
+ 17.7. Disclosure of Personal Information
+ 17.8. Privacy of Server Log Information
+ 17.9. Disclosure of Sensitive Information in URIs
+ 17.10. Application Handling of Field Names
+ 17.11. Disclosure of Fragment after Redirects
+ 17.12. Disclosure of Product Information
+ 17.13. Browser Fingerprinting
+ 17.14. Validator Retention
+ 17.15. Denial-of-Service Attacks Using Range
+ 17.16. Authentication Considerations
+ 17.16.1. Confidentiality of Credentials
+ 17.16.2. Credentials and Idle Clients
+ 17.16.3. Protection Spaces
+ 17.16.4. Additional Response Fields
+ 18. IANA Considerations
+ 18.1. URI Scheme Registration
+ 18.2. Method Registration
+ 18.3. Status Code Registration
+ 18.4. Field Name Registration
+ 18.5. Authentication Scheme Registration
+ 18.6. Content Coding Registration
+ 18.7. Range Unit Registration
+ 18.8. Media Type Registration
+ 18.9. Port Registration
+ 18.10. Upgrade Token Registration
+ 19. References
+ 19.1. Normative References
+ 19.2. Informative References
+ Appendix A. Collected ABNF
+ Appendix B. Changes from Previous RFCs
+ B.1. Changes from RFC 2818
+ B.2. Changes from RFC 7230
+ B.3. Changes from RFC 7231
+ B.4. Changes from RFC 7232
+ B.5. Changes from RFC 7233
+ B.6. Changes from RFC 7235
+ B.7. Changes from RFC 7538
+ B.8. Changes from RFC 7615
+ B.9. Changes from RFC 7694
+ Acknowledgements
+ Index
+ Authors' Addresses
+
+1. Introduction
+
+1.1. Purpose
+
+ The Hypertext Transfer Protocol (HTTP) is a family of stateless
+ application-level, request/response protocols that share a gene
+ interface, extensible semantics, and self-descriptive messages 
+ enable flexible interaction with network-based hypertext inform
+ systems.
+
+ HTTP hides the details of how a service is implemented by prese
+ a uniform interface to clients that is independent of the types
+ resources provided. Likewise, servers do not need to be aware o
+ each client's purpose: a request can be considered in isolation
+ rather than being associated with a specific type of client or 
+ predetermined sequence of application steps. This allows genera
+ purpose implementations to be used effectively in many differen
+ contexts, reduces interaction complexity, and enables independe
+ evolution over time.
+
+ HTTP is also designed for use as an intermediation protocol, wh
+ proxies and gateways can translate non-HTTP information systems
+ a more generic interface.
+
+ One consequence of this flexibility is that the protocol cannot
+ defined in terms of what occurs behind the interface. Instead, 
+ are limited to defining the syntax of communication, the intent
+ received communication, and the expected behavior of recipients
+ the communication is considered in isolation, then successful a
+ ought to be reflected in corresponding changes to the observabl
+ interface provided by servers. However, since multiple clients 
+ act in parallel and perhaps at cross-purposes, we cannot requir
+ such changes be observable beyond the scope of a single respons
+
+1.2. History and Evolution
+
+ HTTP has been the primary information transfer protocol for the
+ Wide Web since its introduction in 1990. It began as a trivial
+ mechanism for low-latency requests, with a single method (GET) 
+ request transfer of a presumed hypertext document identified by
+ given pathname. As the Web grew, HTTP was extended to enclose
+ requests and responses within messages, transfer arbitrary data
+ formats using MIME-like media types, and route requests through
+ intermediaries. These protocols were eventually defined as HTTP
+ and HTTP/1.0 (see [HTTP/1.0]).
+
+ HTTP/1.1 was designed to refine the protocol's features while
+ retaining compatibility with the existing text-based messaging
+ syntax, improving its interoperability, scalability, and robust
+ across the Internet. This included length-based data delimiters
+ both fixed and dynamic (chunked) content, a consistent framewor
+ content negotiation, opaque validators for conditional requests
+ cache controls for better cache consistency, range requests for
+ partial updates, and default persistent connections. HTTP/1.1 w
+ introduced in 1995 and published on the Standards Track in 1997
+ [RFC2068], revised in 1999 [RFC2616], and revised again in 2014
+ ([RFC7230] through [RFC7235]).
+
+ HTTP/2 ([HTTP/2]) introduced a multiplexed session layer on top
+ the existing TLS and TCP protocols for exchanging concurrent HT
+ messages with efficient field compression and server push. HTTP
+ ([HTTP/3]) provides greater independence for concurrent message
+ using QUIC as a secure multiplexed transport over UDP instead o
+
+ All three major versions of HTTP rely on the semantics defined 
+ this document. They have not obsoleted each other because each 
+ has specific benefits and limitations depending on the context 
+ use. Implementations are expected to choose the most appropriat
+ transport and messaging syntax for their particular context.
+
+ This revision of HTTP separates the definition of semantics (th
+ document) and caching ([CACHING]) from the current HTTP/1.1 mes
+ syntax ([HTTP/1.1]) to allow each major protocol version to pro
+ independently while referring to the same core semantics.
+
+1.3. Core Semantics
+
+ HTTP provides a uniform interface for interacting with a resour
+ (Section 3.1) -- regardless of its type, nature, or implementat
+ by sending messages that manipulate or transfer representations
+ (Section 3.2).
+
+ Each message is either a request or a response. A client constr
+ request messages that communicate its intentions and routes tho
+ messages toward an identified origin server. A server listens f
+ requests, parses each message received, interprets the message
+ semantics in relation to the identified target resource, and re
+ to that request with one or more response messages. The client
+ examines received responses to see if its intentions were carri
+ out, determining what to do next based on the status codes and
+ content received.
+
+ HTTP semantics include the intentions defined by each request m
+ (Section 9), extensions to those semantics that might be descri
+ request header fields, status codes that describe the response
+ (Section 15), and other control data and resource metadata that
+ be given in response fields.
+
+ Semantics also include representation metadata that describe ho
+ content is intended to be interpreted by a recipient, request h
+ fields that might influence content selection, and the various
+ selection algorithms that are collectively referred to as "cont
+ negotiation" (Section 12).
+
+1.4. Specifications Obsoleted by This Document
+
+ +============================================+===========+=====
+ | Title | Reference | See |
+ +============================================+===========+=====
+ | HTTP Over TLS | [RFC2818] | B.1 |
+ +--------------------------------------------+-----------+-----
+ | HTTP/1.1 Message Syntax and Routing [*] | [RFC7230] | B.2 |
+ +--------------------------------------------+-----------+-----
+ | HTTP/1.1 Semantics and Content | [RFC7231] | B.3 |
+ +--------------------------------------------+-----------+-----
+ | HTTP/1.1 Conditional Requests | [RFC7232] | B.4 |
+ +--------------------------------------------+-----------+-----
+ | HTTP/1.1 Range Requests | [RFC7233] | B.5 |
+ +--------------------------------------------+-----------+-----
+ | HTTP/1.1 Authentication | [RFC7235] | B.6 |
+ +--------------------------------------------+-----------+-----
+ | HTTP Status Code 308 (Permanent Redirect) | [RFC7538] | B.7 |
+ +--------------------------------------------+-----------+-----
+ | HTTP Authentication-Info and Proxy- | [RFC7615] | B.8 |
+ | Authentication-Info Response Header Fields | | |
+ +--------------------------------------------+-----------+-----
+ | HTTP Client-Initiated Content-Encoding | [RFC7694] | B.9 |
+ +--------------------------------------------+-----------+-----
+
+ Table 1
+
+ [*] This document only obsoletes the portions of RFC 7230 that 
+ independent of the HTTP/1.1 messaging syntax and connection
+ management; the remaining bits of RFC 7230 are obsoleted by
+ "HTTP/1.1" [HTTP/1.1].
+
+2. Conformance
+
+2.1. Syntax Notation
+
+ This specification uses the Augmented Backus-Naur Form (ABNF)
+ notation of [RFC5234], extended with the notation for case-
+ sensitivity in strings defined in [RFC7405].
+
+ It also uses a list extension, defined in Section 5.6.1, that a
+ for compact definition of comma-separated lists using a "#" ope
+ (similar to how the "*" operator indicates repetition). Appendi
+ shows the collected grammar with all list operators expanded to
+ standard ABNF notation.
+
+ As a convention, ABNF rule names prefixed with "obs-" denote ob
+ grammar rules that appear for historical reasons.
+
+ The following core rules are included by reference, as defined 
+ Appendix B.1 of [RFC5234]: ALPHA (letters), CR (carriage return
+ CRLF (CR LF), CTL (controls), DIGIT (decimal 0-9), DQUOTE (doub
+ quote), HEXDIG (hexadecimal 0-9/A-F/a-f), HTAB (horizontal tab)
+ (line feed), OCTET (any 8-bit sequence of data), SP (space), an
+ VCHAR (any visible US-ASCII character).
+
+ Section 5.6 defines some generic syntactic components for field
+ values.
+
+ This specification uses the terms "character", "character encod
+ scheme", "charset", and "protocol element" as they are defined 
+ [RFC6365].
+
+2.2. Requirements Notation
+
+ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL N
+ "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY"
+ "OPTIONAL" in this document are to be interpreted as described 
+ BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in 
+ capitals, as shown here.
+
+ This specification targets conformance criteria according to th
+ of a participant in HTTP communication. Hence, requirements are
+ placed on senders, recipients, clients, servers, user agents,
+ intermediaries, origin servers, proxies, gateways, or caches,
+ depending on what behavior is being constrained by the requirem
+ Additional requirements are placed on implementations, resource
+ owners, and protocol element registrations when they apply beyo
+ scope of a single communication.
+
+ The verb "generate" is used instead of "send" where a requireme
+ applies only to implementations that create the protocol elemen
+ rather than an implementation that forwards a received element
+ downstream.
+
+ An implementation is considered conformant if it complies with 
+ the requirements associated with the roles it partakes in HTTP.
+
+ A sender MUST NOT generate protocol elements that do not match 
+ grammar defined by the corresponding ABNF rules. Within a given
+ message, a sender MUST NOT generate protocol elements or syntax
+ alternatives that are only allowed to be generated by participa
+ other roles (i.e., a role that the sender does not have for tha
+ message).
+
+ Conformance to HTTP includes both conformance to the particular
+ messaging syntax of the protocol version in use and conformance
+ the semantics of protocol elements sent. For example, a client 
+ claims conformance to HTTP/1.1 but fails to recognize the featu
+ required of HTTP/1.1 recipients will fail to interoperate with
+ servers that adjust their responses in accordance with those cl
+ Features that reflect user choices, such as content negotiation
+ user-selected extensions, can impact application behavior beyon
+ protocol stream; sending protocol elements that inaccurately re
+ a user's choices will confuse the user and inhibit choice.
+
+ When an implementation fails semantic conformance, recipients o
+ implementation's messages will eventually develop workarounds t
+ adjust their behavior accordingly. A recipient MAY employ such
+ workarounds while remaining conformant to this protocol if the
+ workarounds are limited to the implementations at fault. For
+ example, servers often scan portions of the User-Agent field va
+ and user agents often scan the Server field value, to adjust th
+ own behavior with respect to known bugs or poorly chosen defaul
+
+2.3. Length Requirements
+
+ A recipient SHOULD parse a received protocol element defensivel
+ with only marginal expectations that the element will conform t
+ ABNF grammar and fit within a reasonable buffer size.
+
+ HTTP does not have specific length limitations for many of its
+ protocol elements because the lengths that might be appropriate
+ vary widely, depending on the deployment context and purpose of
+ implementation. Hence, interoperability between senders and
+ recipients depends on shared expectations regarding what is a
+ reasonable length for each protocol element. Furthermore, what 
+ commonly understood to be a reasonable length for some protocol
+ elements has changed over the course of the past three decades 
+ HTTP use and is expected to continue changing in the future.
+
+ At a minimum, a recipient MUST be able to parse and process pro
+ element lengths that are at least as long as the values that it
+ generates for those same protocol elements in other messages. F
+ example, an origin server that publishes very long URI referenc
+ its own resources needs to be able to parse and process those s
+ references when received as a target URI.
+
+ Many received protocol elements are only parsed to the extent
+ necessary to identify and forward that element downstream. For
+ example, an intermediary might parse a received field into its 
+ name and field value components, but then forward the field wit
+ further parsing inside the field value.
+
+2.4. Error Handling
+
+ A recipient MUST interpret a received protocol element accordin
+ the semantics defined for it by this specification, including
+ extensions to this specification, unless the recipient has dete
+ (through experience or configuration) that the sender incorrect
+ implements what is implied by those semantics. For example, an
+ origin server might disregard the contents of a received
+ Accept-Encoding header field if inspection of the User-Agent he
+ field indicates a specific implementation version that is known
+ fail on receipt of certain content codings.
+
+ Unless noted otherwise, a recipient MAY attempt to recover a us
+ protocol element from an invalid construct. HTTP does not defin
+ specific error handling mechanisms except when they have a dire
+ impact on security, since different applications of the protoco
+ require different error handling strategies. For example, a Web
+ browser might wish to transparently recover from a response whe
+ Location header field doesn't parse according to the ABNF, wher
+ systems control client might consider any form of error recover
+ be dangerous.
+
+ Some requests can be automatically retried by a client in the e
+ of an underlying connection failure, as described in Section 9.
+
+2.5. Protocol Version
+
+ HTTP's version number consists of two decimal digits separated 
+ "." (period or decimal point). The first digit (major version)
+ indicates the messaging syntax, whereas the second digit (minor
+ version) indicates the highest minor version within that major
+ version to which the sender is conformant (able to understand f
+ future communication).
+
+ While HTTP's core semantics don't change between protocol versi
+ their expression "on the wire" can change, and so the HTTP vers
+ number changes when incompatible changes are made to the wire f
+ Additionally, HTTP allows incremental, backwards-compatible cha
+ to be made to the protocol without changing its version through
+ use of defined extension points (Section 16).
+
+ The protocol version as a whole indicates the sender's conforma
+ with the set of requirements laid out in that version's corresp
+ specification(s). For example, the version "HTTP/1.1" is define
+ the combined specifications of this document, "HTTP Caching"
+ [CACHING], and "HTTP/1.1" [HTTP/1.1].
+
+ HTTP's major version number is incremented when an incompatible
+ message syntax is introduced. The minor number is incremented w
+ changes made to the protocol have the effect of adding to the m
+ semantics or implying additional capabilities of the sender.
+
+ The minor version advertises the sender's communication capabil
+ even when the sender is only using a backwards-compatible subse
+ the protocol, thereby letting the recipient know that more adva
+ features can be used in response (by servers) or in future requ
+ (by clients).
+
+ When a major version of HTTP does not define any minor versions
+ minor version "0" is implied. The "0" is used when referring to
+ protocol within elements that require a minor version identifie
+
+3. Terminology and Core Concepts
+
+ HTTP was created for the World Wide Web (WWW) architecture and 
+ evolved over time to support the scalability needs of a worldwi
+ hypertext system. Much of that architecture is reflected in the
+ terminology used to define HTTP.
+
+3.1. Resources
+
+ The target of an HTTP request is called a "resource". HTTP does
+ limit the nature of a resource; it merely defines an interface 
+ might be used to interact with resources. Most resources are
+ identified by a Uniform Resource Identifier (URI), as described
+ Section 4.
+
+ One design goal of HTTP is to separate resource identification 
+ request semantics, which is made possible by vesting the reques
+ semantics in the request method (Section 9) and a few request-
+ modifying header fields. A resource cannot treat a request in a
+ manner inconsistent with the semantics of the method of the req
+ For example, though the URI of a resource might imply semantics
+ are not safe, a client can expect the resource to avoid actions
+ are unsafe when processing a request with a safe method (see
+ Section 9.2.1).
+
+ HTTP relies upon the Uniform Resource Identifier (URI) standard
+ to indicate the target resource (Section 7.1) and relationships
+ between resources.
+
+3.2. Representations
+
+ A "representation" is information that is intended to reflect a
+ current, or desired state of a given resource, in a format that
+ be readily communicated via the protocol. A representation cons
+ of a set of representation metadata and a potentially unbounded
+ stream of representation data (Section 8).
+
+ HTTP allows "information hiding" behind its uniform interface b
+ defining communication with respect to a transferable represent
+ of the resource state, rather than transferring the resource it
+ This allows the resource identified by a URI to be anything,
+ including temporal functions like "the current weather in Lagun
+ Beach", while potentially providing information that represents
+ resource at the time a message is generated [REST].
+
+ The uniform interface is similar to a window through which one 
+ observe and act upon a thing only through the communication of
+ messages to an independent actor on the other side. A shared
+ abstraction is needed to represent ("take the place of") the cu
+ or desired state of that thing in our communications. When a
+ representation is hypertext, it can provide both a representati
+ the resource state and processing instructions that help guide 
+ recipient's future interactions.
+
+ A target resource might be provided with, or be capable of
+ generating, multiple representations that are each intended to
+ reflect the resource's current state. An algorithm, usually bas
+ content negotiation (Section 12), would be used to select one o
+ those representations as being most applicable to a given reque
+ This "selected representation" provides the data and metadata f
+ evaluating conditional requests (Section 13) and constructing t
+ content for 200 (OK), 206 (Partial Content), and 304 (Not Modif
+ responses to GET (Section 9.3.1).
+
+3.3. Connections, Clients, and Servers
+
+ HTTP is a client/server protocol that operates over a reliable
+ transport- or session-layer "connection".
+
+ An HTTP "client" is a program that establishes a connection to 
+ server for the purpose of sending one or more HTTP requests. An
+ "server" is a program that accepts connections in order to serv
+ HTTP requests by sending HTTP responses.
+
+ The terms client and server refer only to the roles that these
+ programs perform for a particular connection. The same program 
+ act as a client on some connections and a server on others.
+
+ HTTP is defined as a stateless protocol, meaning that each requ
+ message's semantics can be understood in isolation, and that th
+ relationship between connections and messages on them has no im
+ on the interpretation of those messages. For example, a CONNECT
+ request (Section 9.3.6) or a request with the Upgrade header fi
+ (Section 7.8) can occur at any time, not just in the first mess
+ a connection. Many implementations depend on HTTP's stateless d
+ in order to reuse proxied connections or dynamically load balan
+ requests across multiple servers.
+
+ As a result, a server MUST NOT assume that two requests on the 
+ connection are from the same user agent unless the connection i
+ secured and specific to that agent. Some non-standard HTTP
+ extensions (e.g., [RFC4559]) have been known to violate this
+ requirement, resulting in security and interoperability problem
+
+3.4. Messages
+
+ HTTP is a stateless request/response protocol for exchanging
+ "messages" across a connection. The terms "sender" and "recipie
+ refer to any implementation that sends or receives a given mess
+ respectively.
+
+ A client sends requests to a server in the form of a "request"
+ message with a method (Section 9) and request target (Section 7
+ The request might also contain header fields (Section 6.3) for
+ request modifiers, client information, and representation metad
+ content (Section 6.4) intended for processing in accordance wit
+ method, and trailer fields (Section 6.5) to communicate informa
+ collected while sending the content.
+
+ A server responds to a client's request by sending one or more
+ "response" messages, each including a status code (Section 15).
+ response might also contain header fields for server informatio
+ resource metadata, and representation metadata, content to be
+ interpreted in accordance with the status code, and trailer fie
+ communicate information collected while sending the content.
+
+3.5. User Agents
+
+ The term "user agent" refers to any of the various client progr
+ that initiate a request.
+
+ The most familiar form of user agent is the general-purpose Web
+ browser, but that's only a small percentage of implementations.
+ Other common user agents include spiders (web-traversing robots
+ command-line tools, billboard screens, household appliances, sc
+ light bulbs, firmware update scripts, mobile apps, and communic
+ devices in a multitude of shapes and sizes.
+
+ Being a user agent does not imply that there is a human user di
+ interacting with the software agent at the time of a request. I
+ many cases, a user agent is installed or configured to run in t
+ background and save its results for later inspection (or save o
+ subset of those results that might be interesting or erroneous)
+ Spiders, for example, are typically given a start URI and confi
+ to follow certain behavior while crawling the Web as a hypertex
+ graph.
+
+ Many user agents cannot, or choose not to, make interactive
+ suggestions to their user or provide adequate warning for secur
+ privacy concerns. In the few cases where this specification req
+ reporting of errors to the user, it is acceptable for such repo
+ to only be observable in an error console or log file. Likewise
+ requirements that an automated action be confirmed by the user 
+ proceeding might be met via advance configuration choices, run-
+ options, or simple avoidance of the unsafe action; confirmation
+ not imply any specific user interface or interruption of normal
+ processing if the user has already made that choice.
+
+3.6. Origin Server
+
+ The term "origin server" refers to a program that can originate
+ authoritative responses for a given target resource.
+
+ The most familiar form of origin server are large public websit
+ However, like user agents being equated with browsers, it is ea
+ be misled into thinking that all origin servers are alike. Comm
+ origin servers also include home automation units, configurable
+ networking components, office machines, autonomous robots, news
+ feeds, traffic cameras, real-time ad selectors, and video-on-de
+ platforms.
+
+ Most HTTP communication consists of a retrieval request (GET) f
+ representation of some resource identified by a URI. In the sim
+ case, this might be accomplished via a single bidirectional
+ connection (===) between the user agent (UA) and the origin ser
+ (O).
+
+ request >
+ UA ======================================= O
+ < response
+
+ Figure 1
+
+3.7. Intermediaries
+
+ HTTP enables the use of intermediaries to satisfy requests thro
+ chain of connections. There are three common forms of HTTP
+ "intermediary": proxy, gateway, and tunnel. In some cases, a si
+ intermediary might act as an origin server, proxy, gateway, or
+ tunnel, switching behavior based on the nature of each request.
+
+ > > > >
+ UA =========== A =========== B =========== C =========== O
+ < < < <
+
+ Figure 2
+
+ The figure above shows three intermediaries (A, B, and C) betwe
+ user agent and origin server. A request or response message tha
+ travels the whole chain will pass through four separate connect
+ Some HTTP communication options might apply only to the connect
+ with the nearest, non-tunnel neighbor, only to the endpoints of
+ chain, or to all connections along the chain. Although the diag
+ is linear, each participant might be engaged in multiple,
+ simultaneous communications. For example, B might be receiving
+ requests from many clients other than A, and/or forwarding requ
+ to servers other than C, at the same time that it is handling A
+ request. Likewise, later requests might be sent through a diffe
+ path of connections, often based on dynamic configuration for l
+ balancing.
+
+ The terms "upstream" and "downstream" are used to describe
+ directional requirements in relation to the message flow: all
+ messages flow from upstream to downstream. The terms "inbound" 
+ "outbound" are used to describe directional requirements in rel
+ to the request route: inbound means "toward the origin server",
+ whereas outbound means "toward the user agent".
+
+ A "proxy" is a message-forwarding agent that is chosen by the c
+ usually via local configuration rules, to receive requests for 
+ type(s) of absolute URI and attempt to satisfy those requests v
+ translation through the HTTP interface. Some translations are
+ minimal, such as for proxy requests for "http" URIs, whereas ot
+ requests might require translation to and from entirely differe
+ application-level protocols. Proxies are often used to group an
+ organization's HTTP requests through a common intermediary for 
+ sake of security services, annotation services, or shared cachi
+ Some proxies are designed to apply transformations to selected
+ messages or content while they are being forwarded, as describe
+ Section 7.7.
+
+ A "gateway" (a.k.a. "reverse proxy") is an intermediary that ac
+ an origin server for the outbound connection but translates rec
+ requests and forwards them inbound to another server or servers
+ Gateways are often used to encapsulate legacy or untrusted
+ information services, to improve server performance through
+ "accelerator" caching, and to enable partitioning or load balan
+ of HTTP services across multiple machines.
+
+ All HTTP requirements applicable to an origin server also apply
+ the outbound communication of a gateway. A gateway communicates
+ inbound servers using any protocol that it desires, including p
+ extensions to HTTP that are outside the scope of this specifica
+ However, an HTTP-to-HTTP gateway that wishes to interoperate wi
+ third-party HTTP servers needs to conform to user agent require
+ on the gateway's inbound connection.
+
+ A "tunnel" acts as a blind relay between two connections withou
+ changing the messages. Once active, a tunnel is not considered 
+ party to the HTTP communication, though the tunnel might have b
+ initiated by an HTTP request. A tunnel ceases to exist when bot
+ ends of the relayed connection are closed. Tunnels are used to
+ extend a virtual connection through an intermediary, such as wh
+ Transport Layer Security (TLS, [TLS13]) is used to establish
+ confidential communication through a shared firewall proxy.
+
+ The above categories for intermediary only consider those actin
+ participants in the HTTP communication. There are also
+ intermediaries that can act on lower layers of the network prot
+ stack, filtering or redirecting HTTP traffic without the knowle
+ permission of message senders. Network intermediaries are
+ indistinguishable (at a protocol level) from an on-path attacke
+ often introducing security flaws or interoperability problems d
+ mistakenly violating HTTP semantics.
+
+ For example, an "interception proxy" [RFC3040] (also commonly k
+ as a "transparent proxy" [RFC1919]) differs from an HTTP proxy
+ because it is not chosen by the client. Instead, an interceptio
+ proxy filters or redirects outgoing TCP port 80 packets (and
+ occasionally other common port traffic). Interception proxies a
+ commonly found on public network access points, as a means of
+ enforcing account subscription prior to allowing use of non-loc
+ Internet services, and within corporate firewalls to enforce ne
+ usage policies.
+
+3.8. Caches
+
+ A "cache" is a local store of previous response messages and th
+ subsystem that controls its message storage, retrieval, and del
+ A cache stores cacheable responses in order to reduce the respo
+ time and network bandwidth consumption on future, equivalent
+ requests. Any client or server MAY employ a cache, though a cac
+ cannot be used while acting as a tunnel.
+
+ The effect of a cache is that the request/response chain is sho
+ if one of the participants along the chain has a cached respons
+ applicable to that request. The following illustrates the resul
+ chain if B has a cached copy of an earlier response from O (via
+ for a request that has not been cached by UA or A.
+
+ > >
+ UA =========== A =========== B - - - - - - C - - - - - - O
+ < <
+
+ Figure 3
+
+ A response is "cacheable" if a cache is allowed to store a copy
+ the response message for use in answering subsequent requests. 
+ when a response is cacheable, there might be additional constra
+ placed by the client or by the origin server on when that cache
+ response can be used for a particular request. HTTP requirement
+ cache behavior and cacheable responses are defined in [CACHING]
+
+ There is a wide variety of architectures and configurations of 
+ deployed across the World Wide Web and inside large organizatio
+ These include national hierarchies of proxy caches to save band
+ and reduce latency, content delivery networks that use gateway
+ caching to optimize regional and global distribution of popular
+ sites, collaborative systems that broadcast or multicast cache
+ entries, archives of pre-fetched cache entries for use in off-l
+ high-latency environments, and so on.
+
+3.9. Example Message Exchange
+
+ The following example illustrates a typical HTTP/1.1 message ex
+ for a GET request (Section 9.3.1) on the URI "http://www.exampl
+ hello.txt":
+
+ Client request:
+
+ GET /hello.txt HTTP/1.1
+ User-Agent: curl/7.64.1
+ Host: www.example.com
+ Accept-Language: en, mi
+
+ Server response:
+
+ HTTP/1.1 200 OK
+ Date: Mon, 27 Jul 2009 12:28:53 GMT
+ Server: Apache
+ Last-Modified: Wed, 22 Jul 2009 19:15:56 GMT
+ ETag: "34aa387-d-1568eb00"
+ Accept-Ranges: bytes
+ Content-Length: 51
+ Vary: Accept-Encoding
+ Content-Type: text/plain
+
+ Hello World! My content includes a trailing CRLF.
+
+4. Identifiers in HTTP
+
+ Uniform Resource Identifiers (URIs) [URI] are used throughout H
+ the means for identifying resources (Section 3.1).
+
+4.1. URI References
+
+ URI references are used to target requests, indicate redirects,
+ define relationships.
+
+ The definitions of "URI-reference", "absolute-URI", "relative-p
+ "authority", "port", "host", "path-abempty", "segment", and "qu
+ are adopted from the URI generic syntax. An "absolute-path" rul
+ defined for protocol elements that can contain a non-empty path
+ component. (This rule differs slightly from the path-abempty ru
+ RFC 3986, which allows for an empty path, and path-absolute rul
+ which does not allow paths that begin with "//".) A "partial-UR
+ rule is defined for protocol elements that can contain a relati
+ but not a fragment component.
+
+ URI-reference = 
+ absolute-URI = 
+ relative-part = 
+ authority = 
+ uri-host = 
+ port = 
+ path-abempty = 
+ segment = 
+ query = 
+
+ absolute-path = 1*( "/" segment )
+ partial-URI = relative-part [ "?" query ]
+
+ Each protocol element in HTTP that allows a URI reference will
+ indicate in its ABNF production whether the element allows any 
+ of reference (URI-reference), only a URI in absolute form (abso
+ URI), only the path and optional query components (partial-URI)
+ some combination of the above. Unless otherwise indicated, URI
+ references are parsed relative to the target URI (Section 7.1).
+
+ It is RECOMMENDED that all senders and recipients support, at a
+ minimum, URIs with lengths of 8000 octets in protocol elements.
+ that this implies some structures and on-wire representations (
+ example, the request line in HTTP/1.1) will necessarily be larg
+ some cases.
+
+4.2. HTTP-Related URI Schemes
+
+ IANA maintains the registry of URI Schemes [BCP35] at
+. Although requests
+ might target any URI scheme, the following schemes are inherent
+ HTTP servers:
+
+ +============+====================================+=========+
+ | URI Scheme | Description | Section |
+ +============+====================================+=========+
+ | http | Hypertext Transfer Protocol | 4.2.1 |
+ +------------+------------------------------------+---------+
+ | https | Hypertext Transfer Protocol Secure | 4.2.2 |
+ +------------+------------------------------------+---------+
+
+ Table 2
+
+ Note that the presence of an "http" or "https" URI does not imp
+ that there is always an HTTP server at the identified origin
+ listening for connections. Anyone can mint a URI, whether or no
+ server exists and whether or not that server currently maps tha
+ identifier to a resource. The delegated nature of registered na
+ and IP addresses creates a federated namespace whether or not a
+ server is present.
+
+4.2.1. http URI Scheme
+
+ The "http" URI scheme is hereby defined for minting identifiers
+ within the hierarchical namespace governed by a potential HTTP 
+ server listening for TCP ([TCP]) connections on a given port.
+
+ http-URI = "http" "://" authority path-abempty [ "?" query ]
+
+ The origin server for an "http" URI is identified by the author
+ component, which includes a host identifier ([URI], Section 3.2
+ and optional port number ([URI], Section 3.2.3). If the port
+ subcomponent is empty or not given, TCP port 80 (the reserved p
+ for WWW services) is the default. The origin determines who has
+ right to respond authoritatively to requests that target the
+ identified resource, as defined in Section 4.3.2.
+
+ A sender MUST NOT generate an "http" URI with an empty host
+ identifier. A recipient that processes such a URI reference MUS
+ reject it as invalid.
+
+ The hierarchical path component and optional query component id
+ the target resource within that origin server's namespace.
+
+4.2.2. https URI Scheme
+
+ The "https" URI scheme is hereby defined for minting identifier
+ within the hierarchical namespace governed by a potential origi
+ server listening for TCP connections on a given port and capabl
+ establishing a TLS ([TLS13]) connection that has been secured f
+ HTTP communication. In this context, "secured" specifically mea
+ that the server has been authenticated as acting on behalf of t
+ identified authority and all HTTP communication with that serve
+ confidentiality and integrity protection that is acceptable to 
+ client and server.
+
+ https-URI = "https" "://" authority path-abempty [ "?" query ]
+
+ The origin server for an "https" URI is identified by the autho
+ component, which includes a host identifier ([URI], Section 3.2
+ and optional port number ([URI], Section 3.2.3). If the port
+ subcomponent is empty or not given, TCP port 443 (the reserved 
+ for HTTP over TLS) is the default. The origin determines who ha
+ right to respond authoritatively to requests that target the
+ identified resource, as defined in Section 4.3.3.
+
+ A sender MUST NOT generate an "https" URI with an empty host
+ identifier. A recipient that processes such a URI reference MUS
+ reject it as invalid.
+
+ The hierarchical path component and optional query component id
+ the target resource within that origin server's namespace.
+
+ A client MUST ensure that its HTTP requests for an "https" reso
+ are secured, prior to being communicated, and that it only acce
+ secured responses to those requests. Note that the definition o
+ what cryptographic mechanisms are acceptable to client and serv
+ usually negotiated and can change over time.
+
+ Resources made available via the "https" scheme have no shared
+ identity with the "http" scheme. They are distinct origins with
+ separate namespaces. However, extensions to HTTP that are defin
+ applying to all origins with the same host, such as the Cookie
+ protocol [COOKIE], allow information set by one service to impa
+ communication with other services within a matching group of ho
+ domains. Such extensions ought to be designed with great care t
+ prevent information obtained from a secured connection being
+ inadvertently exchanged within an unsecured context.
+
+4.2.3. http(s) Normalization and Comparison
+
+ URIs with an "http" or "https" scheme are normalized and compar
+ according to the methods defined in Section 6 of [URI], using t
+ defaults described above for each scheme.
+
+ HTTP does not require the use of a specific method for determin
+ equivalence. For example, a cache key might be compared as a si
+ string, after syntax-based normalization, or after scheme-based
+ normalization.
+
+ Scheme-based normalization (Section 6.2.3 of [URI]) of "http" a
+ "https" URIs involves the following additional rules:
+
+ * If the port is equal to the default port for a scheme, the no
+ form is to omit the port subcomponent.
+
+ * When not being used as the target of an OPTIONS request, an e
+ path component is equivalent to an absolute path of "/", so the
+ normal form is to provide a path of "/" instead.
+
+ * The scheme and host are case-insensitive and normally provide
+ lowercase; all other components are compared in a case-sensitiv
+ manner.
+
+ * Characters other than those in the "reserved" set are equival
+ to their percent-encoded octets: the normal form is to not enco
+ them (see Sections 2.1 and 2.2 of [URI]).
+
+ For example, the following three URIs are equivalent:
+
+ http://example.com:80/~smith/home.html
+ http://EXAMPLE.com/%7Esmith/home.html
+ http://EXAMPLE.com:/%7esmith/home.html
+
+ Two HTTP URIs that are equivalent after normalization (using an
+ method) can be assumed to identify the same resource, and any H
+ component MAY perform normalization. As a result, distinct reso
+ SHOULD NOT be identified by HTTP URIs that are equivalent after
+ normalization (using any method defined in Section 6.2 of [URI]
+
+4.2.4. Deprecation of userinfo in http(s) URIs
+
+ The URI generic syntax for authority also includes a userinfo
+ subcomponent ([URI], Section 3.2.1) for including user authenti
+ information in the URI. In that subcomponent, the use of the fo
+ "user:password" is deprecated.
+
+ Some implementations make use of the userinfo component for int
+ configuration of authentication information, such as within com
+ invocation options, configuration files, or bookmark lists, eve
+ though such usage might expose a user identifier or password.
+
+ A sender MUST NOT generate the userinfo subcomponent (and its "
+ delimiter) when an "http" or "https" URI reference is generated
+ within a message as a target URI or field value.
+
+ Before making use of an "http" or "https" URI reference receive
+ an untrusted source, a recipient SHOULD parse for userinfo and 
+ its presence as an error; it is likely being used to obscure th
+ authority for the sake of phishing attacks.
+
+4.2.5. http(s) References with Fragment Identifiers
+
+ Fragment identifiers allow for indirect identification of a sec
+ resource, independent of the URI scheme, as defined in Section 
+ [URI]. Some protocol elements that refer to a URI allow inclusi
+ a fragment, while others do not. They are distinguished by use 
+ the ABNF rule for elements where fragment is allowed; otherwise
+ specific rule that excludes fragments is used.
+
+ | *Note:* The fragment identifier component is not part of the
+ | scheme definition for a URI scheme (see Section 4.3 of [URI])
+ | thus does not appear in the ABNF definitions for the "http" a
+ | "https" URI schemes above.
+
+4.3. Authoritative Access
+
+ Authoritative access refers to dereferencing a given identifier
+ the sake of access to the identified resource, in a way that th
+ client believes is authoritative (controlled by the resource ow
+ The process for determining whether access is granted is define
+ the URI scheme and often uses data within the URI components, s
+ the authority component when the generic syntax is used. Howeve
+ authoritative access is not limited to the identified mechanism
+
+ Section 4.3.1 defines the concept of an origin as an aid to suc
+ uses, and the subsequent subsections explain how to establish t
+ peer has the authority to represent an origin.
+
+ See Section 17.1 for security considerations related to establi
+ authority.
+
+4.3.1. URI Origin
+
+ The "origin" for a given URI is the triple of scheme, host, and
+ after normalizing the scheme and host to lowercase and normaliz
+ the port to remove any leading zeros. If port is elided from th
+ URI, the default port for that scheme is used. For example, the
+
+ https://Example.Com/happy.js
+
+ would have the origin
+
+ { "https", "example.com", "443" }
+
+ which can also be described as the normalized URI prefix with p
+ always present:
+
+ https://example.com:443
+
+ Each origin defines its own namespace and controls how identifi
+ within that namespace are mapped to resources. In turn, how the
+ origin responds to valid requests, consistently over time, dete
+ the semantics that users will associate with a URI, and the
+ usefulness of those semantics is what ultimately transforms the
+ mechanisms into a resource for users to reference and access in
+ future.
+
+ Two origins are distinct if they differ in scheme, host, or por
+ Even when it can be verified that the same entity controls two
+ distinct origins, the two namespaces under those origins are di
+ unless explicitly aliased by a server authoritative for that or
+
+ Origin is also used within HTML and related Web protocols, beyo
+ scope of this document, as described in [RFC6454].
+
+4.3.2. http Origins
+
+ Although HTTP is independent of the transport protocol, the "ht
+ scheme (Section 4.2.1) is specific to associating authority wit
+ whomever controls the origin server listening for TCP connectio
+ the indicated port of whatever host is identified within the
+ authority component. This is a very weak sense of authority bec
+ it depends on both client-specific name resolution mechanisms a
+ communication that might not be secured from an on-path attacke
+ Nevertheless, it is a sufficient minimum for binding "http"
+ identifiers to an origin server for consistent resolution withi
+ trusted environment.
+
+ If the host identifier is provided as an IP address, the origin
+ server is the listener (if any) on the indicated TCP port at th
+ address. If host is a registered name, the registered name is a
+ indirect identifier for use with a name resolution service, suc
+ DNS, to find an address for an appropriate origin server.
+
+ When an "http" URI is used within a context that calls for acce
+ the indicated resource, a client MAY attempt access by resolvin
+ host identifier to an IP address, establishing a TCP connection
+ that address on the indicated port, and sending over that conne
+ an HTTP request message containing a request target that matche
+ client's target URI (Section 7.1).
+
+ If the server responds to such a request with a non-interim HTT
+ response message, as described in Section 15, then that respons
+ considered an authoritative answer to the client's request.
+
+ Note, however, that the above is not the only means for obtaini
+ authoritative response, nor does it imply that an authoritative
+ response is always necessary (see [CACHING]). For example, the 
+ Svc header field [ALTSVC] allows an origin server to identify o
+ services that are also authoritative for that origin. Access to
+ "http" identified resources might also be provided by protocols
+ outside the scope of this document.
+
+4.3.3. https Origins
+
+ The "https" scheme (Section 4.2.2) associates authority based o
+ ability of a server to use the private key corresponding to a
+ certificate that the client considers to be trustworthy for the
+ identified origin server. The client usually relies upon a chai
+ trust, conveyed from some prearranged or configured trust ancho
+ deem a certificate trustworthy (Section 4.3.4).
+
+ In HTTP/1.1 and earlier, a client will only attribute authority
+ server when they are communicating over a successfully establis
+ and secured connection specifically to that URI origin's host. 
+ connection establishment and certificate verification are used 
+ proof of authority.
+
+ In HTTP/2 and HTTP/3, a client will attribute authority to a se
+ when they are communicating over a successfully established and
+ secured connection if the URI origin's host matches any of the 
+ present in the server's certificate and the client believes tha
+ could open a connection to that host for that URI. In practice,
+ client will make a DNS query to check that the origin's host co
+ the same server IP address as the established connection. This
+ restriction can be removed by the origin server sending an equi
+ ORIGIN frame [RFC8336].
+
+ The request target's host and port value are passed within each
+ request, identifying the origin and distinguishing it from othe
+ namespaces that might be controlled by the same server (Section
+ It is the origin's responsibility to ensure that any services
+ provided with control over its certificate's private key are eq
+ responsible for managing the corresponding "https" namespaces o
+ least prepared to reject requests that appear to have been
+ misdirected (Section 7.4).
+
+ An origin server might be unwilling to process requests for cer
+ target URIs even when they have the authority to do so. For exa
+ when a host operates distinct services on different ports (e.g.
+ and 8000), checking the target URI at the origin server is nece
+ (even after the connection has been secured) because a network
+ attacker might cause connections for one port to be received at
+ other port. Failing to check the target URI might allow such an
+ attacker to replace a response to one target URI (e.g.,
+ "https://example.com/foo") with a seemingly authoritative respo
+ from the other port (e.g., "https://example.com:8000/foo").
+
+ Note that the "https" scheme does not rely on TCP and the conne
+ port number for associating authority, since both are outside t
+ secured communication and thus cannot be trusted as definitive.
+ Hence, the HTTP communication might take place over any channel
+ has been secured, as defined in Section 4.2.2, including protoc
+ that don't use TCP.
+
+ When an "https" URI is used within a context that calls for acc
+ the indicated resource, a client MAY attempt access by resolvin
+ host identifier to an IP address, establishing a TCP connection
+ that address on the indicated port, securing the connection end
+ end by successfully initiating TLS over TCP with confidentialit
+ integrity protection, and sending over that connection an HTTP
+ request message containing a request target that matches the cl
+ target URI (Section 7.1).
+
+ If the server responds to such a request with a non-interim HTT
+ response message, as described in Section 15, then that respons
+ considered an authoritative answer to the client's request.
+
+ Note, however, that the above is not the only means for obtaini
+ authoritative response, nor does it imply that an authoritative
+ response is always necessary (see [CACHING]).
+
+4.3.4. https Certificate Verification
+
+ To establish a secured connection to dereference a URI, a clien
+ verify that the service's identity is an acceptable match for t
+ URI's origin server. Certificate verification is used to preven
+ server impersonation by an on-path attacker or by an attacker t
+ controls name resolution. This process requires that a client b
+ configured with a set of trust anchors.
+
+ In general, a client MUST verify the service identity using the
+ verification process defined in Section 6 of [RFC6125]. The cli
+ MUST construct a reference identity from the service's host: if
+ host is a literal IP address (Section 4.3.5), the reference ide
+ is an IP-ID, otherwise the host is a name and the reference ide
+ is a DNS-ID.
+
+ A reference identity of type CN-ID MUST NOT be used by clients.
+ noted in Section 6.2.1 of [RFC6125], a reference identity of ty
+ ID might be used by older clients.
+
+ A client might be specially configured to accept an alternative
+ of server identity verification. For example, a client might be
+ connecting to a server whose address and hostname are dynamic, 
+ an expectation that the service will present a specific certifi
+ (or a certificate matching some externally defined reference
+ identity) rather than one matching the target URI's origin.
+
+ In special cases, it might be appropriate for a client to simpl
+ ignore the server's identity, but it must be understood that th
+ leaves a connection open to active attack.
+
+ If the certificate is not valid for the target URI's origin, a 
+ agent MUST either obtain confirmation from the user before proc
+ (see Section 3.5) or terminate the connection with a bad certif
+ error. Automated clients MUST log the error to an appropriate a
+ log (if available) and SHOULD terminate the connection (with a 
+ certificate error). Automated clients MAY provide a configurati
+ setting that disables this check, but MUST provide a setting wh
+ enables it.
+
+4.3.5. IP-ID Reference Identity
+
+ A server that is identified using an IP address literal in the 
+ field of an "https" URI has a reference identity of type IP-ID.
+ IP version 4 address uses the "IPv4address" ABNF rule, and an I
+ version 6 address uses the "IP-literal" production with the
+ "IPv6address" option; see Section 3.2.2 of [URI]. A reference
+ identity of IP-ID contains the decoded bytes of the IP address.
+
+ An IP version 4 address is 4 octets, and an IP version 6 addres
+ 16 octets. Use of IP-ID is not defined for any other IP version
+ The iPAddress choice in the certificate subjectAltName extensio
+ not explicitly include the IP version and so relies on the leng
+ the address to distinguish versions; see Section 4.2.1.6 of
+ [RFC5280].
+
+ A reference identity of type IP-ID matches if the address is
+ identical to an iPAddress value of the subjectAltName extension
+ the certificate.
+
+5. Fields
+
+ HTTP uses "fields" to provide data in the form of extensible na
+ value pairs with a registered key namespace. Fields are sent an
+ received within the header and trailer sections of messages
+ (Section 6).
+
+5.1. Field Names
+
+ A field name labels the corresponding field value as having the
+ semantics defined by that name. For example, the Date header fi
+ is defined in Section 6.6.1 as containing the origination times
+ for the message in which it appears.
+
+ field-name = token
+
+ Field names are case-insensitive and ought to be registered wit
+ the "Hypertext Transfer Protocol (HTTP) Field Name Registry"; s
+ Section 16.3.1.
+
+ The interpretation of a field does not change between minor ver
+ of the same major HTTP version, though the default behavior of 
+ recipient in the absence of such a field can change. Unless
+ specified otherwise, fields are defined for all versions of HTT
+ particular, the Host and Connection fields ought to be recogniz
+ all HTTP implementations whether or not they advertise conforma
+ with HTTP/1.1.
+
+ New fields can be introduced without changing the protocol vers
+ their defined semantics allow them to be safely ignored by reci
+ that do not recognize them; see Section 16.3.
+
+ A proxy MUST forward unrecognized header fields unless the fiel
+ is listed in the Connection header field (Section 7.6.1) or the
+ is specifically configured to block, or otherwise transform, su
+ fields. Other recipients SHOULD ignore unrecognized header and
+ trailer fields. Adhering to these requirements allows HTTP's
+ functionality to be extended without updating or removing deplo
+ intermediaries.
+
+5.2. Field Lines and Combined Field Value
+
+ Field sections are composed of any number of "field lines", eac
+ a "field name" (see Section 5.1) identifying the field, and a "
+ line value" that conveys data for that instance of the field.
+
+ When a field name is only present once in a section, the combin
+ "field value" for that field consists of the corresponding fiel
+ value. When a field name is repeated within a section, its comb
+ field value consists of the list of corresponding field line va
+ within that section, concatenated in order, with each field lin
+ value separated by a comma.
+
+ For example, this section:
+
+ Example-Field: Foo, Bar
+ Example-Field: Baz
+
+ contains two field lines, both with the field name "Example-Fie
+ The first field line has a field line value of "Foo, Bar", whil
+ second field line value is "Baz". The field value for "Example-
+ Field" is the list "Foo, Bar, Baz".
+
+5.3. Field Order
+
+ A recipient MAY combine multiple field lines within a field sec
+ that have the same field name into one field line, without chan
+ the semantics of the message, by appending each subsequent fiel
+ value to the initial field line value in order, separated by a 
+ (",") and optional whitespace (OWS, defined in Section 5.6.3). 
+ consistency, use comma SP.
+
+ The order in which field lines with the same name are received 
+ therefore significant to the interpretation of the field value;
+ proxy MUST NOT change the order of these field line values when
+ forwarding a message.
+
+ This means that, aside from the well-known exception noted belo
+ sender MUST NOT generate multiple field lines with the same nam
+ message (whether in the headers or trailers) or append a field 
+ when a field line of the same name already exists in the messag
+ unless that field's definition allows multiple field line value
+ be recombined as a comma-separated list (i.e., at least one
+ alternative of the field's definition allows a comma-separated 
+ such as an ABNF rule of #(values) defined in Section 5.6.1).
+
+ | *Note:* In practice, the "Set-Cookie" header field ([COOKIE])
+ | often appears in a response message across multiple field lin
+ | and does not use the list syntax, violating the above
+ | requirements on multiple field lines with the same field name
+ | Since it cannot be combined into a single field value,
+ | recipients ought to handle "Set-Cookie" as a special case whi
+ | processing fields. (See Appendix A.2.3 of [Kri2001] for
+ | details.)
+
+ The order in which field lines with differing field names are
+ received in a section is not significant. However, it is good
+ practice to send header fields that contain additional control 
+ first, such as Host on requests and Date on responses, so that
+ implementations can decide when not to handle a message as earl
+ possible.
+
+ A server MUST NOT apply a request to the target resource until 
+ receives the entire request header section, since later header 
+ lines might include conditionals, authentication credentials, o
+ deliberately misleading duplicate header fields that could impa
+ request processing.
+
+5.4. Field Limits
+
+ HTTP does not place a predefined limit on the length of each fi
+ line, field value, or on the length of a header or trailer sect
+ a whole, as described in Section 2. Various ad hoc limitations 
+ individual lengths are found in practice, often depending on th
+ specific field's semantics.
+
+ A server that receives a request header field line, field value
+ set of fields larger than it wishes to process MUST respond wit
+ appropriate 4xx (Client Error) status code. Ignoring such heade
+ fields would increase the server's vulnerability to request smu
+ attacks (Section 11.2 of [HTTP/1.1]).
+
+ A client MAY discard or truncate received field lines that are 
+ than the client wishes to process if the field semantics are su
+ that the dropped value(s) can be safely ignored without changin
+ message framing or response semantics.
+
+5.5. Field Values
+
+ HTTP field values consist of a sequence of characters in a form
+ defined by the field's grammar. Each field's grammar is usually
+ defined using ABNF ([RFC5234]).
+
+ field-value = *field-content
+ field-content = field-vchar
+ [ 1*( SP / HTAB / field-vchar ) field-vchar ]
+ field-vchar = VCHAR / obs-text
+ obs-text = %x80-FF
+
+ A field value does not include leading or trailing whitespace. 
+ a specific version of HTTP allows such whitespace to appear in 
+ message, a field parsing implementation MUST exclude such white
+ prior to evaluating the field value.
+
+ Field values are usually constrained to the range of US-ASCII
+ characters [USASCII]. Fields needing a greater range of charact
+ can use an encoding, such as the one defined in [RFC8187].
+ Historically, HTTP allowed field content with text in the ISO-8
+ charset [ISO-8859-1], supporting other charsets only through us
+ [RFC2047] encoding. Specifications for newly defined fields SHO
+ limit their values to visible US-ASCII octets (VCHAR), SP, and 
+ A recipient SHOULD treat other allowed octets in field content 
+ obs-text) as opaque data.
+
+ Field values containing CR, LF, or NUL characters are invalid a
+ dangerous, due to the varying ways that implementations might p
+ and interpret those characters; a recipient of CR, LF, or NUL w
+ a field value MUST either reject the message or replace each of
+ characters with SP before further processing or forwarding of t
+ message. Field values containing other CTL characters are also
+ invalid; however, recipients MAY retain such characters for the
+ of robustness when they appear within a safe context (e.g., an
+ application-specific quoted string that will not be processed b
+ downstream HTTP parser).
+
+ Fields that only anticipate a single member as the field value 
+ referred to as "singleton fields".
+
+ Fields that allow multiple members as the field value are refer
+ as "list-based fields". The list operator extension of Section 
+ is used as a common notation for defining field values that can
+ contain multiple members.
+
+ Because commas (",") are used as the delimiter between members,
+ need to be treated with care if they are allowed as data within
+ member. This is true for both list-based and singleton fields, 
+ a singleton field might be erroneously sent with multiple membe
+ detecting such errors improves interoperability. Fields that ex
+ to contain a comma within a member, such as within an HTTP-date
+ URI-reference element, ought to be defined with delimiters arou
+ that element to distinguish any comma within that data from pot
+ list separators.
+
+ For example, a textual date and a URI (either of which might co
+ a comma) could be safely carried in list-based field values lik
+ these:
+
+ Example-URIs: "http://example.com/a.html,foo",
+ "http://without-a-comma.example.com/"
+ Example-Dates: "Sat, 04 May 1996", "Wed, 14 Sep 2005"
+
+ Note that double-quote delimiters are almost always used with t
+ quoted-string production (Section 5.6.4); using a different syn
+ inside double-quotes will likely cause unnecessary confusion.
+
+ Many fields (such as Content-Type, defined in Section 8.3) use 
+ common syntax for parameters that allows both unquoted (token) 
+ quoted (quoted-string) syntax for a parameter value (Section 5.
+ Use of common syntax allows recipients to reuse existing parser
+ components. When allowing both forms, the meaning of a paramete
+ value ought to be the same whether it was received as a token o
+ quoted string.
+
+ | *Note:* For defining field value syntax, this specification
+ | uses an ABNF rule named after the field name to define the
+ | allowed grammar for that field's value (after said value has
+ | been extracted from the underlying messaging syntax and
+ | multiple instances combined into a list).
+
+5.6. Common Rules for Defining Field Values
+
+5.6.1. Lists (#rule ABNF Extension)
+
+ A #rule extension to the ABNF rules of [RFC5234] is used to imp
+ readability in the definitions of some list-based field values.
+
+ A construct "#" is defined, similar to "*", for defining comma-
+ delimited lists of elements. The full form is " # element"
+ indicating at least and at most elements, each separated by a
+ single comma (",") and optional whitespace (OWS, defined in
+ Section 5.6.3).
+
+5.6.1.1. Sender Requirements
+
+ In any production that uses the list construct, a sender MUST N
+ generate empty list elements. In other words, a sender has to
+ generate lists that satisfy the following syntax:
+
+ 1#element => element *( OWS "," OWS element )
+
+ and:
+
+ #element => [ 1#element ]
+
+ and for n >= 1 and m > 1:
+
+ # element => element * ( OWS "," OWS element )
+
+ Appendix A shows the collected ABNF for senders after the list
+ constructs have been expanded.
+
+5.6.1.2. Recipient Requirements
+
+ Empty elements do not contribute to the count of elements prese
+ recipient MUST parse and ignore a reasonable number of empty li
+ elements: enough to handle common mistakes by senders that merg
+ values, but not so much that they could be used as a denial-of-
+ service mechanism. In other words, a recipient MUST accept list
+ that satisfy the following syntax:
+
+ #element => [ element ] *( OWS "," OWS [ element ] )
+
+ Note that because of the potential presence of empty list eleme
+ the RFC 5234 ABNF cannot enforce the cardinality of list elemen
+ and consequently all cases are mapped as if there was no cardin
+ specified.
+
+ For example, given these ABNF productions:
+
+ example-list = 1#example-list-elmt
+ example-list-elmt = token ; see Section 5.6.2
+
+ Then the following are valid values for example-list (not inclu
+ the double quotes, which are present for delimitation only):
+
+ "foo,bar"
+ "foo ,bar,"
+ "foo , ,bar,charlie"
+
+ In contrast, the following values would be invalid, since at le
+ one non-empty element is required by the example-list productio
+
+ ""
+ ","
+ ", ,"
+
+5.6.2. Tokens
+
+ Tokens are short textual identifiers that do not include whites
+ or delimiters.
+
+ token = 1*tchar
+
+ tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*"
+ / "+" / "-" / "." / "^" / "_" / "`" / "|" / "~"
+ / DIGIT / ALPHA
+ ; any VCHAR, except delimiters
+
+ Many HTTP field values are defined using common syntax componen
+ separated by whitespace or specific delimiting characters.
+ Delimiters are chosen from the set of US-ASCII visual character
+ allowed in a token (DQUOTE and "(),/:;<=>?@[\]{}").
+
+5.6.3. Whitespace
+
+ This specification uses three rules to denote the use of linear
+ whitespace: OWS (optional whitespace), RWS (required whitespace
+ BWS ("bad" whitespace).
+
+ The OWS rule is used where zero or more linear whitespace octet
+ might appear. For protocol elements where optional whitespace i
+ preferred to improve readability, a sender SHOULD generate the
+ optional whitespace as a single SP; otherwise, a sender SHOULD 
+ generate optional whitespace except as needed to overwrite inva
+ unwanted protocol elements during in-place message filtering.
+
+ The RWS rule is used when at least one linear whitespace octet 
+ required to separate field tokens. A sender SHOULD generate RWS
+ single SP.
+
+ OWS and RWS have the same semantics as a single SP. Any content
+ known to be defined as OWS or RWS MAY be replaced with a single
+ before interpreting it or forwarding the message downstream.
+
+ The BWS rule is used where the grammar allows optional whitespa
+ only for historical reasons. A sender MUST NOT generate BWS in
+ messages. A recipient MUST parse for such bad whitespace and re
+ it before interpreting the protocol element.
+
+ BWS has no semantics. Any content known to be defined as BWS MA
+ removed before interpreting it or forwarding the message downst
+
+ OWS = *( SP / HTAB )
+ ; optional whitespace
+ RWS = 1*( SP / HTAB )
+ ; required whitespace
+ BWS = OWS
+ ; "bad" whitespace
+
+5.6.4. Quoted Strings
+
+ A string of text is parsed as a single value if it is quoted us
+ double-quote marks.
+
+ quoted-string = DQUOTE *( qdtext / quoted-pair ) DQUOTE
+ qdtext = HTAB / SP / %x21 / %x23-5B / %x5D-7E / obs-text
+
+ The backslash octet ("\") can be used as a single-octet quoting
+ mechanism within quoted-string and comment constructs. Recipien
+ that process the value of a quoted-string MUST handle a quoted-
+ as if it were replaced by the octet following the backslash.
+
+ quoted-pair = "\" ( HTAB / SP / VCHAR / obs-text )
+
+ A sender SHOULD NOT generate a quoted-pair in a quoted-string e
+ where necessary to quote DQUOTE and backslash octets occurring 
+ that string. A sender SHOULD NOT generate a quoted-pair in a co
+ except where necessary to quote parentheses ["(" and ")"] and
+ backslash octets occurring within that comment.
+
+5.6.5. Comments
+
+ Comments can be included in some HTTP fields by surrounding the
+ comment text with parentheses. Comments are only allowed in fie
+ containing "comment" as part of their field value definition.
+
+ comment = "(" *( ctext / quoted-pair / comment ) ")"
+ ctext = HTAB / SP / %x21-27 / %x2A-5B / %x5D-7E / obs-text
+
+5.6.6. Parameters
+
+ Parameters are instances of name/value pairs; they are often us
+ field values as a common syntax for appending auxiliary informa
+ to an item. Each parameter is usually delimited by an immediate
+ preceding semicolon.
+
+ parameters = *( OWS ";" OWS [ parameter ] )
+ parameter = parameter-name "=" parameter-value
+ parameter-name = token
+ parameter-value = ( token / quoted-string )
+
+ Parameter names are case-insensitive. Parameter values might or
+ might not be case-sensitive, depending on the semantics of the
+ parameter name. Examples of parameters and some equivalent form
+ be seen in media types (Section 8.3.1) and the Accept header fi
+ (Section 12.5.1).
+
+ A parameter value that matches the token production can be
+ transmitted either as a token or within a quoted-string. The qu
+ and unquoted values are equivalent.
+
+ | *Note:* Parameters do not allow whitespace (not even "bad"
+ | whitespace) around the "=" character.
+
+5.6.7. Date/Time Formats
+
+ Prior to 1995, there were three different formats commonly used
+ servers to communicate timestamps. For compatibility with old
+ implementations, all three are defined here. The preferred form
+ a fixed-length and single-zone subset of the date and time
+ specification used by the Internet Message Format [RFC5322].
+
+ HTTP-date = IMF-fixdate / obs-date
+
+ An example of the preferred format is
+
+ Sun, 06 Nov 1994 08:49:37 GMT ; IMF-fixdate
+
+ Examples of the two obsolete formats are
+
+ Sunday, 06-Nov-94 08:49:37 GMT ; obsolete RFC 850 format
+ Sun Nov 6 08:49:37 1994 ; ANSI C's asctime() format
+
+ A recipient that parses a timestamp value in an HTTP field MUST
+ accept all three HTTP-date formats. When a sender generates a f
+ that contains one or more timestamps defined as HTTP-date, the 
+ MUST generate those timestamps in the IMF-fixdate format.
+
+ An HTTP-date value represents time as an instance of Coordinate
+ Universal Time (UTC). The first two formats indicate UTC by the
+ three-letter abbreviation for Greenwich Mean Time, "GMT", a
+ predecessor of the UTC name; values in the asctime format are a
+ to be in UTC.
+
+ A "clock" is an implementation capable of providing a reasonabl
+ approximation of the current instant in UTC. A clock implementa
+ ought to use NTP ([RFC5905]), or some similar protocol, to
+ synchronize with UTC.
+
+ Preferred format:
+
+ IMF-fixdate = day-name "," SP date1 SP time-of-day SP GMT
+ ; fixed length/zone/capitalization subset of the format
+ ; see Section 3.3 of [RFC5322]
+
+ day-name = %s"Mon" / %s"Tue" / %s"Wed"
+ / %s"Thu" / %s"Fri" / %s"Sat" / %s"Sun"
+
+ date1 = day SP month SP year
+ ; e.g., 02 Jun 1982
+
+ day = 2DIGIT
+ month = %s"Jan" / %s"Feb" / %s"Mar" / %s"Apr"
+ / %s"May" / %s"Jun" / %s"Jul" / %s"Aug"
+ / %s"Sep" / %s"Oct" / %s"Nov" / %s"Dec"
+ year = 4DIGIT
+
+ GMT = %s"GMT"
+
+ time-of-day = hour ":" minute ":" second
+ ; 00:00:00 - 23:59:60 (leap second)
+
+ hour = 2DIGIT
+ minute = 2DIGIT
+ second = 2DIGIT
+
+ Obsolete formats:
+
+ obs-date = rfc850-date / asctime-date
+
+ rfc850-date = day-name-l "," SP date2 SP time-of-day SP GMT
+ date2 = day "-" month "-" 2DIGIT
+ ; e.g., 02-Jun-82
+
+ day-name-l = %s"Monday" / %s"Tuesday" / %s"Wednesday"
+ / %s"Thursday" / %s"Friday" / %s"Saturday"
+ / %s"Sunday"
+
+ asctime-date = day-name SP date3 SP time-of-day SP year
+ date3 = month SP ( 2DIGIT / ( SP 1DIGIT ))
+ ; e.g., Jun 2
+
+ HTTP-date is case sensitive. Note that Section 4.2 of [CACHING]
+ relaxes this for cache recipients.
+
+ A sender MUST NOT generate additional whitespace in an HTTP-dat
+ beyond that specifically included as SP in the grammar. The
+ semantics of day-name, day, month, year, and time-of-day are th
+ as those defined for the Internet Message Format constructs wit
+ corresponding name ([RFC5322], Section 3.3).
+
+ Recipients of a timestamp value in rfc850-date format, which us
+ two-digit year, MUST interpret a timestamp that appears to be m
+ than 50 years in the future as representing the most recent yea
+ the past that had the same last two digits.
+
+ Recipients of timestamp values are encouraged to be robust in p
+ timestamps unless otherwise restricted by the field definition.
+ example, messages are occasionally forwarded over HTTP from a n
+ HTTP source that might generate any of the date and time
+ specifications defined by the Internet Message Format.
+
+ | *Note:* HTTP requirements for timestamp formats apply only to
+ | their usage within the protocol stream. Implementations are
+ | not required to use these formats for user presentation,
+ | request logging, etc.
+
+6. Message Abstraction
+
+ Each major version of HTTP defines its own syntax for communica
+ messages. This section defines an abstract data type for HTTP
+ messages based on a generalization of those message characteris
+ common structure, and capacity for conveying semantics. This
+ abstraction is used to define requirements on senders and recip
+ that are independent of the HTTP version, such that a message i
+ version can be relayed through other versions without changing 
+ meaning.
+
+ A "message" consists of the following:
+
+ * control data to describe and route the message,
+
+ * a headers lookup table of name/value pairs for extending that
+ control data and conveying additional information about the
+ sender, message, content, or context,
+
+ * a potentially unbounded stream of content, and
+
+ * a trailers lookup table of name/value pairs for communicating
+ information obtained while sending the content.
+
+ Framing and control data is sent first, followed by a header se
+ containing fields for the headers table. When a message include
+ content, the content is sent after the header section, potentia
+ followed by a trailer section that might contain fields for the
+ trailers table.
+
+ Messages are expected to be processed as a stream, wherein the
+ purpose of that stream and its continued processing is revealed
+ being read. Hence, control data describes what the recipient ne
+ to know immediately, header fields describe what needs to be kn
+ before receiving content, the content (when present) presumably
+ contains what the recipient wants or needs to fulfill the messa
+ semantics, and trailer fields provide optional metadata that wa
+ unknown prior to sending the content.
+
+ Messages are intended to be "self-descriptive": everything a
+ recipient needs to know about the message can be determined by
+ looking at the message itself, after decoding or reconstituting
+ that have been compressed or elided in transit, without requiri
+ understanding of the sender's current application state (establ
+ via prior messages). However, a client MUST retain knowledge of
+ request when parsing, interpreting, or caching a corresponding
+ response. For example, responses to the HEAD method look just l
+ the beginning of a response to GET but cannot be parsed in the 
+ manner.
+
+ Note that this message abstraction is a generalization across m
+ versions of HTTP, including features that might not be found in
+ versions. For example, trailers were introduced within the HTTP
+ chunked transfer coding as a trailer section after the content.
+ equivalent feature is present in HTTP/2 and HTTP/3 within the h
+ block that terminates each stream.
+
+6.1. Framing and Completeness
+
+ Message framing indicates how each message begins and ends, suc
+ each message can be distinguished from other messages or noise 
+ same connection. Each major version of HTTP defines its own fra
+ mechanism.
+
+ HTTP/0.9 and early deployments of HTTP/1.0 used closure of the
+ underlying connection to end a response. For backwards
+ compatibility, this implicit framing is also allowed in HTTP/1.
+ However, implicit framing can fail to distinguish an incomplete
+ response if the connection closes early. For that reason, almos
+ modern implementations use explicit framing in the form of leng
+ delimited sequences of message data.
+
+ A message is considered "complete" when all of the octets indic
+ by its framing are available. Note that, when no explicit frami
+ used, a response message that is ended by the underlying connec
+ close is considered complete even though it might be
+ indistinguishable from an incomplete response, unless a transpo
+ level error indicates that it is not complete.
+
+6.2. Control Data
+
+ Messages start with control data that describe its primary purp
+ Request message control data includes a request method (Section
+ request target (Section 7.1), and protocol version (Section 2.5
+ Response message control data includes a status code (Section 1
+ optional reason phrase, and protocol version.
+
+ In HTTP/1.1 ([HTTP/1.1]) and earlier, control data is sent as t
+ first line of a message. In HTTP/2 ([HTTP/2]) and HTTP/3 ([HTTP
+ control data is sent as pseudo-header fields with a reserved na
+ prefix (e.g., ":authority").
+
+ Every HTTP message has a protocol version. Depending on the ver
+ in use, it might be identified within the message explicitly or
+ inferred by the connection over which the message is received.
+ Recipients use that version information to determine limitation
+ potential for later communication with that sender.
+
+ When a message is forwarded by an intermediary, the protocol ve
+ is updated to reflect the version used by that intermediary. Th
+ header field (Section 7.6.3) is used to communicate upstream pr
+ information within a forwarded message.
+
+ A client SHOULD send a request version equal to the highest ver
+ to which the client is conformant and whose major version is no
+ higher than the highest version supported by the server, if thi
+ known. A client MUST NOT send a version to which it is not
+ conformant.
+
+ A client MAY send a lower request version if it is known that t
+ server incorrectly implements the HTTP specification, but only 
+ the client has attempted at least one normal request and determ
+ from the response status code or header fields (e.g., Server) t
+ the server improperly handles higher request versions.
+
+ A server SHOULD send a response version equal to the highest ve
+ to which the server is conformant that has a major version less
+ or equal to the one received in the request. A server MUST NOT 
+ a version to which it is not conformant. A server can send a 50
+ (HTTP Version Not Supported) response if it wishes, for any rea
+ to refuse service of the client's major protocol version.
+
+ A recipient that receives a message with a major version number
+ it implements and a minor version number higher than what it
+ implements SHOULD process the message as if it were in the high
+ minor version within that major version to which the recipient 
+ conformant. A recipient can assume that a message with a higher
+ minor version, when sent to a recipient that has not yet indica
+ support for that higher version, is sufficiently backwards-comp
+ to be safely processed by any implementation of the same major
+ version.
+
+6.3. Header Fields
+
+ Fields (Section 5) that are sent or received before the content
+ referred to as "header fields" (or just "headers", colloquially
+
+ The "header section" of a message consists of a sequence of hea
+ field lines. Each header field might modify or extend message
+ semantics, describe the sender, define the content, or provide
+ additional context.
+
+ | *Note:* We refer to named fields specifically as a "header
+ | field" when they are only allowed to be sent in the header
+ | section.
+
+6.4. Content
+
+ HTTP messages often transfer a complete or partial representati
+ the message "content": a stream of octets sent after the header
+ section, as delineated by the message framing.
+
+ This abstract definition of content reflects the data after it 
+ been extracted from the message framing. For example, an HTTP/1
+ message body (Section 6 of [HTTP/1.1]) might consist of a strea
+ data encoded with the chunked transfer coding -- a sequence of 
+ chunks, one zero-length chunk, and a trailer section -- whereas
+ content of that same message includes only the data stream afte
+ transfer coding has been decoded; it does not include the chunk
+ lengths, chunked framing syntax, nor the trailer fields
+ (Section 6.5).
+
+ | *Note:* Some field names have a "Content-" prefix. This is an
+ | informal convention; while some of these fields refer to the
+ | content of the message, as defined above, others are scoped t
+ | the selected representation (Section 3.2). See the individual
+ | field's definition to disambiguate.
+
+6.4.1. Content Semantics
+
+ The purpose of content in a request is defined by the method
+ semantics (Section 9).
+
+ For example, a representation in the content of a PUT request
+ (Section 9.3.4) represents the desired state of the target reso
+ after the request is successfully applied, whereas a representa
+ in the content of a POST request (Section 9.3.3) represents
+ information to be processed by the target resource.
+
+ In a response, the content's purpose is defined by the request
+ method, response status code (Section 15), and response fields
+ describing that content. For example, the content of a 200 (OK)
+ response to GET (Section 9.3.1) represents the current state of
+ target resource, as observed at the time of the message origina
+ date (Section 6.6.1), whereas the content of the same status co
+ a response to POST might represent either the processing result
+ the new state of the target resource after applying the process
+
+ The content of a 206 (Partial Content) response to GET contains
+ either a single part of the selected representation or a multip
+ message body containing multiple parts of that representation, 
+ described in Section 15.3.7.
+
+ Response messages with an error status code usually contain con
+ that represents the error condition, such that the content desc
+ the error state and what steps are suggested for resolving it.
+
+ Responses to the HEAD request method (Section 9.3.2) never incl
+ content; the associated response header fields indicate only wh
+ their values would have been if the request method had been GET
+ (Section 9.3.1).
+
+ 2xx (Successful) responses to a CONNECT request method
+ (Section 9.3.6) switch the connection to tunnel mode instead of
+ having content.
+
+ All 1xx (Informational), 204 (No Content), and 304 (Not Modifie
+ responses do not include content.
+
+ All other responses do include content, although that content m
+ be of zero length.
+
+6.4.2. Identifying Content
+
+ When a complete or partial representation is transferred as mes
+ content, it is often desirable for the sender to supply, or the
+ recipient to determine, an identifier for a resource correspond
+ that specific representation. For example, a client making a GE
+ request on a resource for "the current weather report" might wa
+ identifier specific to the content returned (e.g., "weather rep
+ for Laguna Beach at 20210720T1711"). This can be useful for sha
+ or bookmarking content from resources that are expected to have
+ changing representations over time.
+
+ For a request message:
+
+ * If the request has a Content-Location header field, then the
+ sender asserts that the content is a representation of the
+ resource identified by the Content-Location field value. Howeve
+ such an assertion cannot be trusted unless it can be verified b
+ other means (not defined by this specification). The informatio
+ might still be useful for revision history links.
+
+ * Otherwise, the content is unidentified by HTTP, but a more
+ specific identifier might be supplied within the content itself
+
+ For a response message, the following rules are applied in orde
+ until a match is found:
+
+ 1. If the request method is HEAD or the response status code is
+ (No Content) or 304 (Not Modified), there is no content in the
+ response.
+
+ 2. If the request method is GET and the response status code is
+ (OK), the content is a representation of the target resource
+ (Section 7.1).
+
+ 3. If the request method is GET and the response status code is
+ (Non-Authoritative Information), the content is a potentially
+ modified or enhanced representation of the target resource as
+ provided by an intermediary.
+
+ 4. If the request method is GET and the response status code is
+ (Partial Content), the content is one or more parts of a
+ representation of the target resource.
+
+ 5. If the response has a Content-Location header field and its 
+ value is a reference to the same URI as the target URI, the
+ content is a representation of the target resource.
+
+ 6. If the response has a Content-Location header field and its 
+ value is a reference to a URI different from the target URI, th
+ the sender asserts that the content is a representation of the
+ resource identified by the Content-Location field value.
+ However, such an assertion cannot be trusted unless it can be
+ verified by other means (not defined by this specification).
+
+ 7. Otherwise, the content is unidentified by HTTP, but a more
+ specific identifier might be supplied within the content itself
+
+6.5. Trailer Fields
+
+ Fields (Section 5) that are located within a "trailer section" 
+ referred to as "trailer fields" (or just "trailers", colloquial
+ Trailer fields can be useful for supplying message integrity ch
+ digital signatures, delivery metrics, or post-processing status
+ information.
+
+ Trailer fields ought to be processed and stored separately from
+ fields in the header section to avoid contradicting message sem
+ known at the time the header section was complete. The presence
+ absence of certain header fields might impact choices made for 
+ routing or processing of the message as a whole before the trai
+ are received; those choices cannot be unmade by the later disco
+ of trailer fields.
+
+6.5.1. Limitations on Use of Trailers
+
+ A trailer section is only possible when supported by the versio
+ HTTP in use and enabled by an explicit framing mechanism. For
+ example, the chunked transfer coding in HTTP/1.1 allows a trail
+ section to be sent after the content (Section 7.1.2 of [HTTP/1.
+
+ Many fields cannot be processed outside the header section beca
+ their evaluation is necessary prior to receiving the content, s
+ those that describe message framing, routing, authentication, r
+ modifiers, response controls, or content format. A sender MUST 
+ generate a trailer field unless the sender knows the correspond
+ header field name's definition permits the field to be sent in
+ trailers.
+
+ Trailer fields can be difficult to process by intermediaries th
+ forward messages from one protocol version to another. If the e
+ message can be buffered in transit, some intermediaries could m
+ trailer fields into the header section (as appropriate) before 
+ forwarded. However, in most cases, the trailers are simply
+ discarded. A recipient MUST NOT merge a trailer field into a he
+ section unless the recipient understands the corresponding head
+ field definition and that definition explicitly permits and def
+ how trailer field values can be safely merged.
+
+ The presence of the keyword "trailers" in the TE header field
+ (Section 10.1.4) of a request indicates that the client is will
+ accept trailer fields, on behalf of itself and any downstream
+ clients. For requests from an intermediary, this implies that a
+ downstream clients are willing to accept trailer fields in the
+ forwarded response. Note that the presence of "trailers" does n
+ mean that the client(s) will process any particular trailer fie
+ the response; only that the trailer section(s) will not be drop
+ any of the clients.
+
+ Because of the potential for trailer fields to be discarded in
+ transit, a server SHOULD NOT generate trailer fields that it be
+ are necessary for the user agent to receive.
+
+6.5.2. Processing Trailer Fields
+
+ The "Trailer" header field (Section 6.6.2) can be sent to indic
+ fields likely to be sent in the trailer section, which allows
+ recipients to prepare for their receipt before processing the
+ content. For example, this could be useful if a field name indi
+ that a dynamic checksum should be calculated as the content is
+ received and then immediately checked upon receipt of the trail
+ field value.
+
+ Like header fields, trailer fields with the same name are proce
+ in the order received; multiple trailer field lines with the sa
+ name have the equivalent semantics as appending the multiple va
+ as a list of members. Trailer fields that might be generated mo
+ than once during a message MUST be defined as a list-based fiel
+ if each member value is only processed once per field line rece
+
+ At the end of a message, a recipient MAY treat the set of recei
+ trailer fields as a data structure of name/value pairs, similar
+ (but separate from) the header fields. Additional processing
+ expectations, if any, can be defined within the field specifica
+ for a field intended for use in trailers.
+
+6.6. Message Metadata
+
+ Fields that describe the message itself, such as when and how t
+ message has been generated, can appear in both requests and
+ responses.
+
+6.6.1. Date
+
+ The "Date" header field represents the date and time at which t
+ message was originated, having the same semantics as the Origin
+ Date Field (orig-date) defined in Section 3.6.1 of [RFC5322]. T
+ field value is an HTTP-date, as defined in Section 5.6.7.
+
+ Date = HTTP-date
+
+ An example is
+
+ Date: Tue, 15 Nov 1994 08:12:31 GMT
+
+ A sender that generates a Date header field SHOULD generate its
+ value as the best available approximation of the date and time 
+ message generation. In theory, the date ought to represent the
+ moment just before generating the message content. In practice,
+ sender can generate the date value at any time during message
+ origination.
+
+ An origin server with a clock (as defined in Section 5.6.7) MUS
+ generate a Date header field in all 2xx (Successful), 3xx
+ (Redirection), and 4xx (Client Error) responses, and MAY genera
+ Date header field in 1xx (Informational) and 5xx (Server Error)
+ responses.
+
+ An origin server without a clock MUST NOT generate a Date heade
+ field.
+
+ A recipient with a clock that receives a response message witho
+ Date header field MUST record the time it was received and appe
+ corresponding Date header field to the message's header section
+ is cached or forwarded downstream.
+
+ A recipient with a clock that receives a response with an inval
+ Date header field value MAY replace that value with the time th
+ response was received.
+
+ A user agent MAY send a Date header field in a request, though
+ generally will not do so unless it is believed to convey useful
+ information to the server. For example, custom applications of 
+ might convey a Date if the server is expected to adjust its
+ interpretation of the user's request based on differences betwe
+ user agent and server clocks.
+
+6.6.2. Trailer
+
+ The "Trailer" header field provides a list of field names that 
+ sender anticipates sending as trailer fields within that messag
+ This allows a recipient to prepare for receipt of the indicated
+ metadata before it starts processing the content.
+
+ Trailer = #field-name
+
+ For example, a sender might indicate that a signature will be
+ computed as the content is being streamed and provide the final
+ signature as a trailer field. This allows a recipient to perfor
+ same check on the fly as it receives the content.
+
+ A sender that intends to generate one or more trailer fields in
+ message SHOULD generate a Trailer header field in the header se
+ of that message to indicate which fields might be present in th
+ trailers.
+
+ If an intermediary discards the trailer section in transit, the
+ Trailer field could provide a hint of what metadata was lost, t
+ there is no guarantee that a sender of Trailer will always foll
+ through by sending the named fields.
+
+7. Routing HTTP Messages
+
+ HTTP request message routing is determined by each client based
+ the target resource, the client's proxy configuration, and
+ establishment or reuse of an inbound connection. The correspond
+ response routing follows the same connection chain back to the
+ client.
+
+7.1. Determining the Target Resource
+
+ Although HTTP is used in a wide variety of applications, most c
+ rely on the same resource identification mechanism and configur
+ techniques as general-purpose Web browsers. Even when communica
+ options are hard-coded in a client's configuration, we can thin
+ their combined effect as a URI reference (Section 4.1).
+
+ A URI reference is resolved to its absolute form in order to ob
+ the "target URI". The target URI excludes the reference's fragm
+ component, if any, since fragment identifiers are reserved for
+ client-side processing ([URI], Section 3.5).
+
+ To perform an action on a "target resource", the client sends a
+ request message containing enough components of its parsed targ
+ to enable recipients to identify that same resource. For histor
+ reasons, the parsed target URI components, collectively referre
+ as the "request target", are sent within the message control da
+ the Host header field (Section 7.2).
+
+ There are two unusual cases for which the request target compon
+ are in a method-specific form:
+
+ * For CONNECT (Section 9.3.6), the request target is the host n
+ and port number of the tunnel destination, separated by a colon
+
+ * For OPTIONS (Section 9.3.7), the request target can be a sing
+ asterisk ("*").
+
+ See the respective method definitions for details. These forms 
+ NOT be used with other methods.
+
+ Upon receipt of a client's request, a server reconstructs the t
+ URI from the received components in accordance with their local

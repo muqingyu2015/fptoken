@@ -1,9 +1,9 @@
 package cn.lxdb.plugins.muqingyu.fptoken.tests.performance;
 
-import cn.lxdb.plugins.muqingyu.fptoken.index.TermTidsetIndex;
-import cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset;
-import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
-import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayKey;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.index.TermTidsetIndex;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.CandidateItemset;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Comparator;

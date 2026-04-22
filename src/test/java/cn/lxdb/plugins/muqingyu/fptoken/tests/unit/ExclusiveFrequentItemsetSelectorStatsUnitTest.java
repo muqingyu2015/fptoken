@@ -7,8 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
-import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
-import cn.lxdb.plugins.muqingyu.fptoken.model.ExclusiveSelectionResult;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.tests.ByteArrayTestSupport;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -64,7 +64,7 @@ class ExclusiveFrequentItemsetSelectorStatsUnitTest {
     @Test
     void listOnlyOverload_emptyRows_returnsEmptyList() {
         List<DocTerms> rows = Collections.emptyList();
-        List<cn.lxdb.plugins.muqingyu.fptoken.model.SelectedGroup> groups =
+        List<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup> groups =
                 ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsets(rows, 2, 1);
         assertTrue(groups.isEmpty());
     }

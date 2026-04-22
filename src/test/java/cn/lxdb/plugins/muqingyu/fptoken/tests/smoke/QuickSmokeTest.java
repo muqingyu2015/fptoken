@@ -15,7 +15,7 @@ class QuickSmokeTest {
 
     @Test
     void smoke_selectorCorePath_runsFastAndReturnsValidShape() {
-        List<cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms> rows = new ArrayList<>();
+        List<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms> rows = new ArrayList<>();
         byte[] p = ByteArrayTestSupport.hex("A1B2");
         for (int i = 0; i < 18; i++) {
             rows.add(ByteArrayTestSupport.doc(i, p, new byte[] {(byte) (i % 3)}));

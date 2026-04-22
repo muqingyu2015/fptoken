@@ -5,10 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import cn.lxdb.plugins.muqingyu.fptoken.config.SelectorConfig;
-import cn.lxdb.plugins.muqingyu.fptoken.miner.BeamFrequentItemsetMiner;
-import cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset;
-import cn.lxdb.plugins.muqingyu.fptoken.model.FrequentItemsetMiningResult;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.SelectorConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.miner.BeamFrequentItemsetMiner;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.CandidateItemset;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.FrequentItemsetMiningResult;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;

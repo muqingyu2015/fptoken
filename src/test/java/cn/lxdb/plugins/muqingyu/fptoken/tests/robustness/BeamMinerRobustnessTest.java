@@ -2,8 +2,8 @@ package cn.lxdb.plugins.muqingyu.fptoken.tests.robustness;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import cn.lxdb.plugins.muqingyu.fptoken.config.SelectorConfig;
-import cn.lxdb.plugins.muqingyu.fptoken.miner.BeamFrequentItemsetMiner;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.SelectorConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.miner.BeamFrequentItemsetMiner;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
@@ -27,9 +27,9 @@ class BeamMinerRobustnessTest {
 
     @Test
     void malformedTermIdInPickerPath_shouldBeRejectedByComponent() {
-        var picker = new cn.lxdb.plugins.muqingyu.fptoken.picker.TwoPhaseExclusiveItemsetPicker();
-        var bad = new cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset(new int[] {-1}, new BitSet());
-        List<cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset> candidates = List.of(bad);
+        var picker = new cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.picker.TwoPhaseExclusiveItemsetPicker();
+        var bad = new cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.CandidateItemset(new int[] {-1}, new BitSet());
+        List<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.CandidateItemset> candidates = List.of(bad);
         boolean threw = false;
         try {
             picker.pick(candidates, 1, 1);

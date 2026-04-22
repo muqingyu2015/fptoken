@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
-import cn.lxdb.plugins.muqingyu.fptoken.miner.BeamFrequentItemsetMiner;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.miner.BeamFrequentItemsetMiner;
 import cn.lxdb.plugins.muqingyu.fptoken.tests.ByteArrayTestSupport;
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -27,7 +27,7 @@ class KnownIssuesRegressionTest {
         tid.add(t0);
         tid.add(t1);
 
-        var cfg = new cn.lxdb.plugins.muqingyu.fptoken.config.SelectorConfig(2, 2, 4, 5000);
+        var cfg = new cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.SelectorConfig(2, 2, 4, 5000);
         var d = new BeamFrequentItemsetMiner().mineWithStats(tid, cfg, 0, 16, 32);
         var c = new BeamFrequentItemsetMiner((len, sup) -> len * len * sup).mineWithStats(tid, cfg, 0, 16, 32);
         assertEquals(d.getGeneratedCandidateCount(), c.getGeneratedCandidateCount());
@@ -36,7 +36,7 @@ class KnownIssuesRegressionTest {
 
     @Test
     void regression_sparseDocIds_keptInOutputAfterFullPipeline() {
-        List<cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms> rows = new ArrayList<>();
+        List<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms> rows = new ArrayList<>();
         byte[] x = ByteArrayTestSupport.hex("DEAD");
         rows.add(ByteArrayTestSupport.doc(4, x));
         rows.add(ByteArrayTestSupport.doc(10, x));

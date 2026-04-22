@@ -2,8 +2,8 @@ package cn.lxdb.plugins.muqingyu.fptoken.tests.performance;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import cn.lxdb.plugins.muqingyu.fptoken.index.TermTidsetIndex;
-import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.index.TermTidsetIndex;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;

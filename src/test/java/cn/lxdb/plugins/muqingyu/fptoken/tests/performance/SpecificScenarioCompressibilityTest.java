@@ -2,7 +2,7 @@ package cn.lxdb.plugins.muqingyu.fptoken.tests.performance;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;

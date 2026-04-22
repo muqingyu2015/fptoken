@@ -1,16 +1,16 @@
 package cn.lxdb.plugins.muqingyu.fptoken;
 
-import cn.lxdb.plugins.muqingyu.fptoken.config.SelectorConfig;
-import cn.lxdb.plugins.muqingyu.fptoken.config.EngineTuningConfig;
-import cn.lxdb.plugins.muqingyu.fptoken.index.TermTidsetIndex;
-import cn.lxdb.plugins.muqingyu.fptoken.miner.BeamFrequentItemsetMiner;
-import cn.lxdb.plugins.muqingyu.fptoken.model.CandidateItemset;
-import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
-import cn.lxdb.plugins.muqingyu.fptoken.model.ExclusiveSelectionResult;
-import cn.lxdb.plugins.muqingyu.fptoken.model.FrequentItemsetMiningResult;
-import cn.lxdb.plugins.muqingyu.fptoken.model.SelectedGroup;
-import cn.lxdb.plugins.muqingyu.fptoken.picker.TwoPhaseExclusiveItemsetPicker;
-import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayUtils;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.SelectorConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.index.TermTidsetIndex;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.miner.BeamFrequentItemsetMiner;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.CandidateItemset;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.FrequentItemsetMiningResult;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.picker.TwoPhaseExclusiveItemsetPicker;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
@@ -365,15 +365,15 @@ public final class ExclusiveFrequentItemsetSelector {
         int[] map = new int[sampledVocab.size()];
         java.util.Arrays.fill(map, -1);
         // 构建全量词表的反向索引：词字节 → termId
-        java.util.Map<cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayKey, Integer> fullMap =
+        java.util.Map<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey, Integer> fullMap =
             new java.util.HashMap<>(fullVocab.size());
         for (int j = 0; j < fullVocab.size(); j++) {
-            fullMap.put(new cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayKey(fullVocab.get(j)), j);
+            fullMap.put(new cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey(fullVocab.get(j)), j);
         }
         // 用采样词查反向索引
         for (int i = 0; i < sampledVocab.size(); i++) {
-            cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayKey key =
-                new cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayKey(sampledVocab.get(i));
+            cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey key =
+                new cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey(sampledVocab.get(i));
             Integer fullId = fullMap.get(key);
             if (fullId != null) {
                 map[i] = fullId.intValue();

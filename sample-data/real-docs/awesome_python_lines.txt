@@ -1,0 +1,1000 @@
+# Awesome Python
+
+An opinionated list of Python frameworks, libraries, tools, and 
+
+# **Sponsors**
+
+- **[pyr](https://pyrun.dev)**: Zero-config Python project manag
+
+> The **#10 most-starred repo on GitHub**. Put your product in f
+
+# Categories
+
+**AI & ML**
+
+- [AI and Agents](#ai-and-agents)
+- [Deep Learning](#deep-learning)
+- [Machine Learning](#machine-learning)
+- [Natural Language Processing](#natural-language-processing)
+- [Computer Vision](#computer-vision)
+- [Recommender Systems](#recommender-systems)
+
+**Web Development**
+
+- [Web Frameworks](#web-frameworks)
+- [Web APIs](#web-apis)
+- [Web Servers](#web-servers)
+- [WebSocket](#websocket)
+- [Template Engines](#template-engines)
+- [Web Asset Management](#web-asset-management)
+- [Authentication](#authentication)
+- [Admin Panels](#admin-panels)
+- [CMS](#cms)
+- [Static Site Generators](#static-site-generators)
+
+**HTTP & Scraping**
+
+- [HTTP Clients](#http-clients)
+- [Web Scraping](#web-scraping)
+- [Email](#email)
+
+**Database & Storage**
+
+- [ORM](#orm)
+- [Database Drivers](#database-drivers)
+- [Database](#database)
+- [Caching](#caching)
+- [Search](#search)
+- [Serialization](#serialization)
+
+**Data & Science**
+
+- [Data Analysis](#data-analysis)
+- [Data Validation](#data-validation)
+- [Data Visualization](#data-visualization)
+- [Geolocation](#geolocation)
+- [Science](#science)
+- [Quantum Computing](#quantum-computing)
+
+**Developer Tools**
+
+- [Algorithms and Design Patterns](#algorithms-and-design-patter
+- [Interactive Interpreter](#interactive-interpreter)
+- [Code Analysis](#code-analysis)
+- [Testing](#testing)
+- [Debugging Tools](#debugging-tools)
+- [Build Tools](#build-tools)
+- [Documentation](#documentation)
+
+**DevOps**
+
+- [DevOps Tools](#devops-tools)
+- [Distributed Computing](#distributed-computing)
+- [Task Queues](#task-queues)
+- [Job Schedulers](#job-schedulers)
+- [Logging](#logging)
+- [Network Virtualization](#network-virtualization)
+
+**CLI & GUI**
+
+- [CLI Development](#cli-development)
+- [CLI Tools](#cli-tools)
+- [GUI Development](#gui-development)
+
+**Text & Documents**
+
+- [Text Processing](#text-processing)
+- [HTML Manipulation](#html-manipulation)
+- [File Format Processing](#file-format-processing)
+- [File Manipulation](#file-manipulation)
+
+**Media**
+
+- [Image Processing](#image-processing)
+- [Audio & Video Processing](#audio--video-processing)
+- [Game Development](#game-development)
+
+**Python Language**
+
+- [Implementations](#implementations)
+- [Built-in Classes Enhancement](#built-in-classes-enhancement)
+- [Functional Programming](#functional-programming)
+- [Asynchronous Programming](#asynchronous-programming)
+- [Date and Time](#date-and-time)
+
+**Python Toolchain**
+
+- [Environment Management](#environment-management)
+- [Package Management](#package-management)
+- [Package Repositories](#package-repositories)
+- [Distribution](#distribution)
+- [Configuration Files](#configuration-files)
+
+**Security**
+
+- [Cryptography](#cryptography)
+- [Penetration Testing](#penetration-testing)
+
+**Miscellaneous**
+
+- [Hardware](#hardware)
+- [Microsoft Windows](#microsoft-windows)
+- [Miscellaneous](#miscellaneous)
+
+---
+
+**AI & ML**
+
+## AI and Agents
+
+_Libraries for building AI applications, LLM integrations, and a
+
+- Agent Skills
+ - [django-ai-plugins](https://github.com/vintasoftware/django-a
+ - [sentry-skills](https://github.com/getsentry/skills) - Python
+ - [trailofbits-skills](https://github.com/trailofbits/skills) -
+- Orchestration
+ - [ag2](https://github.com/ag2ai/ag2) - An open-source AgentOS 
+ - [autogen](https://github.com/microsoft/autogen) - A programmi
+ - [bub](https://github.com/bubbuild/bub) - A lightweight, hook-
+ - [crewai](https://github.com/crewAIInc/crewAI) - A framework f
+ - [dspy](https://github.com/stanfordnlp/dspy) - A framework for
+ - [hermes-agent](https://github.com/nousresearch/hermes-agent) 
+ - [langchain](https://github.com/langchain-ai/langchain) - Buil
+ - [pydantic-ai](https://github.com/pydantic/pydantic-ai) - A Py
+ - [TradingAgents](https://github.com/TauricResearch/TradingAgen
+- Data Layer
+ - [instructor](https://github.com/567-labs/instructor) - A libr
+ - [llama-index](https://github.com/run-llama/llama_index) - A d
+ - [mem0](https://github.com/mem0ai/mem0) - An intelligent memor
+- Pre-trained Models and Inference
+ - [diffusers](https://github.com/huggingface/diffusers) - A lib
+ - [mlx-lm](https://github.com/ml-explore/mlx-lm) - Run and fine
+ - [sglang](https://github.com/sgl-project/sglang) - A high-perf
+ - [transformers](https://github.com/huggingface/transformers) -
+ - [unsloth](https://github.com/unslothai/unsloth) - A library f
+ - [vllm](https://github.com/vllm-project/vllm) - A high-through
+- Speech
+ - [openai-whisper](https://github.com/openai/whisper) - A gener
+ - [vibevoice](https://github.com/microsoft/VibeVoice) - A famil
+ - [voxcpm](https://github.com/OpenBMB/VoxCPM) - A tokenizer-fre
+
+## Deep Learning
+
+_Frameworks for Neural Networks and Deep Learning. Also see [awe
+
+- [jax](https://github.com/jax-ml/jax) - A library for high-perf
+- [keras](https://github.com/keras-team/keras) - A high-level de
+- [pytorch-lightning](https://github.com/Lightning-AI/pytorch-li
+- [pytorch](https://github.com/pytorch/pytorch) - Tensors and Dy
+- [stable-baselines3](https://github.com/DLR-RM/stable-baselines
+- [tensorflow](https://github.com/tensorflow/tensorflow) - The m
+
+## Machine Learning
+
+_Libraries for Machine Learning. Also see [awesome-machine-learn
+
+- [catboost](https://github.com/catboost/catboost) - A fast, sca
+- [feature_engine](https://github.com/feature-engine/feature_eng
+- [h2o](https://github.com/h2oai/h2o-3) - Open Source Fast Scala
+- [lightgbm](https://github.com/lightgbm-org/LightGBM) - A fast,
+- [mindsdb](https://github.com/mindsdb/mindsdb) - MindsDB is an 
+- [pgmpy](https://github.com/pgmpy/pgmpy) - A Python library for
+- [scikit-learn](https://github.com/scikit-learn/scikit-learn) -
+- [spark.ml](https://github.com/apache/spark) - [Apache Spark](h
+- [TabGAN](https://github.com/Diyago/Tabular-data-generation) - 
+- [timesfm](https://github.com/google-research/timesfm) - A pret
+- [xgboost](https://github.com/dmlc/xgboost) - A scalable, porta
+
+## Natural Language Processing
+
+_Libraries for working with human languages._
+
+- General
+ - [gensim](https://github.com/piskvorky/gensim) - Topic Modelin
+ - [nltk](https://github.com/nltk/nltk) - A leading platform for
+ - [spacy](https://github.com/explosion/spaCy) - A library for i
+ - [stanza](https://github.com/stanfordnlp/stanza) - The Stanfor
+- Chinese
+ - [funnlp](https://github.com/fighting41love/funNLP) - A collec
+ - [jieba](https://github.com/fxsjy/jieba) - The most popular Ch
+
+## Computer Vision
+
+_Libraries for Computer Vision._
+
+- [easyocr](https://github.com/JaidedAI/EasyOCR) - Ready-to-use 
+- [kornia](https://github.com/kornia/kornia/) - Open Source Diff
+- [opencv](https://github.com/opencv/opencv-python) - Open Sourc
+- [pytesseract](https://github.com/madmaze/pytesseract) - A wrap
+
+## Recommender Systems
+
+_Libraries for building recommender systems._
+
+- [annoy](https://github.com/spotify/annoy) - Approximate Neares
+- [implicit](https://github.com/benfred/implicit) - A fast Pytho
+- [scikit-surprise](https://github.com/NicolasHug/Surprise) - A 
+
+**Web Development**
+
+## Web Frameworks
+
+_Traditional full stack web frameworks. Also see [Web APIs](#web
+
+- Synchronous
+ - [bottle](https://github.com/bottlepy/bottle) - A fast and sim
+ - [django](https://github.com/django/django) - The most popular
+ - [awesome-django](https://github.com/shahraizali/awesome-djang
+ - [flask](https://github.com/pallets/flask) - A microframework 
+ - [awesome-flask](https://github.com/humiaozuzu/awesome-flask)
+ - [pyramid](https://github.com/Pylons/pyramid) - A small, fast,
+ - [awesome-pyramid](https://github.com/uralbash/awesome-pyramid
+ - [fasthtml](https://github.com/AnswerDotAI/fasthtml) - The fas
+ - [awesome-fasthtml](https://github.com/amosgyamfi/awesome-fast
+ - [masonite](https://github.com/MasoniteFramework/masonite) - T
+- Asynchronous
+ - [litestar](https://github.com/litestar-org/litestar) - Produc
+ - [microdot](https://github.com/miguelgrinberg/microdot) - The 
+ - [reflex](https://github.com/reflex-dev/reflex) - A framework 
+ - [robyn](https://github.com/sparckles/Robyn) - A high-performa
+ - [starlette](https://github.com/Kludex/starlette) - A lightwei
+ - [tornado](https://github.com/tornadoweb/tornado) - A web fram
+
+## Web APIs
+
+_Libraries for building RESTful and GraphQL APIs._
+
+- Django
+ - [django-modern-rest](https://github.com/wemake-services/djang
+ - [django-ninja](https://github.com/vitalik/django-ninja) - Fas
+ - [django-rest-framework](https://github.com/encode/django-rest
+ - [strawberry-django](https://github.com/strawberry-graphql/str
+- Flask
+ - [apiflask](https://github.com/apiflask/apiflask) - A lightwei
+- Framework Agnostic
+ - [connexion](https://github.com/spec-first/connexion) - A spec
+ - [falcon](https://github.com/falconry/falcon) - A high-perform
+ - [fastapi](https://github.com/fastapi/fastapi) - A modern, fas
+ - [sanic](https://github.com/sanic-org/sanic) - A Python 3.6+ w
+ - [strawberry](https://github.com/strawberry-graphql/strawberry
+ - [webargs](https://github.com/marshmallow-code/webargs) - A fr
+
+## Web Servers
+
+_ASGI and WSGI compatible web servers._
+
+- ASGI
+ - [daphne](https://github.com/django/daphne) - An HTTP, HTTP/2 
+ - [granian](https://github.com/emmett-framework/granian) - A Ru
+ - [hypercorn](https://github.com/pgjones/hypercorn) - An ASGI a
+ - [uvicorn](https://github.com/Kludex/uvicorn) - A lightning-fa
+- WSGI
+ - [gunicorn](https://github.com/benoitc/gunicorn) - Pre-forked,
+ - [uwsgi](https://github.com/unbit/uwsgi) - A project aims at d
+ - [waitress](https://github.com/Pylons/waitress) - Multi-thread
+- RPC
+ - [grpcio](https://github.com/grpc/grpc) - HTTP/2-based RPC fra
+ - [rpyc](https://github.com/tomerfiliba-org/rpyc) (Remote Pytho
+
+## WebSocket
+
+_Libraries for working with WebSocket._
+
+- [autobahn-python](https://github.com/crossbario/autobahn-pytho
+- [channels](https://github.com/django/channels) - Developer-fri
+- [flask-socketio](https://github.com/miguelgrinberg/Flask-Socke
+- [picows](https://github.com/tarasko/picows) - Fastest WebSocke
+- [websockets](https://github.com/python-websockets/websockets) 
+
+## Template Engines
+
+_Libraries and tools for templating and lexing._
+
+- [jinja](https://github.com/pallets/jinja) - A modern and desig
+- [mako](https://github.com/sqlalchemy/mako) - Hyperfast and lig
+
+## Web Asset Management
+
+_Tools for managing, compressing and minifying website assets._
+
+- [django-compressor](https://github.com/django-compressor/djang
+- [django-storages](https://github.com/jschneier/django-storages
+
+## Authentication
+
+_Libraries for implementing authentication schemes._
+
+- OAuth
+ - [authlib](https://github.com/authlib/authlib) - JavaScript Ob
+ - [django-allauth](https://github.com/pennersr/django-allauth) 
+ - [django-oauth-toolkit](https://github.com/django-oauth/django
+ - [oauthlib](https://github.com/oauthlib/oauthlib) - A generic 
+- JWT
+ - [pyjwt](https://github.com/jpadilla/pyjwt) - JSON Web Token i
+- Permissions
+ - [django-guardian](https://github.com/django-guardian/django-g
+ - [django-rules](https://github.com/dfunckt/django-rules) - A t
+
+## Admin Panels
+
+_Libraries for administrative interfaces._
+
+- [ajenti](https://github.com/ajenti/ajenti) - The admin panel y
+- [django-grappelli](https://github.com/sehmaschine/django-grapp
+- [django-unfold](https://github.com/unfoldadmin/django-unfold) 
+- [flask-admin](https://github.com/pallets-eco/flask-admin) - Si
+- [flower](https://github.com/mher/flower) - Real-time monitor a
+- [func-to-web](https://github.com/offerrall/FuncToWeb) - Instan
+- [jet-bridge](https://github.com/jet-admin/jet-bridge) - Admin 
+
+## CMS
+
+_Content Management Systems._
+
+- [django-cms](https://github.com/django-cms/django-cms) - The e
+- [indico](https://github.com/indico/indico) - A feature-rich ev
+- [wagtail](https://github.com/wagtail/wagtail) - A Django conte
+
+## Static Site Generators
+
+_Static site generator is a software that takes some text + temp
+
+- [lektor](https://github.com/lektor/lektor) - An easy to use st
+- [nikola](https://github.com/getnikola/nikola) - A static websi
+- [pelican](https://github.com/getpelican/pelican) - Static site
+
+**HTTP & Scraping**
+
+## HTTP Clients
+
+_Libraries for working with HTTP._
+
+- [aiohttp](https://github.com/aio-libs/aiohttp) - Asynchronous 
+- [furl](https://github.com/gruns/furl) - A small Python library
+- [httptap](https://github.com/ozeranskii/httptap) - Dissects an
+- [httpx](https://github.com/encode/httpx) - A next generation H
+- [requests](https://github.com/psf/requests) - HTTP Requests fo
+- [urllib3](https://github.com/urllib3/urllib3) - A HTTP library
+
+## Web Scraping
+
+_Libraries to automate web scraping and extract web content._
+
+- Frameworks
+ - [browser-use](https://github.com/browser-use/browser-use) - M
+ - [crawl4ai](https://github.com/unclecode/crawl4ai) - An open-s
+ - [mechanicalsoup](https://github.com/MechanicalSoup/Mechanical
+ - [scrapy](https://github.com/scrapy/scrapy) - A fast high-leve
+- Content Extraction
+ - [feedparser](https://github.com/kurtmckee/feedparser) - Unive
+ - [html2text](https://github.com/Alir3z4/html2text) - Convert H
+ - [micawber](https://github.com/coleifer/micawber) - A small li
+ - [sumy](https://github.com/miso-belica/sumy) - A module for au
+ - [trafilatura](https://github.com/adbar/trafilatura) - A tool 
+
+## Email
+
+_Libraries for sending and parsing email, and mail server manage
+
+- [modoboa](https://github.com/modoboa/modoboa) - A mail hosting
+- [yagmail](https://github.com/kootenpv/yagmail) - Yet another G
+
+**Database & Storage**
+
+## ORM
+
+_Libraries that implement Object-Relational Mapping or data mapp
+
+- Relational Databases
+ - [django.db.models](https://github.com/django/django) - The Dj
+ - [sqlalchemy](https://github.com/sqlalchemy/sqlalchemy) - The 
+ - [awesome-sqlalchemy](https://github.com/dahlia/awesome-sqlalc
+ - [dataset](https://github.com/pudo/dataset) - Store Python dic
+ - [peewee](https://github.com/coleifer/peewee) - A small, expre
+ - [pony](https://github.com/ponyorm/pony/) - ORM that provides 
+ - [sqlmodel](https://github.com/fastapi/sqlmodel) - SQLModel is
+ - [tortoise-orm](https://github.com/tortoise/tortoise-orm) - An
+- NoSQL Databases
+ - [beanie](https://github.com/BeanieODM/beanie) - An asynchrono
+ - [mongoengine](https://github.com/MongoEngine/mongoengine) - A
+ - [pynamodb](https://github.com/pynamodb/PynamoDB) - A Pythonic
+
+## Database Drivers
+
+_Libraries for connecting and operating databases._
+
+- MySQL - [awesome-mysql](https://github.com/shlomi-noach/awesom
+ - [mysqlclient](https://github.com/PyMySQL/mysqlclient) - MySQL
+ - [pymysql](https://github.com/PyMySQL/PyMySQL) - A pure Python
+- PostgreSQL - [awesome-postgres](https://github.com/dhamaniasad
+ - [psycopg](https://github.com/psycopg/psycopg) - The most popu
+- SQLite - [awesome-sqlite](https://github.com/planetopendata/aw
+ - [sqlite-utils](https://github.com/simonw/sqlite-utils) - Pyth
+ - [sqlite3](https://docs.python.org/3/library/sqlite3.html) - (
+- Other Relational Databases
+ - [clickhouse-driver](https://github.com/mymarilyn/clickhouse-d
+ - [mssql-python](https://github.com/microsoft/mssql-python) - O
+- NoSQL Databases
+ - [cassandra-driver](https://github.com/apache/cassandra-python
+ - [django-mongodb-backend](https://github.com/mongodb/django-mo
+ - [pymongo](https://github.com/mongodb/mongo-python-driver) - T
+ - [redis-py](https://github.com/redis/redis-py) - The Python cl
+
+## Database
+
+_Databases implemented in Python._
+
+- [chromadb](https://github.com/chroma-core/chroma) - An open-so
+- [duckdb](https://github.com/duckdb/duckdb) - An in-process SQL
+- [pickledb](https://github.com/patx/pickledb) - A simple and li
+- [tinydb](https://github.com/msiemens/tinydb) - A tiny, documen
+- [ZODB](https://github.com/zopefoundation/ZODB) - A native obje
+
+## Caching
+
+_Libraries for caching data._
+
+- [cachetools](https://github.com/tkem/cachetools) - Extensible 
+- [django-cacheops](https://github.com/Suor/django-cacheops) - A
+- [dogpile.cache](https://github.com/sqlalchemy/dogpile.cache) -
+- [python-diskcache](https://github.com/grantjenks/python-diskca
+
+## Search
+
+_Libraries and software for indexing and performing search queri
+
+- [django-haystack](https://github.com/django-haystack/django-ha
+- [elasticsearch-py](https://github.com/elastic/elasticsearch-py
+- [pysolr](https://github.com/django-haystack/pysolr) - A lightw
+
+## Serialization
+
+_Libraries for serializing complex data types._
+
+- [marshmallow](https://github.com/marshmallow-code/marshmallow)
+- [msgpack](https://github.com/msgpack/msgpack-python) - Message
+- [orjson](https://github.com/ijl/orjson) - Fast, correct JSON l
+
+**Data & Science**
+
+## Data Analysis
+
+_Libraries for data analysis._
+
+- General
+ - [aws-sdk-pandas](https://github.com/aws/aws-sdk-pandas) - Pan
+ - [datasette](https://github.com/simonw/datasette) - An open so
+ - [data-profiling](https://github.com/Data-Centric-AI-Community
+ - [desbordante](https://github.com/desbordante/desbordante-core
+ - [ibis](https://github.com/ibis-project/ibis) - A portable Pyt
+ - [modin](https://github.com/modin-project/modin) - A drop-in p
+ - [pandas](https://github.com/pandas-dev/pandas) - A library pr
+ - [pathway](https://github.com/pathwaycom/pathway) - Real-time 
+ - [polars](https://github.com/pola-rs/polars) - A fast DataFram
+- Financial Data
+ - [akshare](https://github.com/akfamily/akshare) - A financial 
+ - [edgartools](https://github.com/dgunning/edgartools) - Librar
+ - [lumibot](https://github.com/Lumiwealth/lumibot) - Algorithmi
+ - [openbb](https://github.com/OpenBB-finance/OpenBB) - A financ
+ - [yfinance](https://github.com/ranaroussi/yfinance) - Easy Pyt
+
+## Data Validation
+
+_Libraries for validating data. Used for forms in many cases._
+
+- [cerberus](https://github.com/pyeve/cerberus) - A lightweight 
+- [jsonschema](https://github.com/python-jsonschema/jsonschema) 
+- [pandera](https://github.com/unionai-oss/pandera) - A data val
+- [pydantic](https://github.com/pydantic/pydantic) - Data valida
+- [voluptuous](https://github.com/alecthomas/voluptuous) - A Pyt
+
+## Data Visualization
+
+_Libraries for visualizing data. Also see [awesome-javascript](h
+
+- Plotting
+ - [altair](https://github.com/vega/altair) - Declarative statis
+ - [bokeh](https://github.com/bokeh/bokeh) - Interactive Web Plo
+ - [bqplot](https://github.com/bqplot/bqplot) - Interactive Plot
+ - [matplotlib](https://github.com/matplotlib/matplotlib) - A Py
+ - [plotly](https://github.com/plotly/plotly.py) - Interactive g
+ - [plotnine](https://github.com/has2k1/plotnine) - A grammar of
+ - [pygal](https://github.com/Kozea/pygal) - A Python SVG Charts
+ - [pyqtgraph](https://github.com/pyqtgraph/pyqtgraph) - Interac
+ - [seaborn](https://github.com/mwaskom/seaborn) - Statistical d
+ - [ultraplot](https://github.com/ultraplot/UltraPlot) - Matplot
+ - [vispy](https://github.com/vispy/vispy) - High-performance sc
+- Specialized
+ - [cartopy](https://github.com/SciTools/cartopy) - A cartograph
+ - [pygraphviz](https://github.com/pygraphviz/pygraphviz/) - Pyt
+- Dashboards and Apps
+ - [gradio](https://github.com/gradio-app/gradio) - Build and sh
+ - [streamlit](https://github.com/streamlit/streamlit) - A frame
+
+## Geolocation
+
+_Libraries for geocoding addresses and working with latitudes an
+
+- [django-countries](https://github.com/SmileyChris/django-count
+- [geodjango](https://github.com/django/django) - A world-class 
+- [geojson](https://github.com/jazzband/geojson) - Python bindin
+- [geopandas](https://github.com/geopandas/geopandas) - Python t
+- [geopy](https://github.com/geopy/geopy) - Python Geocoding Too
+
+## Science
+
+_Libraries for scientific computing. Also see [Python-for-Scient
+
+- Core
+ - [numba](https://github.com/numba/numba) - Python JIT compiler
+ - [numpy](https://github.com/numpy/numpy) - A fundamental packa
+ - [scipy](https://github.com/scipy/scipy) - A Python-based ecos
+ - [statsmodels](https://github.com/statsmodels/statsmodels) - S
+ - [sympy](https://github.com/sympy/sympy) - A Python library fo
+- Biology and Chemistry
+ - [biopython](https://github.com/biopython/biopython) - Biopyth
+ - [cclib](https://github.com/cclib/cclib) - A library for parsi
+ - [openbabel](https://github.com/openbabel/openbabel) - A chemi
+ - [rdkit](https://github.com/rdkit/rdkit) - Cheminformatics and
+- Physics and Engineering
+ - [astropy](https://github.com/astropy/astropy) - A community P
+ - [obspy](https://github.com/obspy/obspy) - A Python toolbox fo
+ - [pydy](https://github.com/pydy/pydy) - Short for Python Dynam
+ - [PythonRobotics](https://github.com/AtsushiSakai/PythonRoboti
+- Simulation and Modeling
+ - [pathsim](https://github.com/pathsim/pathsim) - A block-based
+ - [pymc](https://github.com/pymc-devs/pymc) - Probabilistic pro
+ - [simpy](https://gitlab.com/team-simpy/simpy) - A process-base
+- Other
+ - [colour](https://github.com/colour-science/colour) - Implemen
+ - [manim](https://github.com/ManimCommunity/manim) - An animati
+ - [networkx](https://github.com/networkx/networkx) - A high-pro
+ - [shapely](https://github.com/shapely/shapely) - Manipulation 
+
+## Quantum Computing
+
+_Libraries for quantum computing._
+
+- [Cirq](https://github.com/quantumlib/Cirq) — A Google-develo
+- [pennylane](https://github.com/PennyLaneAI/pennylane) — A hy
+- [qiskit](https://github.com/Qiskit/qiskit) — An IBM-backed q
+- [qutip](https://github.com/qutip/qutip) - Quantum Toolbox in P
+
+**Developer Tools**
+
+## Algorithms and Design Patterns
+
+_Python implementation of data structures, algorithms and design
+
+- Algorithms
+ - [algorithms](https://github.com/keon/algorithms) - Minimal ex
+ - [sortedcontainers](https://github.com/grantjenks/python-sorte
+ - [thealgorithms](https://github.com/TheAlgorithms/Python) - Al
+- Design Patterns
+ - [python-patterns](https://github.com/faif/python-patterns) - 
+ - [transitions](https://github.com/pytransitions/transitions) -
+
+## Interactive Interpreter
+
+_Interactive Python interpreters (REPL)._
+
+- [jupyter](https://github.com/jupyter/notebook) - A rich toolki
+ - [awesome-jupyter](https://github.com/markusschanta/awesome-ju
+- [marimo](https://github.com/marimo-team/marimo) - Transform da
+- [ptpython](https://github.com/prompt-toolkit/ptpython) - Advan
+
+## Code Analysis
+
+_Tools of static analysis, linters and code quality checkers. Al
+
+- Code Analysis
+ - [code2flow](https://github.com/scottrogowski/code2flow) - Tur
+ - [prospector](https://github.com/prospector-dev/prospector) - 
+ - [repowise](https://github.com/repowise-dev/repowise) - Codeba
+ - [vulture](https://github.com/jendrikseipp/vulture) - A tool f
+- Code Linters
+ - [bandit](https://github.com/PyCQA/bandit) - A tool designed t
+ - [flake8](https://github.com/PyCQA/flake8) - A wrapper around 
+ - [awesome-flake8-extensions](https://github.com/DmytroLitvinov
+ - [pylint](https://github.com/pylint-dev/pylint) - A fully cust
+ - [ruff](https://github.com/astral-sh/ruff) - An extremely fast
+- Code Formatters
+ - [black](https://github.com/psf/black) - The uncompromising Py
+ - [isort](https://github.com/PyCQA/isort) - A Python utility / 
+ - [ruff](https://github.com/astral-sh/ruff) - An extremely fast
+- Refactoring
+ - [rope](https://github.com/python-rope/rope) - Rope is a pytho
+- Type Checkers - [awesome-python-typing](https://github.com/typ
+ - [mypy](https://github.com/python/mypy) - Check variable types
+ - [pyrefly](https://github.com/facebook/pyrefly) - A fast type 
+ - [ty](https://github.com/astral-sh/ty) - An extremely fast Pyt
+ - [typeshed](https://github.com/python/typeshed) - Collection o
+- Type Annotations Generators
+ - [monkeytype](https://github.com/Instagram/MonkeyType) - A sys
+ - [pytype](https://github.com/google/pytype) - Pytype checks an
+
+## Testing
+
+_Libraries for testing codebases and generating test data._
+
+- Frameworks
+ - [hypothesis](https://github.com/HypothesisWorks/hypothesis) -
+ - [pytest](https://github.com/pytest-dev/pytest) - A mature ful
+ - [robotframework](https://github.com/robotframework/robotframe
+ - [scanapi](https://github.com/scanapi/scanapi) - Automated Tes
+ - [unittest](https://docs.python.org/3/library/unittest.html) -
+- Test Runners
+ - [nox](https://github.com/wntrblm/nox) - Flexible test automat
+ - [tox](https://github.com/tox-dev/tox) - Auto builds and tests
+- GUI / Web Testing
+ - [locust](https://github.com/locustio/locust) - Scalable user 
+ - [playwright-python](https://github.com/microsoft/playwright-p
+ - [pyautogui](https://github.com/asweigart/pyautogui) - PyAutoG
+ - [schemathesis](https://github.com/schemathesis/schemathesis) 
+ - [selenium](https://github.com/SeleniumHQ/selenium) - Python b
+- Mock
+ - [freezegun](https://github.com/spulec/freezegun) - Travel thr
+ - [mock](https://docs.python.org/3/library/unittest.mock.html) 
+ - [mocket](https://github.com/mindflayer/python-mocket) - A soc
+ - [responses](https://github.com/getsentry/responses) - A utili
+ - [respx](https://github.com/lundberg/respx) - Mock HTTPX with 
+ - [vcrpy](https://github.com/kevin1024/vcrpy) - Record and repl
+- Object Factories
+ - [factory_boy](https://github.com/FactoryBoy/factory_boy) - A 
+ - [polyfactory](https://github.com/litestar-org/polyfactory) - 
+- Code Coverage
+ - [coverage](https://github.com/coveragepy/coveragepy) - Code c
+- Fake Data
+ - [faker](https://github.com/joke2k/faker) - A Python package t
+ - [mimesis](https://github.com/lk-geimfari/mimesis) - is a Pyth
+
+## Debugging Tools
+
+_Libraries for debugging code._
+
+- pdb-like Debugger
+ - [ipdb](https://github.com/gotcha/ipdb) - IPython-enabled [pdb
+ - [pudb](https://github.com/inducer/pudb) - A full-screen, cons
+- Tracing
+ - [manhole](https://github.com/ionelmc/python-manhole) - Debugg
+ - [python-hunter](https://github.com/ionelmc/python-hunter) - A
+- Profiler
+ - [py-spy](https://github.com/benfred/py-spy) - A sampling prof
+ - [scalene](https://github.com/plasma-umass/scalene) - A high-p
+- Others
+ - [django-debug-toolbar](https://github.com/django-commons/djan
+ - [flask-debugtoolbar](https://github.com/pallets-eco/flask-deb
+ - [icecream](https://github.com/gruns/icecream) - Inspect varia
+ - [memory_graph](https://github.com/bterwijn/memory_graph) - Vi
+
+## Build Tools
+
+_Compile software from source code._
+
+- [bitbake](https://github.com/openembedded/bitbake) - A make-li
+- [invoke](https://github.com/pyinvoke/invoke) - A tool for mana
+- [platformio](https://github.com/platformio/platformio-core) - 
+- [pybuilder](https://github.com/pybuilder/pybuilder) - A contin
+- [doit](https://github.com/pydoit/doit) - A task runner and bui
+- [scons](https://github.com/SCons/scons) - A software construct
+
+## Documentation
+
+_Libraries for generating project documentation._
+
+- [sphinx](https://github.com/sphinx-doc/sphinx/) - Python Docum
+ - [awesome-sphinxdoc](https://github.com/ygzgxyz/awesome-sphinx
+- [diagrams](https://github.com/mingrammer/diagrams) - Diagram a
+- [mkdocs](https://github.com/mkdocs/mkdocs/) - Markdown friendl
+- [pdoc](https://github.com/mitmproxy/pdoc) - Epydoc replacement
+
+**DevOps**
+
+## DevOps Tools
+
+_Software and libraries for DevOps._
+
+- Cloud Providers
+ - [awscli](https://github.com/aws/aws-cli) - Universal Command 
+ - [boto3](https://github.com/boto/boto3) - Python interface to 
+- Configuration Management
+ - [ansible](https://github.com/ansible/ansible) - A radically s
+ - [cloudinit](https://github.com/canonical/cloud-init) - A mult
+ - [openstack](https://github.com/openstack/openstack) - Open so
+ - [pyinfra](https://github.com/pyinfra-dev/pyinfra) - A versati
+ - [saltstack](https://github.com/saltstack/salt) - Infrastructu
+- Deployment
+ - [chalice](https://github.com/aws/chalice) - A Python serverle
+ - [fabric](https://github.com/fabric/fabric) - A simple, Python
+- Monitoring and Processes
+ - [psutil](https://github.com/giampaolo/psutil) - A cross-platf
+ - [sentry-python](https://github.com/getsentry/sentry-python) -
+ - [sh](https://github.com/amoffat/sh) - A full-fledged subproce
+ - [supervisor](https://github.com/Supervisor/supervisor) - Supe
+- Other
+ - [borg](https://github.com/borgbackup/borg) - A deduplicating 
+ - [chaostoolkit](https://github.com/chaostoolkit/chaostoolkit) 
+ - [pre-commit](https://github.com/pre-commit/pre-commit) - A fr
+
+## Distributed Computing
+
+_Frameworks and libraries for Distributed Computing._
+
+- Batch Processing
+ - [dask](https://github.com/dask/dask) - A flexible parallel co
+ - [luigi](https://github.com/spotify/luigi) - A module that hel
+ - [mpi4py](https://github.com/mpi4py/mpi4py) - Python bindings 
+ - [pyspark](https://github.com/apache/spark) - [Apache Spark](h
+ - [joblib](https://github.com/joblib/joblib) - A set of tools t
+ - [ray](https://github.com/ray-project/ray/) - A system for par
+
+## Task Queues
+
+_Libraries for working with task queues._
+
+- [celery](https://github.com/celery/celery) - An asynchronous t
+- [dramatiq](https://github.com/Bogdanp/dramatiq) - A fast and r
+- [huey](https://github.com/coleifer/huey) - Little multi-thread
+- [rq](https://github.com/rq/rq) - Simple job queues for Python.
+
+## Job Schedulers
+
+_Libraries for scheduling jobs._
+
+- [airflow](https://github.com/apache/airflow) - Airflow is a pl
+- [apscheduler](https://github.com/agronholm/apscheduler) - A li
+- [dagster](https://github.com/dagster-io/dagster) - An orchestr
+- [prefect](https://github.com/PrefectHQ/prefect) - A modern wor
+- [schedule](https://github.com/dbader/schedule) - Python job sc
+- [SpiffWorkflow](https://github.com/sartography/SpiffWorkflow) 
+
+## Logging
+
+_Libraries for generating and working with logs._
+
+- [logfmter](https://github.com/josheppinette/python-logfmter) -
+- [logging](https://docs.python.org/3/library/logging.html) - (P
+- [loguru](https://github.com/Delgan/loguru) - Library which aim
+- [structlog](https://github.com/hynek/structlog) - Structured l
+
+## Network Virtualization
+
+_Tools and libraries for Virtual Networking and SDN (Software De
+
+- [mininet](https://github.com/mininet/mininet) - A popular netw
+- [napalm](https://github.com/napalm-automation/napalm) - Cross-
+- [scapy](https://github.com/secdev/scapy) - A brilliant packet 
+
+**CLI & GUI**
+
+## CLI Development
+
+_Libraries for building command-line applications._
+
+- CLI Development
+ - [argparse](https://docs.python.org/3/library/argparse.html) -
+ - [cement](https://github.com/datafolklabs/cement) - CLI Applic
+ - [click](https://github.com/pallets/click/) - A package for cr
+ - [python-fire](https://github.com/google/python-fire) - A libr
+ - [python-prompt-toolkit](https://github.com/prompt-toolkit/pyt
+ - [typer](https://github.com/fastapi/typer) - Modern CLI framew
+- Terminal Rendering
+ - [alive-progress](https://github.com/rsalmei/alive-progress) -
+ - [asciimatics](https://github.com/peterbrittain/asciimatics) -
+ - [colorama](https://github.com/tartley/colorama) - Cross-platf
+ - [rich](https://github.com/Textualize/rich) - Python library f
+ - [textual](https://github.com/Textualize/textual) - A framewor
+ - [tqdm](https://github.com/tqdm/tqdm) - Fast, extensible progr
+
+## CLI Tools
+
+_Useful CLI-based tools for productivity._
+
+- Productivity Tools
+ - [cookiecutter](https://github.com/cookiecutter/cookiecutter) 
+ - [copier](https://github.com/copier-org/copier) - A library an
+ - [doitlive](https://github.com/sloria/doitlive) - A tool for l
+ - [thefuck](https://github.com/nvbn/thefuck) - Correcting your 
+ - [tmuxp](https://github.com/tmux-python/tmuxp) - A [tmux](http
+ - [xonsh](https://github.com/xonsh/xonsh/) - A Python-powered s
+ - [yt-dlp](https://github.com/yt-dlp/yt-dlp) - A command-line p
+- CLI Enhancements
+ - [httpie](https://github.com/httpie/cli) - A command line HTTP
+ - [iredis](https://github.com/laixintao/iredis) - Redis CLI wit
+ - [litecli](https://github.com/dbcli/litecli) - SQLite CLI with
+ - [mycli](https://github.com/dbcli/mycli) - MySQL CLI with auto
+ - [pgcli](https://github.com/dbcli/pgcli) - PostgreSQL CLI with
+
+## GUI Development
+
+_Libraries for working with graphical user interface application
+
+- Desktop
+ - [customtkinter](https://github.com/tomschimansky/customtkinte
+ - [dearpygui](https://github.com/hoffstadt/DearPyGui) - A Simpl
+ - [enaml](https://github.com/nucleic/enaml) - Creating beautifu
+ - [kivy](https://github.com/kivy/kivy) - A library for creating
+ - [pyglet](https://github.com/pyglet/pyglet) - A cross-platform
+ - [pygobject](https://github.com/GNOME/pygobject) - Python Bind
+ - [PyQt](https://www.riverbankcomputing.com/static/Docs/PyQt6/)
+ - [pyside](https://github.com/pyside/pyside-setup) - Qt for Pyt
+ - [tkinter](https://docs.python.org/3/library/tkinter.html) - (
+ - [toga](https://github.com/beeware/toga) - A Python native, OS
+ - [wxPython](https://github.com/wxWidgets/Phoenix) - A blending
+- Web-based
+ - [flet](https://github.com/flet-dev/flet) - Cross-platform GUI
+ - [nicegui](https://github.com/zauberzeug/nicegui) - An easy-to
+ - [pywebview](https://github.com/r0x0r/pywebview/) - A lightwei
+- Terminal
+ - [curses](https://docs.python.org/3/library/curses.html) - Bui
+ - [urwid](https://github.com/urwid/urwid) - A library for creat
+- Wrappers
+ - [gooey](https://github.com/chriskiehl/Gooey) - Turn command l
+
+**Text & Documents**
+
+## Text Processing
+
+_Libraries for parsing and manipulating plain texts._
+
+- General
+ - [babel](https://github.com/python-babel/babel) - An internati
+ - [chardet](https://github.com/chardet/chardet) - Python 2/3 co
+ - [difflib](https://docs.python.org/3/library/difflib.html) - (
+ - [ftfy](https://github.com/rspeer/python-ftfy) - Makes Unicode
+ - [pangu.py](https://github.com/vinta/pangu.py) - Paranoid text
+ - [pyfiglet](https://github.com/pwaller/pyfiglet) - An implemen
+ - [pypinyin](https://github.com/mozillazg/python-pinyin) - Conv
+ - [python-slugify](https://github.com/un33k/python-slugify) - A
+ - [textdistance](https://github.com/life4/textdistance) - Compu
+ - [unidecode](https://github.com/avian2/unidecode) - ASCII tran
+- Unique identifiers
+ - [sqids](https://github.com/sqids/sqids-python) - A library fo
+ - [shortuuid](https://github.com/skorokithakis/shortuuid) - A g
+- Parser
+ - [pygments](https://github.com/pygments/pygments) - A generic 
+ - [pyparsing](https://github.com/pyparsing/pyparsing) - A gener
+ - [python-nameparser](https://github.com/derek73/python-namepar
+ - [python-phonenumbers](https://github.com/daviddrysdale/python
+ - [python-user-agents](https://github.com/selwin/python-user-ag
+ - [sqlparse](https://github.com/andialbrecht/sqlparse) - A non-
+
+## HTML Manipulation
+
+_Libraries for working with HTML and XML._
+
+- [beautifulsoup](https://www.crummy.com/software/BeautifulSoup/
+- [justhtml](https://github.com/EmilStenstrom/justhtml/) - A pur
+- [lxml](https://github.com/lxml/lxml) - A very fast, easy-to-us
+- [markupsafe](https://github.com/pallets/markupsafe) - Implemen
+- [pyquery](https://github.com/gawel/pyquery) - A jQuery-like li
+- [tinycss2](https://github.com/Kozea/tinycss2) - A low-level CS
+- [xmltodict](https://github.com/martinblech/xmltodict) - Workin
+
+## File Format Processing
+
+_Libraries for parsing and manipulating specific text formats._
+
+- General
+ - [docling](https://github.com/docling-project/docling) - Libra
+ - [kreuzberg](https://github.com/kreuzberg-dev/kreuzberg) - Hig
+ - [pyelftools](https://github.com/eliben/pyelftools) - Parsing 
+ - [tablib](https://github.com/jazzband/tablib) - A module for T
+- MS Office
+ - [docxtpl](https://github.com/elapouya/python-docx-template) -
+ - [openpyxl](https://openpyxl.readthedocs.io/en/stable/) - A li
+ - [pyexcel](https://github.com/pyexcel/pyexcel) - Providing one
+ - [python-docx](https://github.com/python-openxml/python-docx) 
+ - [python-pptx](https://github.com/scanny/python-pptx) - Python
+ - [xlsxwriter](https://github.com/jmcnamara/XlsxWriter) - A Pyt
+ - [xlwings](https://github.com/xlwings/xlwings) - A BSD-license
+- PDF
+ - [pdf_oxide](https://github.com/yfedoseev/pdf_oxide) - A fast 
+ - [pdfminer.six](https://github.com/pdfminer/pdfminer.six) - Pd
+ - [pikepdf](https://github.com/pikepdf/pikepdf) - A powerful li
+ - [pypdf](https://github.com/py-pdf/pypdf) - A library capable 
+ - [reportlab](https://www.reportlab.com/opensource/) - Allowing
+ - [weasyprint](https://github.com/Kozea/WeasyPrint) - A visual 
+- Markdown
+ - [markdown-it-py](https://github.com/executablebooks/markdown-
+ - [markdown](https://github.com/waylan/Python-Markdown) - A Pyt
+ - [markitdown](https://github.com/microsoft/markitdown) - Pytho
+ - [mistune](https://github.com/lepture/mistune) - Fastest and f
+- Data Formats
+ - [csvkit](https://github.com/wireservice/csvkit) - Utilities f
+ - [pyyaml](https://github.com/yaml/pyyaml) - YAML implementatio
+ - [tomllib](https://docs.python.org/3/library/tomllib.html) - (
+
+## File Manipulation
+
+_Libraries for file manipulation._
+
+- [mimetypes](https://docs.python.org/3/library/mimetypes.html) 
+- [pathlib](https://docs.python.org/3/library/pathlib.html) - (P
+- [python-magic](https://github.com/ahupp/python-magic) - A Pyth
+- [watchdog](https://github.com/gorakhargosh/watchdog) - API and
+- [watchfiles](https://github.com/samuelcolvin/watchfiles) - Sim
+
+**Media**
+
+## Image Processing
+
+_Libraries for manipulating images._
+
+- [pillow](https://github.com/python-pillow/Pillow) - Pillow is 
+- [pymatting](https://github.com/pymatting/pymatting) - A librar
+- [python-barcode](https://github.com/WhyNotHugo/python-barcode)
+- [python-qrcode](https://github.com/lincolnloop/python-qrcode) 
+- [pyvips](https://github.com/libvips/pyvips) - A fast image pro
+- [scikit-image](https://github.com/scikit-image/scikit-image) -
+- [thumbor](https://github.com/thumbor/thumbor) - A smart imagin
+- [wand](https://github.com/emcconville/wand) - Python bindings 
+
+## Audio & Video Processing
+
+_Libraries for manipulating audio, video, and their metadata._
+
+- Audio
+ - [gtts](https://github.com/pndurette/gTTS) - Python library an
+ - [librosa](https://github.com/librosa/librosa) - Python librar
+ - [matchering](https://github.com/sergree/matchering) - A libra
+ - [pydub](https://github.com/jiaaro/pydub) - Manipulate audio w
+- Video
+ - [moviepy](https://github.com/Zulko/moviepy) - A module for sc
+ - [vidgear](https://github.com/abhiTronix/vidgear) - Most Power
+- Metadata
+ - [beets](https://github.com/beetbox/beets) - A music library m
+ - [mutagen](https://github.com/quodlibet/mutagen) - A Python mo
+ - [tinytag](https://github.com/devsnd/tinytag) - A library for 
+
+## Game Development
+
+_Awesome game development libraries._
+
+- [arcade](https://github.com/pythonarcade/arcade) - Arcade is a
+- [panda3d](https://github.com/panda3d/panda3d) - 3D game engine
+- [py-sdl2](https://github.com/py-sdl/py-sdl2) - A ctypes based 
+- [pygame](https://github.com/pygame/pygame) - Pygame is a set o
+- [pyopengl](https://github.com/mcfletch/pyopengl) - Python ctyp
+- [renpy](https://github.com/renpy/renpy) - A Visual Novel engin
+
+**Python Language**
+
+## Implementations
+
+_Implementations of Python._
+
+- [cpython](https://github.com/python/cpython) - Default, most w
+- [cython](https://github.com/cython/cython) - Optimizing Static
+- [ironpython](https://github.com/IronLanguages/ironpython3) - I
+- [micropython](https://github.com/micropython/micropython) - A 
+- [pyodide](https://github.com/pyodide/pyodide) - Python distrib
+- [pypy](https://github.com/pypy/pypy) - A very fast and complia
+
+## Built-in Classes Enhancement
+
+_Libraries for enhancing Python built-in classes._
+
+- [attrs](https://github.com/python-attrs/attrs) - Replacement f
+- [bidict](https://github.com/jab/bidict) - Efficient, Pythonic 
+- [box](https://github.com/cdgriffith/Box) - Python dictionaries
+
+## Functional Programming
+
+_Functional Programming with Python._
+
+- [coconut](https://github.com/evhub/coconut) - A variant of Pyt
+- [functools](https://docs.python.org/3/library/functools.html) 
+- [funcy](https://github.com/Suor/funcy) - A fancy and practical
+- [more-itertools](https://github.com/erikrose/more-itertools) -
+- [returns](https://github.com/dry-python/returns) - A set of ty
+- [toolz](https://github.com/pytoolz/toolz) - A collection of fu
+
+## Asynchronous Programming
+
+_Libraries for asynchronous, concurrent and parallel execution. 
+
+- [anyio](https://github.com/agronholm/anyio) - A high-level asy
+- [asyncio](https://docs.python.org/3/library/asyncio.html) - (P
+ - [awesome-asyncio](https://github.com/timofurrer/awesome-async

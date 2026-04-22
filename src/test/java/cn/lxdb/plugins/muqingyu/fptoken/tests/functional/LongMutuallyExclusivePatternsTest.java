@@ -1,9 +1,9 @@
 package cn.lxdb.plugins.muqingyu.fptoken.tests.functional;
 
 import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
-import cn.lxdb.plugins.muqingyu.fptoken.model.DocTerms;
-import cn.lxdb.plugins.muqingyu.fptoken.model.ExclusiveSelectionResult;
-import cn.lxdb.plugins.muqingyu.fptoken.model.SelectedGroup;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.tests.ByteArrayTestSupport;
 import org.junit.jupiter.api.Test;
 
