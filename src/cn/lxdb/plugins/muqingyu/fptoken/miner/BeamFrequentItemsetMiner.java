@@ -42,10 +42,10 @@ public final class BeamFrequentItemsetMiner {
     }
 
     private final ScoreFunction scoreFunction;
-    /** 单线程场景下复用的临时位图，避免频繁分配。 */
-    private BitSet pooledScratch = new BitSet(EngineTuningConfig.MIN_BITSET_CAPACITY);
-    /** 当前 pooledScratch 的目标容量记录。 */
-    private int pooledScratchCapacityBits = EngineTuningConfig.MIN_BITSET_CAPACITY;
+    /** 线程本地复用临时位图，避免并发调用时共享可变状态。 */
+    private final ThreadLocal<ScratchBitSet> threadLocalScratch = ThreadLocal.withInitial(
+            () -> new ScratchBitSet(EngineTuningConfig.MIN_BITSET_CAPACITY)
+    );
 
     public BeamFrequentItemsetMiner() {
         this(null);
@@ -460,14 +460,15 @@ public final class BeamFrequentItemsetMiner {
         return deadlineNanos > 0L && System.nanoTime() >= deadlineNanos;
     }
 
-    /** 单线程复用 scratch BitSet，按需扩容后清空再返回。 */
+    /** 线程本地复用 scratch BitSet，按需扩容后清空再返回。 */
     private BitSet getScratchBitSet(int expectedBits) {
-        if (expectedBits > pooledScratchCapacityBits) {
-            pooledScratch = new BitSet(expectedBits);
-            pooledScratchCapacityBits = expectedBits;
+        ScratchBitSet holder = threadLocalScratch.get();
+        if (expectedBits > holder.capacityBits) {
+            holder.bitSet = new BitSet(expectedBits);
+            holder.capacityBits = expectedBits;
         }
-        pooledScratch.clear();
-        return pooledScratch;
+        holder.bitSet.clear();
+        return holder.bitSet;
     }
 
     /**
@@ -919,6 +920,17 @@ public final class BeamFrequentItemsetMiner {
                 heap[s] = t;
                 idx = s;
             }
+        }
+    }
+
+    /** 线程本地 scratch 位图及其容量记录。 */
+    private static final class ScratchBitSet {
+        private BitSet bitSet;
+        private int capacityBits;
+
+        private ScratchBitSet(int capacityBits) {
+            this.bitSet = new BitSet(capacityBits);
+            this.capacityBits = capacityBits;
         }
     }
 

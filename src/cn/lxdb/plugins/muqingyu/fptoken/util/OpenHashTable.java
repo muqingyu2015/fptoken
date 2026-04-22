@@ -24,6 +24,8 @@ public final class OpenHashTable {
     private int[] hashes;
     /** 与 keys 并行：termId。空槽为 -1。 */
     private int[] values;
+    /** termId -> key bytes（O(1) 反查）。 */
+    private byte[][] termIdToKey;
     private int size;
     private int mask; // capacity - 1，用于位运算取模
 
@@ -36,6 +38,7 @@ public final class OpenHashTable {
         this.keys = new byte[capacity][];
         this.hashes = new int[capacity];
         this.values = new int[capacity];
+        this.termIdToKey = new byte[capacity][];
         java.util.Arrays.fill(values, -1);
         this.mask = capacity - 1;
         this.size = 0;
@@ -65,6 +68,7 @@ public final class OpenHashTable {
                 keys[idx] = rawTerm.clone();
                 hashes[idx] = hash;
                 values[idx] = termId;
+                termIdToKey[termId] = keys[idx];
                 size++;
                 // 扩容检查
                 if (size > keys.length * LOAD_FACTOR) {
@@ -98,12 +102,14 @@ public final class OpenHashTable {
      * termId 必须是由 getOrPut 返回的合法值。
      */
     public byte[] getKeyBytes(int termId) {
-        for (int i = 0; i < keys.length; i++) {
-            if (values[i] == termId) {
-                return keys[i];
-            }
+        if (termId < 0 || termId >= size) {
+            throw new IllegalArgumentException("termId out of range: " + termId + ", size=" + size);
         }
-        throw new IllegalArgumentException("termId not found: " + termId);
+        byte[] key = termIdToKey[termId];
+        if (key == null) {
+            throw new IllegalArgumentException("termId not found: " + termId);
+        }
+        return key;
     }
 
     // ===== 内部 =====
@@ -129,6 +135,7 @@ public final class OpenHashTable {
         keys = new byte[newCapacity][];
         hashes = new int[newCapacity];
         values = new int[newCapacity];
+        termIdToKey = new byte[newCapacity][];
         java.util.Arrays.fill(values, -1);
         mask = newCapacity - 1;
         size = 0;
@@ -142,6 +149,7 @@ public final class OpenHashTable {
                 keys[idx] = oldKeys[i];
                 hashes[idx] = oldHashes[i];
                 values[idx] = oldValues[i];
+                termIdToKey[oldValues[i]] = oldKeys[i];
                 size++;
             }
         }

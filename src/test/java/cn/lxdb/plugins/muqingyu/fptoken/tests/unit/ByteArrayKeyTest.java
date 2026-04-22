@@ -3,6 +3,7 @@ package cn.lxdb.plugins.muqingyu.fptoken.tests.unit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -80,6 +81,18 @@ class ByteArrayKeyTest {
     @Test
     void constructor_null_throws() {
         assertThrows(NullPointerException.class, () -> new ByteArrayKey(null));
+    }
+
+    @Test
+    void forLookup_usesCallerArrayWithoutCopy_andUsesProvidedHash() {
+        byte[] raw = new byte[] {1, 2, 3};
+        ByteArrayKey lookup = ByteArrayKey.forLookup(raw, 123456789);
+        assertSame(raw, lookup.bytes());
+        assertEquals(123456789, lookup.hashCode());
+
+        raw[0] = 9;
+        assertEquals(9, lookup.bytes()[0] & 0xFF);
+        assertEquals(new ByteArrayKey(new byte[] {9, 2, 3}), lookup);
     }
 }
 

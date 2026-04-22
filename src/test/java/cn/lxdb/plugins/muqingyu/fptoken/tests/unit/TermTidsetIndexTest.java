@@ -207,6 +207,49 @@ class TermTidsetIndexTest {
         assertTrue(idx.getTidsetsByTermId().get(0).get(0));
     }
 
+    @Test
+    void buildWithSupportBounds_filtersHotTermsByMaxDocCoverageRatio() {
+        byte[] hot = new byte[] {0x01};
+        byte[] warm = new byte[] {0x02};
+        byte[] cold = new byte[] {0x03};
+        List<DocTerms> rows = new ArrayList<>();
+        // 10 docs: hot appears in all docs (support=10), warm appears in 6 docs, cold in 2 docs.
+        for (int i = 0; i < 10; i++) {
+            List<byte[]> terms = new ArrayList<>();
+            terms.add(hot);
+            if (i < 6) {
+                terms.add(warm);
+            }
+            if (i < 2) {
+                terms.add(cold);
+            }
+            rows.add(ByteArrayTestSupport.doc(i, terms));
+        }
+
+        TermTidsetIndex filtered = TermTidsetIndex.buildWithSupportBounds(rows, 1, 0.7d);
+        assertEquals(-1, findTermIdOrMinusOne(filtered, hot));
+        assertTrue(findTermIdOrMinusOne(filtered, warm) >= 0);
+        assertTrue(findTermIdOrMinusOne(filtered, cold) >= 0);
+    }
+
+    @Test
+    void buildWithSupportBounds_withoutBounds_shouldMatchBuild() {
+        List<DocTerms> rows = new ArrayList<>();
+        rows.add(ByteArrayTestSupport.doc(0, new byte[] {0x11}, new byte[] {0x12}));
+        rows.add(ByteArrayTestSupport.doc(1, new byte[] {0x11}, new byte[] {0x13}));
+        rows.add(ByteArrayTestSupport.doc(2, new byte[] {0x12}, new byte[] {0x13}));
+
+        TermTidsetIndex full = TermTidsetIndex.build(rows);
+        TermTidsetIndex bounded = TermTidsetIndex.buildWithSupportBounds(rows, 1, 1.0d);
+
+        assertEquals(full.getIdToTerm().size(), bounded.getIdToTerm().size());
+        for (byte[] term : full.getIdToTerm()) {
+            int fullId = findTermId(full, term);
+            int boundedId = findTermId(bounded, term);
+            assertEquals(full.getTidsetsByTermId().get(fullId), bounded.getTidsetsByTermId().get(boundedId));
+        }
+    }
+
     private static int findTermId(TermTidsetIndex idx, byte[] term) {
         List<byte[]> dict = idx.getIdToTerm();
         for (int i = 0; i < dict.size(); i++) {
@@ -215,6 +258,16 @@ class TermTidsetIndexTest {
             }
         }
         throw new AssertionError("term not found");
+    }
+
+    private static int findTermIdOrMinusOne(TermTidsetIndex idx, byte[] term) {
+        List<byte[]> dict = idx.getIdToTerm();
+        for (int i = 0; i < dict.size(); i++) {
+            if (java.util.Arrays.equals(dict.get(i), term)) {
+                return i;
+            }
+        }
+        return -1;
     }
 }
 

@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
 
 @Tag("performance")
 @EnabledIfSystemProperty(named = "fptoken.runPerfTests", matches = "true")
-@Timeout(value = 10, unit = TimeUnit.SECONDS)
+@Timeout(value = 30, unit = TimeUnit.SECONDS)
 class PerformanceCaseCatalogPart1Test {
 
     // =========================

@@ -26,6 +26,11 @@ public final class ByteArrayTestSupport {
         return out;
     }
 
+    /** 兼容历史测试命名。 */
+    public static String hexString(byte[] bytes) {
+        return ByteArrayUtils.toHex(bytes);
+    }
+
     public static DocTerms doc(int docId, byte[]... terms) {
         List<byte[]> list = new ArrayList<>(Arrays.asList(terms));
         return new DocTerms(docId, list);
@@ -205,6 +210,33 @@ public final class ByteArrayTestSupport {
                 return false;
             }
             return Arrays.equals(value, ((ByteArrayHolder) o).value);
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+    }
+
+    /**
+     * 兼容历史测试中公开的包装器类型。
+     * 新代码优先使用内部 ByteArrayHolder。
+     */
+    public static final class ByteArrayWrapper {
+        private final byte[] value;
+        private final int hash;
+
+        public ByteArrayWrapper(byte[] value) {
+            this.value = value;
+            this.hash = Arrays.hashCode(value);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof ByteArrayWrapper)) {
+                return false;
+            }
+            return Arrays.equals(value, ((ByteArrayWrapper) o).value);
         }
 
         @Override

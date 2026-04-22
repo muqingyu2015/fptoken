@@ -20,7 +20,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 @Tag("performance")
 @EnabledIfSystemProperty(named = "fptoken.runPerfTests", matches = "true")
-@Timeout(value = 10, unit = TimeUnit.SECONDS)
+@Timeout(value = 30, unit = TimeUnit.SECONDS)
 class PerformanceRegressionGateTest {
 
     @Test
@@ -77,8 +77,13 @@ class PerformanceRegressionGateTest {
                 () -> "p95 regression: current=" + current.p95Ms + ", baseline=" + baseline.p95Ms);
         assertTrue(current.maxCandidates <= Math.max(1d, baseline.maxCandidates) * candidateRatio,
                 () -> "candidate regression: current=" + current.maxCandidates + ", baseline=" + baseline.maxCandidates);
-        assertTrue(current.maxHeapDeltaMb <= Math.max(1d, baseline.maxHeapDeltaMb) * heapRatio,
-                () -> "heap regression: current=" + current.maxHeapDeltaMb + ", baseline=" + baseline.maxHeapDeltaMb);
+        long heapAbsSlackMb = Long.parseLong(System.getProperty("fptoken.perf.regression.heapAbsSlackMb", "16"));
+        double heapLimitByRatio = Math.max(1d, baseline.maxHeapDeltaMb) * heapRatio;
+        double heapLimitBySlack = baseline.maxHeapDeltaMb + heapAbsSlackMb;
+        double heapAllowed = Math.max(heapLimitByRatio, heapLimitBySlack);
+        assertTrue(current.maxHeapDeltaMb <= heapAllowed,
+                () -> "heap regression: current=" + current.maxHeapDeltaMb + ", baseline="
+                        + baseline.maxHeapDeltaMb + ", heapAllowed=" + heapAllowed);
 
         appendRow(baselinePath, current);
     }

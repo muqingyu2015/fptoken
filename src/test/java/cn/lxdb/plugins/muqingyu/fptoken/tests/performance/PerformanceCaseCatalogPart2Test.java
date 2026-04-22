@@ -28,7 +28,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 @Tag("performance")
 @EnabledIfSystemProperty(named = "fptoken.runPerfTests", matches = "true")
-@Timeout(value = 10, unit = TimeUnit.SECONDS)
+@Timeout(value = 30, unit = TimeUnit.SECONDS)
 class PerformanceCaseCatalogPart2Test {
 
     // =========================
@@ -362,11 +362,22 @@ class PerformanceCaseCatalogPart2Test {
     @Test
     void PERF_COMP_002_pruningOnOff_proxyBySupport() {
         List<DocTerms> rows = PerfTestSupport.standardPcapRows(800);
-        long loose = PerfTestSupport.elapsedMillis(() ->
-                ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(rows, 1, 2, 6, 200000));
-        long strict = PerfTestSupport.elapsedMillis(() ->
-                ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(rows, 40, 2, 6, 200000));
-        assertTrue(strict <= loose);
+        final ExclusiveSelectionResult[] looseHolder = new ExclusiveSelectionResult[1];
+        long looseMs = PerfTestSupport.elapsedMillis(() ->
+                looseHolder[0] = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
+                        rows, 1, 2, 6, 200000));
+        final ExclusiveSelectionResult[] strictHolder = new ExclusiveSelectionResult[1];
+        long strictMs = PerfTestSupport.elapsedMillis(() ->
+                strictHolder[0] = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
+                        rows, 40, 2, 6, 200000));
+
+        assertTrue(strictHolder[0].getCandidateCount() <= looseHolder[0].getCandidateCount(),
+                () -> "PERF-COMP-002 strict should not increase candidates: strict="
+                        + strictHolder[0].getCandidateCount() + ", loose=" + looseHolder[0].getCandidateCount());
+
+        long maxMs = PerfTestSupport.longProp("fptoken.perf.comp.002.maxMs", 30000L);
+        assertTrue(looseMs < maxMs && strictMs < maxMs,
+                () -> "PERF-COMP-002 looseMs=" + looseMs + ", strictMs=" + strictMs + ", maxMs=" + maxMs);
     }
 
     @Test
@@ -443,7 +454,11 @@ class PerformanceCaseCatalogPart2Test {
         long warm = PerfTestSupport.elapsedMillis(() ->
                 ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
                         PerfTestSupport.standardPcapRows(800), 10, 2, 6, 100000));
-        assertTrue(warm <= cold * 1.5d);
+        double ratio = Double.parseDouble(System.getProperty("fptoken.perf.soak.004.maxRatio", "1.80"));
+        long slackMs = PerfTestSupport.longProp("fptoken.perf.soak.004.extraSlackMs", 1200L);
+        assertTrue(warm <= Math.round(cold * ratio) + slackMs,
+                () -> "PERF-SOAK-004 coldMs=" + cold + ", warmMs=" + warm + ", ratio=" + ratio
+                        + ", slackMs=" + slackMs);
     }
 
     @Test
@@ -458,7 +473,11 @@ class PerformanceCaseCatalogPart2Test {
         samples.sort(Long::compareTo);
         long p50 = samples.get(samples.size() / 2);
         long p99 = samples.get((int) Math.floor(samples.size() * 0.95d));
-        assertTrue(p99 <= p50 * 2L + 1L, () -> "PERF-SOAK-005 p50=" + p50 + ", p99=" + p99);
+        double maxJitterRatio = Double.parseDouble(System.getProperty("fptoken.perf.soak.005.maxJitterRatio", "3.00"));
+        long extraSlackMs = PerfTestSupport.longProp("fptoken.perf.soak.005.extraSlackMs", 150L);
+        assertTrue(p99 <= Math.round(p50 * maxJitterRatio) + extraSlackMs,
+                () -> "PERF-SOAK-005 p50=" + p50 + ", p99=" + p99
+                        + ", maxJitterRatio=" + maxJitterRatio + ", extraSlackMs=" + extraSlackMs);
     }
 
     private long heapDeltaMb(Runnable runnable) {

@@ -12,10 +12,16 @@ import cn.lxdb.plugins.muqingyu.fptoken.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.picker.TwoPhaseExclusiveItemsetPicker;
 import cn.lxdb.plugins.muqingyu.fptoken.util.ByteArrayUtils;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Properties;
 import java.util.Random;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * 互斥频繁项集选择的门面(Facade):对调用方屏蔽索引、挖掘与挑选的实现细节。
@@ -176,6 +182,16 @@ public final class ExclusiveFrequentItemsetSelector {
     private static double samplingSupportScale = EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE;
     /** 采样开关：设为 false 则回退为全量挖掘（用于对比测试）。 */
     private static boolean samplingEnabled = true;
+    /** 采样配置文件路径（可通过 -Dfptoken.config.file 覆盖）。 */
+    private static final String DEFAULT_CONFIG_FILE = "config/fptoken.properties";
+    private static final String CONFIG_PATH_PROPERTY = "fptoken.config.file";
+    private static final String SAMPLE_RATIO_KEY = "fptoken.sampling.sampleRatio";
+    private static final String MIN_SAMPLE_COUNT_KEY = "fptoken.sampling.minSampleCount";
+    private static final String SUPPORT_SCALE_KEY = "fptoken.sampling.supportScale";
+
+    static {
+        reloadSamplingConfig();
+    }
 
     /**
      * 设置采样开关（用于对比测试）。
@@ -209,6 +225,52 @@ public final class ExclusiveFrequentItemsetSelector {
         samplingSupportScale = scale;
     }
 
+    /**
+     * 从配置文件重载采样参数。未配置项保持当前值。
+     * 默认读取 {@code config/fptoken.properties}，
+     * 也可通过 JVM 参数 {@code -Dfptoken.config.file=/path/to/file} 指定。
+     */
+    public static synchronized void reloadSamplingConfig() {
+        String configPath = System.getProperty(CONFIG_PATH_PROPERTY, DEFAULT_CONFIG_FILE);
+        Path file = Paths.get(configPath);
+        if (!Files.exists(file) || !Files.isRegularFile(file)) {
+            return;
+        }
+        Properties properties = new Properties();
+        try (java.io.Reader reader = Files.newBufferedReader(file)) {
+            properties.load(reader);
+            String ratio = properties.getProperty(SAMPLE_RATIO_KEY);
+            if (ratio != null && !ratio.trim().isEmpty()) {
+                setSampleRatio(Double.parseDouble(ratio.trim()));
+            }
+            String minCount = properties.getProperty(MIN_SAMPLE_COUNT_KEY);
+            if (minCount != null && !minCount.trim().isEmpty()) {
+                setMinSampleCount(Integer.parseInt(minCount.trim()));
+            }
+            String supportScale = properties.getProperty(SUPPORT_SCALE_KEY);
+            if (supportScale != null && !supportScale.trim().isEmpty()) {
+                setSamplingSupportScale(Double.parseDouble(supportScale.trim()));
+            }
+        } catch (Exception ignored) {
+            // 配置文件为可选能力：解析失败时保留当前值，不中断主流程。
+        }
+    }
+
+    /** 当前采样比率（便于测试与运行期观测）。 */
+    public static double getSampleRatio() {
+        return sampleRatio;
+    }
+
+    /** 当前最小采样文档数（便于测试与运行期观测）。 */
+    public static int getMinSampleCount() {
+        return minSampleCount;
+    }
+
+    /** 当前采样支持度缩放因子（便于测试与运行期观测）。 */
+    public static double getSamplingSupportScale() {
+        return samplingSupportScale;
+    }
+
     public static ExclusiveSelectionResult selectExclusiveBestItemsetsWithStats(
             List<DocTerms> rows,
             int minSupport,
@@ -227,7 +289,8 @@ public final class ExclusiveFrequentItemsetSelector {
                 maxCandidateCount
         );
 
-        int docCount = rows.size();
+        int[] allDocIds = collectDistinctDocIds(rows);
+        int docCount = allDocIds.length;
         int sampleSize = Math.max(minSampleCount, (int) Math.ceil(docCount * sampleRatio));
 
         // Phase 1: 在全量数据上建索引
@@ -241,7 +304,8 @@ public final class ExclusiveFrequentItemsetSelector {
         }
         List<BitSet> fullTidsets = fullIndex.getTidsetsByTermIdUnsafe();
 
-        if (!samplingEnabled || sampleSize >= docCount) {
+        // 小样本集上采样收益很低且方差更高，直接走全量更稳。
+        if (!samplingEnabled || sampleRatio <= 0.0d || minSupport <= 1 || docCount < 200 || sampleSize >= docCount) {
             // === 全量路径：直接在全量索引上挖掘 ===
             MiningPlan miningPlan = buildMiningPlan(config, docCount, termVocabulary.size());
             FrequentItemsetMiningResult miningStats = mineCandidates(fullTidsets, miningPlan);
@@ -250,7 +314,7 @@ public final class ExclusiveFrequentItemsetSelector {
 
         // === 采样路径 ===
         // 1) 随机选择采样文档的 docId
-        int[] sampledDocIds = sampleDocIds(docCount, sampleSize);
+        int[] sampledDocIds = sampleDocIds(allDocIds, sampleSize);
         // 2) 创建采样掩码，从全量 tidsets 中位过滤出采样文档
         BitSet sampleMask = new BitSet(docCount);
         for (int sid : sampledDocIds) {
@@ -265,7 +329,8 @@ public final class ExclusiveFrequentItemsetSelector {
         }
         // 4) minSupport 按采样比例缩放：采样集小，用更低阈值确保能挖到模式
         //    回算阶段会再用全量 minSupport 过滤，所以缩放不会引入虚假组合
-        double effectiveScale = (samplingSupportScale <= 0.0d) ? sampleRatio : samplingSupportScale;
+        double observedSampleRatio = (double) sampleSize / (double) docCount;
+        double effectiveScale = (samplingSupportScale <= 0.0d) ? observedSampleRatio : samplingSupportScale;
         int sampledMinSupport = Math.max(1, (int) Math.round(minSupport * effectiveScale));
         // 5) 在采样 tidsets 上挖掘
         SelectorConfig sampledConfig = new SelectorConfig(
@@ -354,11 +419,9 @@ public final class ExclusiveFrequentItemsetSelector {
     }
 
     /** 随机选择文档子集的 docId。 */
-    private static int[] sampleDocIds(int docCount, int sampleSize) {
-        int[] all = new int[docCount];
-        for (int i = 0; i < docCount; i++) {
-            all[i] = i;
-        }
+    private static int[] sampleDocIds(int[] allDocIds, int sampleSize) {
+        int docCount = allDocIds.length;
+        int[] all = Arrays.copyOf(allDocIds, allDocIds.length);
         // Fisher-Yates 部分洗牌，只洗前 sampleSize 个
         Random rnd = new Random(42);
         for (int i = 0; i < sampleSize && i < docCount - 1; i++) {
@@ -370,6 +433,28 @@ public final class ExclusiveFrequentItemsetSelector {
         int[] out = new int[sampleSize];
         System.arraycopy(all, 0, out, 0, sampleSize);
         java.util.Arrays.sort(out);
+        return out;
+    }
+
+    private static int[] collectDistinctDocIds(List<DocTerms> rows) {
+        HashSet<Integer> docIds = new HashSet<>(rows.size());
+        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
+            DocTerms row = rows.get(rowIndex);
+            if (row == null) {
+                throw new IllegalArgumentException("rows[" + rowIndex + "] must not be null");
+            }
+            int docId = row.getDocId();
+            if (docId < 0) {
+                throw new IllegalArgumentException("docId must be >= 0, got " + docId);
+            }
+            docIds.add(Integer.valueOf(docId));
+        }
+        int[] out = new int[docIds.size()];
+        int idx = 0;
+        for (Integer docId : docIds) {
+            out[idx++] = docId.intValue();
+        }
+        Arrays.sort(out);
         return out;
     }
 

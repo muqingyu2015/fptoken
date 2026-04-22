@@ -84,16 +84,10 @@ public final class TermTidsetIndex {
     }
 
     /**
-     * 单次扫描索引构建（支持度边界过滤）：一次扫描完成频率统计 + 位图设置。
+     * 支持度边界过滤索引构建：两次扫描（统计频率 + 设位图）。
      *
      * <p>相比 {@link #build(List)} + 事后过滤，此方法在大词表场景下显著降低内存峰值，
      * 因为低频词不会占用完整的 BitSet(docCount) 空间。
-     *
-     * <p>相比原来的两阶段方案，此版本只做<b>一次</b>文档扫描：
-     * <ol>
-     *   <li>扫描文档，为每个 term 维护 {@code ArrayList<Integer>} 记录 docId 列表（不分配 BitSet）</li>
-     *   <li>扫描结束后，只对满足 [minSupport, maxSupport] 的 term 分配 BitSet 并设置位图</li>
-     * </ol>
      *
      * @param rows 文档输入
      * @param minSupport 最小支持度（< 1 时按 1 处理）
@@ -117,7 +111,7 @@ public final class TermTidsetIndex {
             return build(rows);
         }
 
-        // === 单次扫描：统计频率 ===
+        // === 第一次扫描：统计频率 ===
         // 使用自定义哈希表统计频率（只计数，不分配 BitSet）
         // 使用 int[2] 同时存储 hash + count，避免额外映射
         // 这里复用 OpenHashTable 的逻辑，但 value 不是 termId，而是 count
@@ -167,7 +161,7 @@ public final class TermTidsetIndex {
                 int termId = idToTerm.size();
                 termIdMap.put(key, Integer.valueOf(termId));
                 idToTerm.add(key.bytes());
-                tidsetsByTermId.add(new BitSet(docCount));
+                tidsetsByTermId.add(new BitSet());
             }
         }
         freqMap.clear();

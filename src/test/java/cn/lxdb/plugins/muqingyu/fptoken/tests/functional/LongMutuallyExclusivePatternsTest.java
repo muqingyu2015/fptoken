@@ -49,14 +49,19 @@ class LongMutuallyExclusivePatternsTest {
         byte[] F = ByteArrayTestSupport.hex("46"); // 'F'
         
         for (int i = 0; i < docs; i++) {
+            List<byte[]> terms = new ArrayList<>();
             if (i < 80) {
                 // 包含长模式ABCD
-                rows.add(ByteArrayTestSupport.doc(i, A, B, C, D));
-            }
-            if (i < 90) {
+                terms.add(A);
+                terms.add(B);
+                terms.add(C);
+                terms.add(D);
+            } else if (i < 90) {
                 // 包含短模式EF
-                rows.add(ByteArrayTestSupport.doc(i, E, F));
+                terms.add(E);
+                terms.add(F);
             }
+            rows.add(ByteArrayTestSupport.doc(i, terms));
         }
         
         // 设置minItemsetSize=2，让算法可以选择2项或4项模式
@@ -89,19 +94,19 @@ class LongMutuallyExclusivePatternsTest {
         byte[] A = ByteArrayTestSupport.hex("41");
         byte[] B = ByteArrayTestSupport.hex("42");
         byte[] C = ByteArrayTestSupport.hex("43");
-        byte[] X = ByteArrayTestSupport.hex("58"); // 'X' - 独立模式
         
         // 模式1：ABC (3项，支持度80)
-        // 模式2：AB (2项，支持度80，被ABC包含)
-        // 模式3：X (1项，支持度100)
+        // 模式2：AB (2项，支持度100，被ABC包含)
         
         for (int i = 0; i < docs; i++) {
+            List<byte[]> terms = new ArrayList<>();
+            terms.add(A);
+            terms.add(B);
             if (i < 80) {
                 // 包含ABC模式
-                rows.add(ByteArrayTestSupport.doc(i, A, B, C));
+                terms.add(C);
             }
-            // 所有文档都包含X
-            rows.add(ByteArrayTestSupport.doc(i, X));
+            rows.add(ByteArrayTestSupport.doc(i, terms));
         }
         
         ExclusiveSelectionResult result = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
