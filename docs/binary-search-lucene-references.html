@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>参考资料 — 二进制模糊检索技术方案</title>
+  <style>
+    :root { --bg: #0f1419; --surface: #1a2332; --surface2: #243044; --text: #e6edf3; --text-muted: #8b949e; --accent: #58a6ff; --accent2: #3fb950; --warn: #d29922; --border: #30363d; --code-bg: #161b22; --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; margin: 0; padding: 2rem max(2rem, 10vw); max-width: 960px; margin-left: auto; margin-right: auto; }
+    h1 { font-size: 1.75rem; font-weight: 600; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; margin-top: 2rem; }
+    h2 { font-size: 1.35rem; color: var(--text); margin-top: 2rem; }
+    h3 { font-size: 1.15rem; margin-top: 1.5rem; color: var(--accent2); }
+    p { margin: 0.75rem 0; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.9rem; background: var(--surface); border-radius: 8px; overflow: hidden; }
+    th, td { border: 1px solid var(--border); padding: 0.6rem 0.9rem; text-align: left; }
+    th { background: var(--surface2); color: var(--accent); font-weight: 600; }
+    code { font-family: var(--font-mono); font-size: 0.88em; background: var(--code-bg); padding: 0.15em 0.4em; border-radius: 4px; color: #79c0ff; }
+    pre { background: var(--code-bg); padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid var(--border); }
+    .box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; margin: 1rem 0; }
+    .box-title { font-weight: 600; color: var(--accent2); margin-bottom: 0.5rem; }
+    .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.5rem; margin: 2rem 0; }
+    .toc ul { margin: 0.5rem 0 0 1rem; padding: 0; }
+    .toc li { margin: 0.35rem 0; }
+    .toc a { color: var(--accent); text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    ul, ol { margin: 0.75rem 0; padding-left: 1.5rem; }
+    li { margin: 0.35rem 0; }
+    hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+    .meta { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 2rem; }
+  </style>
+</head>
+<body>
+
+<h1>参考资料</h1>
+<p class="meta">与《基于 Lucene 的二进制数据模糊检索技术方案》设计文档配套 · 业界方案、文献、大厂与高校研究、GitHub 项目等</p>
+
+<nav class="toc">
+  <div class="box-title">目录</div>
+  <ul>
+    <li><a href="#industry-ref">十二、业界类似方案与参考</a></li>
+    <li><a href="#industry-impl">十三、业界实现概览：成熟与不成熟</a></li>
+    <li><a href="#oss-vs-commercial">十四、开源与商业化产品：类似实现思路</a></li>
+    <li><a href="#references">十五、与本技术实现相关的文档与参考文献</a></li>
+    <li><a href="#binary-retrieval-industry">十六、与本文同类目标：二进制检索的业界方案</a></li>
+    <li><a href="#tech-giants">十七、国内外科技大厂相关算法与系统</a></li>
+    <li><a href="#university-research">十八、高校相关研究与实践</a></li>
+    <li><a href="#research-institutions">十九、科研机构相关研究与实践</a></li>
+    <li><a href="#github-projects">二十、GitHub 上的相关项目与资源</a></li>
+  </ul>
+</nav>
+
+  <p><strong>基本原理/思路：</strong> 文档按字符做滑动窗口切出 n-gram（如 trigram），每个 n-gram 映射到「包含该 gram 的文档 ID」列表（posting list），形成倒排索引。查询时从查询串中提取若干 n-gram，对对应 posting list 做<strong>交集</strong>得到候选文档，再对候选做验证或正则匹配。用<strong>懒迭代器</strong>按需推进各 list，只读必要片段，避免整表加载。</p>
+  <ul>
+    <li><strong>场景：</strong> 代码全文/子串检索，45M+ 仓库、约 115TB 代码、15.5B 文档；需支持正则、标点、无 stemming。</li>
+    <li><strong>做法：</strong> 自研引擎 Blackbird（Rust）。使用 <strong>n-gram 倒排索引</strong>（如 trigram）：文档按 n-gram 切分，每个 n-gram 对应一条 posting list（文档 ID 列表）。查询时对多个 n-gram 做 <strong>交集</strong>，得到候选文档，再验证。</li>
+    <li><strong>与本文的对应：</strong> 相当于「滑动窗口 + 固定长度 token → 倒排」；本文是 64B 窗口 → term → 块内 BitSet 过滤 → 精确比对。Blackbird 用 n-gram 交代替 BitSet，用懒迭代器避免整条 posting list 进内存。</li>
+  </ul>
+  <p><strong>创新点：</strong> 懒迭代器按需推进多路 posting list，只读必要片段，避免整表加载；在超大规模（115TB、15.5B 文档）下仍保持可用的子串/正则检索；自研 Rust 引擎替代通用全文引擎，针对代码检索做定制。</p>
+  <p><strong>可借鉴的地方：</strong> 多 gram 取交得候选再验证的整体流程；懒迭代器与 I/O 节约设计；大规模下的索引分片与一致性策略；可考虑在本文 DocList 迭代时采用类似「按需读块」的懒推进。</p>
+</div>
+<p><strong>参考链接：</strong> <a href="https://github.blog/engineering/architecture-optimization/the-technology-behind-githubs-new-code-search" target="_blank" rel="noopener">The technology behind GitHub's new code search</a>（GitHub Blog）</p>
+
+<h3>12.2 Zoekt（Trigram 代码搜索）</h3>
+<div class="box">
+  <div class="box-title">要点</div>
+  <p><strong>基本原理/思路：</strong> 对每个 trigram 不仅存「哪些文档包含」，还存<strong>在文档内的出现位置（偏移）</strong>。子串查询时取查询串中的若干 trigram（如首、尾），在索引中取交并检查它们在同一文档内的<strong>相对距离</strong>是否与查询子串一致，从而在不读全文的情况下筛出候选，再做验证。仅访问少量 posting list，适合 SSD 与低延迟。</p>
+  <ul>
+    <li><strong>场景：</strong> 面向 Git 仓库的全文/子串代码搜索，目标单机 SSD 上亚 50ms 级延迟（如 Android 约 2G 文本）。</li>
+    <li><strong>做法：</strong> <strong>位置化 trigram（positional trigram）</strong>：每个 trigram 存其在文件内的<strong>偏移</strong>。子串查询时提取查询中的 trigram（如首尾或关键几个），要求它们在文档中按<strong>正确距离</strong>出现，再验证。仅需少量 posting list 相交，适合 SSD。</li>
+    <li><strong>优化：</strong> 将 n-gram 从 map 改为两层 slice 索引，显著降低内存（如 14.5GB→3.5GB）并加快加载。</li>
+  </ul>
+  <p><strong>创新点：</strong> 位置化 trigram：存偏移而非仅 docId，用「首尾 gram + 文档内距离」在不读全文的情况下筛候选，仅访问少量 posting list，适合 SSD 与亚 50ms 延迟目标；两层 slice 索引替代 map，大幅省内存。</p>
+  <p><strong>可借鉴的地方：</strong> 用「距离约束」减少候选集与验证量；少量 list 交即可得到高精度候选的思路；内存紧凑的索引结构（slice/扁平化）可类比本文 DocList 分块与压缩。</p>
+</div>
+<p><strong>参考链接：</strong> <a href="https://github.com/google/zoekt/blob/master/doc/design.md" target="_blank" rel="noopener">Zoekt design doc</a>（GitHub）</p>
+
+<h3>12.3 Milvus NGRAM 索引</h3>
+<div class="box">
+  <div class="box-title">要点</div>
+  <p><strong>基本原理/思路：</strong> 建索引时用<strong>滑动窗口</strong>把文本切成若干长度的 n-gram（min_gram～max_gram），每个 gram 映射到「包含该 gram 的主键/文档 ID」，写成倒排；查询时把查询串同样切 n-gram，在倒排里取<strong>交</strong>得到候选 ID，再对候选做精确的 LIKE 或字符串匹配。本质是「gram 倒排 + 候选再验证」，与经典全文子串加速一致。</p>
+  <ul>
+    <li><strong>场景：</strong> 向量库 Milvus 对 VARCHAR 字段的 <code>LIKE '%xxx%'</code> 类查询加速。</li>
+    <li><strong>做法：</strong> 建索引时用<strong>滑动窗口</strong>将文本切为 n-gram（可配置 <code>min_gram</code> / <code>max_gram</code>），存入<strong>倒排索引</strong>（gram → 文档 ID）；查询时用查询串的 n-gram 过滤出候选集，再精确匹配。支持前缀、后缀、中缀子串。</li>
+    <li><strong>与本文的对应：</strong> 思路一致：「滑动窗口 → token → 倒排 → 候选 → 验证」。本文用 64B 定长、BitSet 做块内过滤，Milvus 用变长 n-gram + 倒排。</li>
+  </ul>
+  <p><strong>创新点：</strong> 在向量库内原生支持 VARCHAR 的 LIKE 子串加速，min_gram/max_gram 可配，与向量检索混合使用；建索引与查询两阶段清晰，文档与 API 完善，便于工程落地。</p>
+  <p><strong>可借鉴的地方：</strong> 滑动窗口 + 倒排 + 候选再精确匹配的完整链路；min_gram/max_gram 参数对召回与索引体积的权衡；若本文将来支持变长块，可参考其 gram 长度配置策略。</p>
+</div>
+<p><strong>参考链接：</strong> <a href="https://milvus.io/docs/ngram.md" target="_blank" rel="noopener">Milvus NGRAM 文档</a>；<a href="https://milvus.io/ai-quick-reference/how-do-ngrams-work-in-ir" target="_blank" rel="noopener">How do n-grams work in IR?</a></p>
+
+<h3>12.4 Elasticsearch / Lucene 与「二进制」</h3>
+<div class="box">
+  <div class="box-title">要点</div>
+  <p><strong>基本原理/思路：</strong> binary 字段在写入时只做 Base64 解码并<strong>按原样存</strong>入 stored 流，不建倒排、不建词典，因此不能按内容检索。要对「二进制文档」做搜索时，用 Tika 或 Data Extraction 等把 PDF/Office 等<strong>解析成文本</strong>，再对文本走标准分词与倒排索引；检索对象是「提取出的文本」而非原始字节流。</p>
+  <ul>
+    <li><strong>Binary 字段：</strong> Elasticsearch 的 <code>binary</code> 类型默认<strong>不可检索</strong>，仅可存储（Base64 解码后存）；若要对二进制内容做全文检索，需先提取文本再索引。</li>
+    <li><strong>二进制文档（PDF/Office）：</strong> 通过 Apache Tika 或 Elastic 的 Data Extraction Service 等先<strong>提取文本</strong>，再对文本建全文索引，而不是对原始字节建子串索引。</li>
+    <li><strong>BBQ：</strong> Lucene/Elasticsearch 中的 Better Binary Quantization 是针对<strong>向量</strong>的二值量化，与「二进制流子串检索」无直接关系。</li>
+  </ul>
+  <p><strong>创新点：</strong> 将「二进制文档检索」明确拆成「存 binary」与「提文本再全文索引」两条路径，Tika/Data Extraction 生态成熟，适合文档类二进制；binary 字段语义简单、不参与检索，避免误用。</p>
+  <p><strong>可借鉴的地方：</strong> 明确「只存不检」与「可检索」的边界，本文 _bin 扩展正好补足「可检」一侧；文档抽取流水线与本文「先处理再索引」的衔接方式可参考；若需同时支持「提文本」与「原始 byte[] 子串」，可复用其 ingest 与字段设计思路。</p>
+</div>
+<p><strong>结论：</strong> 业界通用栈中通常<strong>不对原始二进制做类 LIKE 的子串索引</strong>，要么只存不查，要么先转文本再全文检索。本文方案填补的是「对原始 byte[] 做高召回子串检索」这一缺口。</p>
+<p><strong>参考链接：</strong> <a href="https://www.elastic.co/guide/en/elasticsearch/reference/current/binary.html" target="_blank" rel="noopener">Elasticsearch binary field</a>；<a href="https://www.elastic.co/search-labs/blog/binary-document-evolution" target="_blank" rel="noopener">Binary document ingestion (Elasticsearch Labs)</a></p>
+
+<h3>12.5 ClickHouse Data Skipping Index</h3>
+<div class="box">
+  <div class="box-title">要点</div>
+  <p><strong>基本原理/思路：</strong> 数据按<strong>块（granule）</strong>存储，每块维护轻量级元数据：minmax 存该块内某列的最小/最大值；bloom_filter 存该块内值的集合的近似；ngrambf_v1 对该块内字符串做 n-gram 切分后放入 Bloom。查询时先查这些元数据，若块不可能命中（如查询值不在 minmax 范围、或 Bloom 判「一定不存在」）则<strong>整块跳过</strong>，只读可能命中的块，从而减少 I/O。</p>
+  <ul>
+    <li><strong>场景：</strong> 按块（granularity）跳过不相关数据，减少扫描量；适用于范围、等值、子串/包含等条件。</li>
+    <li><strong>类型：</strong> <strong>minmax</strong>（块内最小/最大值）、<strong>set(N)</strong>（块内取值集合）、<strong>bloom_filter</strong>、<strong>ngrambf_v1</strong> / <strong>tokenbf_v1</strong>（基于 n-gram 或 token 的 Bloom）、<strong>text</strong>（分词倒排）等。</li>
+    <li><strong>与本文的对应：</strong> 本文在 3.3.2 中提到的「段/块内 min-max、首字节集、Bloom、q-gram」等二次过滤，与 ClickHouse 的块级 minmax/Bloom/ngram 思路一致，都是<strong>先块级过滤再读细粒度数据</strong>。</li>
+  </ul>
+  <p><strong>创新点：</strong> 多种跳过索引类型（minmax、set、bloom_filter、ngrambf_v1、tokenbf_v1）与 granularity 解耦，按列与查询形态选配；块级元数据轻量，I/O 节约明显，文档与生产实践丰富。</p>
+  <p><strong>可借鉴的地方：</strong> 块级 minmax/Bloom/ngram 与本文 3.3.2 段级二次过滤直接对应；granularity 与块大小的取舍；ngrambf 参数（长度、Bloom 大小）可参考用于本文 q-gram 或块内过滤设计。</p>
+</div>
+<p><strong>参考链接：</strong> <a href="https://clickhouse.com/docs/en/optimize/skipping-indexes" target="_blank" rel="noopener">ClickHouse Data Skipping Indexes</a></p>
+
+<h3>12.6 Bit Matrix 子串搜索（Baeza-Yates / Richard Startin）</h3>
+<div class="box">
+  <div class="box-title">要点</div>
+  <p><strong>基本原理/思路：</strong> 预处理阶段为 pattern 建 256 个 bitmask（每字节值一个）：mask[b] 的第 i 位为 1 表示 pattern[i]=b。扫描时维护一个状态字（初始 0）：每读一字节 c，状态左移一位并或 1，再与 mask[c] 做与；若状态的「第 pattern 长度 位」为 1，则当前窗口与 pattern 匹配。全程<strong>移位+与</strong>，无分支，pattern 长度受字长限制（如 ≤64）。</p>
+  <ul>
+    <li><strong>思路：</strong> 为待查子串（pattern）构建 256×「位置」的<strong>位矩阵</strong>：每个字节值对应一个 bitmask，表示该字节在 pattern 中出现的所有位置。扫描文本时用单个 long 做「移位 + 与」更新状态，当高位被置 1 时表示匹配。天然<strong>分支无关</strong>，适合 SIMD/吞吐优化。</li>
+    <li><strong>限制：</strong> pattern 长度不能超过 64（因用 64-bit 字跟踪位置）；更长模式需分块或换算法。</li>
+    <li><strong>与本文的对应：</strong> 本文用「64B 窗口」与「256×3 BitSet」做候选过滤，Bit Matrix 用 256 个 mask 做单模式扫描；若把「查询块」视为固定 64B pattern，两者在「按字节查表 + 位运算」上有相似性。Sparse 版本只存 pattern 中实际出现的字节对应 mask，节省空间。</li>
+  </ul>
+  <p><strong>创新点：</strong> 用 256×位置 bitmask 与单字长状态实现子串匹配，全程移位+与、无分支，适合 SIMD/高吞吐；Sparse 变体只存出现字节的 mask，省空间且缓存友好；≤64 字节的约束与本文 64B 块天然契合。</p>
+  <p><strong>可借鉴的地方：</strong> 按字节查表 + 位运算的过滤思路与本文 BitSet/256 表一致；精确比对阶段可考虑用 Bit Matrix 做单块（≤64B）扫描；Sparse 思路可用于减少本文 256 表中未出现字节的存储；SIMD 化时可参考其无分支设计。</p>
+</div>
+<p><strong>参考链接：</strong> <a href="https://richardstartin.github.io/posts/sparse-bitmatrix-substring-search" target="_blank" rel="noopener">Sparse Bit Matrix Substring Search</a>（Richard Startin）；Baeza-Yates, “A New Approach to Text Searching”（论文）。</p>
+
+<h3>12.7 关系库中的 BINARY / BYTEA 子串与前缀</h3>
+<div class="box">
+  <div class="box-title">要点</div>
+  <p><strong>基本原理/思路：</strong> 二进制列按字节存，LIKE 通过<strong>逐字节比较</strong>实现；没有对「任意位置子串」建专用倒排，因此中缀匹配多需顺序扫或全表扫。为加速前缀查询，可对列建 B-tree（按字节序），或对 <code>substring(列,1,N)</code> 建函数索引，这样「前 N 字节等于某值」可走索引；PG 还可用 <code>v &gt;= x AND v &lt; y</code> 做前缀区间查询。</p>
+  <ul>
+    <li><strong>PostgreSQL：</strong> <code>bytea</code> 支持 <code>LIKE</code>，前缀查询可用 <code>WHERE v LIKE E'\\x12\\x34%'</code>；为优化可对前缀建索引，或用区间写法 <code>v &gt;= x AND v &lt; y</code>；大列可对 <code>substring(data,1,N)</code> 建函数索引。</li>
+    <li><strong>MariaDB / MySQL：</strong> <code>BINARY</code> 类型支持 <code>LIKE</code> 子串匹配，区分大小写；索引对前缀有效。</li>
+    <li><strong>与本文的对应：</strong> 关系库侧重「单列前缀/等值」和简单子串，不做「全量二进制流、任意位置子串、高召回零漏检」的专用索引；本文的 64B 滑动窗口 + 块内 BitSet + 精确比对是针对后者的设计。</li>
+  </ul>
+  <p><strong>创新点：</strong> 在通用 SQL 下支持 bytea/BINARY 的 LIKE 与前缀；PG 的 substring 函数索引、区间写法 v≥x AND v&lt;y 提供可组合的优化手段；实现简单、与现有 SQL 生态兼容。</p>
+  <p><strong>可借鉴的地方：</strong> 前缀/等值场景下的 B-tree 与函数索引思路；若本文将来暴露「前缀查询」API，可参考其索引与区间查询设计；作为「无专用二进制子串索引」的对照，明确本文方案的差异化。</p>
+</div>
+
+<h3>12.8 小结与对照</h3>
+<table>
+  <thead><tr><th>方案</th><th>基本原理/思路（简述）</th><th>创新点</th><th>可借鉴的地方</th><th>与本文的异同</th></tr></thead>
+  <tbody>
+    <tr><td>GitHub Blackbird</td><td>文档按字符做滑动窗口切出 n-gram（如 trigram），每个 n-gram 对应一条 posting list（包含该 gram 的文档 ID 列表），形成倒排索引。查询时从查询串里也切出若干 n-gram，把这几条 list 做<strong>交集</strong>得到「可能包含该子串」的候选文档，再对候选做逐字节验证或正则匹配。为省内存和 I/O，用<strong>懒迭代器</strong>按需推进各 list，只读当前需要的片段，避免一次性加载整条 list。</td><td>懒迭代器按需推进 list、超大规模子串/正则检索、Rust 自研引擎</td><td>多 gram 取交再验证；懒迭代与 I/O 节约；DocList 按需读块</td></tr>
+    <tr><td>Zoekt</td><td>对每个 trigram 不仅存「哪些文档包含」，还存<strong>在文档内的出现位置（偏移）</strong>。子串查询时取查询串的首、尾等几个 trigram，在索引里取这几条 list 的交集，并检查它们在<strong>同一文档内的相对距离</strong>是否与查询子串长度一致（一致才可能是真命中）。这样在不读文档全文的情况下就能筛掉大量候选，只对少量候选做验证，且只访问少量 list，适合 SSD 与低延迟。</td><td>位置化 trigram + 距离约束、两层 slice 省内存、亚 50ms 目标</td><td>距离约束减候选；少量 list 交得高精度候选；紧凑索引结构</td></tr>
+    <tr><td>Milvus NGRAM</td><td>建索引时用<strong>滑动窗口</strong>把文本切成若干长度的 n-gram（min_gram～max_gram 可配），每个 gram 映射到「包含该 gram 的文档/主键 ID」，写成倒排（gram→docId）。查询时把查询串同样切 n-gram，在倒排里取这几条 list 的<strong>交</strong>得到候选 ID，再对候选做精确的 LIKE 或字符串匹配。本质是「gram 倒排 + 候选再验证」，与经典全文子串加速一致。</td><td>向量库内原生 LIKE 加速、min_gram/max_gram 可配、两阶段清晰</td><td>滑动窗口+倒排+候选验证链路；gram 长度与体积权衡</td></tr>
+    <tr><td>ES/Lucene binary</td><td>binary 字段在写入时只做 Base64 解码并<strong>按原样存</strong>入 stored 流，<strong>不建倒排、不建词典</strong>，因此不能按内容检索。要对「二进制文档」（如 PDF/Office）做搜索时，用 Tika 或 Data Extraction 等先把文件<strong>解析成文本</strong>，再对文本走标准分词与全文倒排；检索对象是「提取出的文本」而非原始字节流，所以是「先处理再索引」。</td><td>存与检分离、Tika/Data Extraction 文档抽取生态</td><td>只存不检边界；文档抽取与「先处理再索引」衔接</td></tr>
+    <tr><td>ClickHouse Skip Index</td><td>数据按<strong>块（granule）</strong>存储，每块维护轻量元数据：minmax 存该块内某列的最小/最大值；bloom_filter 存该块内值的集合的近似；ngrambf_v1 对该块内字符串做 n-gram 切分后放入 Bloom。查询时<strong>先查这些元数据</strong>：若某块不可能命中（如查询值不在 minmax 范围、或 Bloom 判「一定不存在」）则<strong>整块跳过不读</strong>，只读可能命中的块，从而减少 I/O。</td><td>多类型跳过索引与 granularity 解耦、块级 I/O 节约</td><td>块级 minmax/Bloom/ngram 与 3.3.2 对应；块大小与 ngrambf 参数</td></tr>
+    <tr><td>Bit Matrix (Baeza-Yates)</td><td>预处理：为待查子串（pattern）建 256 个 bitmask，mask[b] 的第 i 位为 1 表示 pattern 第 i 字节是 b。扫描时维护一个状态字（初始全 0）：每读文本一字节 c，状态左移一位并或 1，再与 mask[c] 做<strong>与</strong>；若状态的「第 pattern 长度 位」变成 1，表示当前窗口与 pattern 匹配。全程<strong>移位+与</strong>，无 if 分支，pattern 长度受字长限制（如 ≤64）；Sparse 版只存 pattern 中实际出现的字节对应的 mask，省空间。</td><td>无分支位并行、Sparse 省空间、≤64 字节与 64B 块契合</td><td>按字节查表+位运算；精确比对单块扫描；SIMD 无分支设计</td></tr>
+    <tr><td>PG/MariaDB bytea</td><td>二进制列按字节存储，LIKE 通过<strong>逐字节比较</strong>实现；没有对「任意位置子串」建专用倒排，所以中缀匹配多需顺序扫或全表扫。为加速<strong>前缀</strong>查询，可对列建 B-tree（按字节序），或对 substring(列,1,N) 建函数索引，这样「前 N 字节等于某值」可走索引；PG 还可用 v≥x AND v&lt;y 做前缀区间查询。</td><td>SQL 内 bytea/BINARY LIKE、函数索引与区间写法</td><td>前缀索引与区间查询；明确本文差异化</td></tr>
+  </tbody>
+</table>
+<p>以上资料可用于对比实现细节（如 n-gram 长度、块大小、Bloom/minmax 参数）和扩展阅读（论文、官方文档、博客）。</p>
+
+<!-- ========== 十三、业界实现概览：成熟与不成熟 ========== -->
+<h2 id="industry-impl">十三、业界实现概览：成熟与不成熟</h2>
+<p>本节按<strong>成熟度</strong>对与「子串/模糊/二进制类检索」相关的业界实现做一揽子介绍：既有大规模生产级系统，也有实验性、库级或小规模项目，便于选型参考与学习。</p>
+
+<h3>13.1 成熟 / 生产级实现</h3>
+<table>
+  <thead><tr><th>实现</th><th>基本原理/思路（简述）</th><th>创新点</th><th>可借鉴的地方</th><th>成熟度与说明</th></tr></thead>
+  <tbody>
+    <tr><td><strong>GitHub Code Search (Blackbird)</strong></td><td>文档按字符滑动窗口切出 n-gram（如 trigram），每个 n-gram 对应一条 posting list（文档 ID 列表），形成倒排。查询时从查询串切出若干 n-gram，对这些 list 做<strong>交集</strong>得候选文档，再对候选做验证或正则匹配。用<strong>懒迭代器</strong>按需推进各 list，只读必要片段，避免整表加载；Rust 自研引擎，支撑 45M+ 仓库、115TB 代码。</td><td>懒迭代、超大规模子串/正则、自研引擎替代通用全文</td><td>多 list 交+验证；懒推进与 I/O 节约；大规模分片与一致性</td><td><strong>成熟。</strong> 博客多，无开源实现。</td></tr>
+    <tr><td><strong>Zoekt</strong></td><td>对每个 trigram 存「哪些文档包含」以及<strong>在文档内的出现位置（偏移）</strong>。子串查询时取首尾等几个 gram，取 list 交并检查它们在<strong>同一文档内的相对距离</strong>是否与子串一致，从而在不读全文的情况下筛候选，再验证。索引用两层 slice 替代 map，显著省内存（如 14.5GB→3.5GB），目标亚 50ms。</td><td>位置+距离约束、两层 slice 大幅省内存、亚 50ms 目标</td><td>距离约束减候选；紧凑索引；少量 list 交即高精度</td><td><strong>成熟。</strong> Go，有设计文档与生产案例。</td></tr>
+    <tr><td><strong>Milvus NGRAM</strong></td><td>建索引时用<strong>滑动窗口</strong>将文本切为 n-gram（min_gram/max_gram 可配），每个 gram 映射到包含它的文档 ID，写成倒排（gram→docId）。查询时把查询串同样切 n-gram，在倒排里取交得候选 ID，再对候选做精确的 LIKE 或字符串匹配。两阶段清晰：先 gram 过滤，再精确匹配。</td><td>向量库内原生 LIKE、min/max_gram 可配、两阶段清晰</td><td>滑动窗口+倒排+验证链路；gram 长度与体积权衡</td><td><strong>成熟。</strong> 向量库内建，v2.6.2+，VARCHAR LIKE 加速。</td></tr>
+    <tr><td><strong>Elasticsearch binary + 文档抽取</strong></td><td>binary 字段<strong>只存不建索引</strong>，写入时 Base64 解码后原样存，不能按内容检索。PDF/Office 等二进制文档通过 Tika 或 Data Extraction <strong>先提文本</strong>，再对提取出的文本建全文倒排；用户检索的是「文本」而非原始字节，所以是「先处理再索引」、存与检分离。</td><td>存检分离、Tika/Data Extraction 文档生态成熟</td><td>只存不检边界；文档抽取与 ingest 衔接</td><td><strong>成熟。</strong> 不做原始字节子串索引。</td></tr>
+    <tr><td><strong>ClickHouse Data Skipping Index</strong></td><td>数据按块存储，每块维护轻量元数据：<strong>minmax</strong>（块内某列最小/最大值）、<strong>bloom_filter</strong>、<strong>ngrambf_v1</strong>（块内字符串 n-gram 的 Bloom）等。查询时先看这些元数据：若某块不可能命中（如值不在 minmax 范围、或 Bloom 判不存在）则<strong>整块跳过</strong>不读，只读可能命中的块，减少 I/O；granularity 可配。</td><td>多类型跳过索引、granularity 解耦、块级 I/O 节约</td><td>块级 minmax/Bloom/ngram；块大小与 ngrambf 参数</td><td><strong>成熟。</strong> 块级跳过，文档与生产实践丰富。</td></tr>
+    <tr><td><strong>PostgreSQL / MariaDB bytea BINARY</strong></td><td>二进制列按字节存储，LIKE 通过<strong>逐字节比较</strong>实现；没有对任意位置子串建专用倒排，中缀多需全表扫。前缀查询可建 B-tree 或对 substring(列,1,N) 建函数索引；PG 可用 v≥x AND v&lt;y 做前缀区间。通用 SQL，非专用「全量子串高召回」方案。</td><td>SQL 内 bytea/BINARY LIKE、函数索引与区间写法</td><td>前缀与区间查询；通用方案对照</td><td><strong>成熟。</strong> 通用 SQL，非专用全量子串高召回。</td></tr>
+  </tbody>
+</table>
+
+<h3>13.2 不成熟 / 实验性 / 库级实现</h3>
+<table>
+  <thead><tr><th>实现</th><th>基本原理/思路（简述）</th><th>创新点</th><th>可借鉴的地方</th><th>成熟度与说明</th></tr></thead>
+  <tbody>
+    <tr><td><strong>sparse_ngrams</strong></td><td>类 Blackbird 的<strong>稀疏 n-gram</strong>索引：只对部分 gram 或稀疏表示建倒排（而非全部 gram），减少索引体积。查询时仍从查询串取若干 gram，对对应 list 做交得候选，再验证。C++ 库，适合学习「sparse 选取 + list 交」的实现。</td><td>Sparse 表示减索引体积，类 Blackbird 思路的开源参考</td><td>稀疏 gram 选取与 list 交；学习 n-gram 索引实现</td><td><strong>不成熟。</strong> C++ 库，学习/实验用。</td></tr>
+    <tr><td><strong>snugglefish</strong></td><td>对文本/内容做 n-gram 切分，每个 gram 映射到包含它的文档或位置，建<strong>简单倒排</strong>；查询时用查询串的 n-gram 在倒排里找交或并，支持快速子串检索。体量小、逻辑直接，适合理解 n-gram 索引的最小实现，非生产级。</td><td>极简 n-gram 倒排，代码与逻辑清晰</td><td>理解 n-gram 索引原理与最小实现</td><td><strong>不成熟。</strong> 适合理解原理，非生产级。</td></tr>
+    <tr><td><strong>ngrammatic</strong></td><td>针对<strong>单条或小批量</strong>字符串：按 n-gram 切分后计算相似度或做模糊匹配（如 Jaccard、重叠度），不建大规模倒排，偏内存内的本地比对。Rust 库，适合小规模文本的 n-gram 相似/模糊匹配。</td><td>n-gram 模糊/相似度匹配，固定 gram 切分</td><td>小规模模糊匹配与相似度思路</td><td><strong>不成熟。</strong> Rust 库，小规模文本匹配。</td></tr>
+    <tr><td><strong>ngram-search (Rust)</strong></td><td>把<strong>字符串集合</strong>索引到二进制文件（自定义格式），支持模糊/子串类查询；索引与查询路径偏库级、可嵌入到其他程序。不是分布式检索系统，体量较小，缺大规模验证。</td><td>索引落盘二进制、库级可嵌入</td><td>索引格式与嵌入方式参考</td><td><strong>不成熟。</strong> 体量小，缺大规模验证。</td></tr>
+    <tr><td><strong>Bit Matrix / Sparse Bit Matrix</strong></td><td>为待查 pattern 建 256 个 bitmask（每字节值一个，表示该字节在 pattern 中各位置是否出现）；扫描时用<strong>一个状态字</strong>：每读一字节 c，状态移位并与 mask[c] 相与，若高位为 1 即匹配。全程移位+与，无分支，pattern≤64 字节；Sparse 版只存 pattern 中出现的字节的 mask，省空间。博客/论文+Java 示例，非完整检索系统。</td><td>无分支位并行、Sparse 省空间、与 64B 契合</td><td>精确比对单块扫描；SIMD/无分支；Sparse 表优化</td><td><strong>不成熟。</strong> 博客/论文+示例，算法参考用。</td></tr>
+    <tr><td><strong>pywb binsearch</strong></td><td>在 Web 归档场景下，对<strong>CDX 等索引</strong>做二进制/字节序列查找：根据 URL 或内容字节在归档索引里定位资源，服务于归档的 URL 与内容检索。Python，pywb 项目一部分，场景专用，非通用 byte[] 高召回子串索引。</td><td>归档场景下二进制/字节序列检索</td><td>场景化二进制检索与 CDX 类索引</td><td><strong>不成熟。</strong> Python，场景专用。</td></tr>
+    <tr><td><strong>sliceslice-rs</strong></td><td>在<strong>内存 slice</strong>上做高性能子串/模式搜索：利用 SIMD 或高效算法做向量化比较，提高单次扫描吞吐。不包含倒排或持久化索引，是「扫描/比对」组件，可被精确比对或扫描阶段调用。Rust。</td><td>高性能 slice 扫描、SIMD 利用</td><td>精确比对或扫描阶段的高性能组件</td><td><strong>不成熟。</strong> Rust，可作扫描/比对组件。</td></tr>
+  </tbody>
+</table>
+
+<h3>13.3 简要对照</h3>
+<div class="box">
+  <div class="box-title">选型时可关注</div>
+  <ul>
+    <li><strong>成熟实现：</strong> 有官方/社区维护、文档与版本规划，多在真实负载下验证过；可直接参考架构与参数（如 n-gram 长度、块大小、Bloom 参数），但多数针对<strong>文本/代码</strong>，不对原始二进制做 64B 级滑动窗口 + BitSet 的完整方案。</li>
+    <li><strong>不成熟实现：</strong> 多为库、示例或论文配套代码，适合学习算法与数据结构；引入生产需自行评估性能、可维护性和边界情况。本文方案若落地，在「二进制 + 高召回子串」上会接近自研成熟实现，可借鉴上述成熟系统的工程经验与不成熟实现中的算法思路。</li>
+  </ul>
+</div>
+
+<!-- ========== 十四、开源与商业化产品：类似实现思路 ========== -->
+<h2 id="oss-vs-commercial">十四、开源与商业化产品：类似实现思路</h2>
+<p>本节将与本方案<strong>实现思路相近</strong>的产品按<strong>开源</strong>与<strong>商业化</strong>分类列出，便于对照与选型参考。「类似」指在以下至少一点上与本文一致或接近：滑动窗口 / n-gram 切分、倒排 + 候选再验证、块级过滤（BitSet/Bloom/minmax）、子串或 LIKE 检索、二进制/字节级索引等。</p>
+
+<h3>14.1 开源产品</h3>
+<table>
+  <thead><tr><th>产品</th><th>基本原理/思路（简述）</th><th>创新点</th><th>可借鉴的地方</th><th>与本文类似的实现思路 / 备注</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Zoekt</strong></td><td>对每个 trigram 存「哪些文档包含」以及<strong>在文档内的偏移</strong>。子串查询时取首尾等几个 gram，在索引里取这几条 list 的<strong>交</strong>，并检查它们在<strong>同一文档内的相对距离</strong>是否与子串长度一致，从而在不读全文的情况下筛候选，再验证。用两层 slice 替代 map 省内存，目标亚 50ms；Go，Sourcegraph 等在用。</td><td>位置+距离约束、两层 slice 省内存、亚 50ms</td><td>距离约束减候选；紧凑索引；少量 list 交即高精度</td><td>位置化 trigram、list 交+距离再验证；Go，Sourcegraph 等在用</td></tr>
+    <tr><td><strong>Milvus</strong>（NGRAM 索引）</td><td>建索引时用<strong>滑动窗口</strong>把文本切成 n-gram（min_gram～max_gram 可配），每个 gram 映射到包含它的文档 ID，写成倒排。查询时把查询串同样切 n-gram，在倒排里取交得候选 ID，再对候选做<strong>精确 LIKE</strong>或字符串匹配。两阶段：先 gram 过滤，再精确匹配；向量库内建，用于 VARCHAR 的 LIKE %xxx% 加速。</td><td>向量库内原生 LIKE、min/max_gram 可配</td><td>滑动窗口+倒排+验证；gram 长度与体积权衡</td><td>LIKE %xxx% 先候选后精确；向量库内建</td></tr>
+    <tr><td><strong>ClickHouse</strong>（Data Skipping Index）</td><td>数据按块存，每块维护 minmax（块内最小/最大值）、bloom_filter、ngrambf_v1（块内字符串 n-gram 的 Bloom）等<strong>元数据</strong>。查询时<strong>先看元数据</strong>：若某块不可能命中（如值不在 minmax 范围、或 Bloom 判不存在）则<strong>整块跳过</strong>不读，只读可能命中的块。与本文 3.3.2「先块级过滤再读细数据」一致。</td><td>多类型跳过索引、块级 I/O 节约</td><td>块级 minmax/Bloom/ngram；与 3.3.2 对应</td><td>先块级过滤再读行；与本文 3.3.2 一致</td></tr>
+    <tr><td><strong>Apache Lucene / Elasticsearch</strong></td><td>全文检索：文档经 <strong>Analyzer→TokenStream</strong> 切词，每个 token 映射到 posting list，形成倒排（BlockTree 词典、PostingsEnum 迭代）。<strong>binary 字段</strong>只存不建索引，不能按内容查。要对二进制文档（PDF/Office）做检索时，用 Tika 等<strong>先提文本</strong>再对文本建全文索引；本文在其上扩展 _bin 字段做子串检索。</td><td>BlockTree、Postings、存检分离；Tika 生态</td><td>在其上扩展 _bin；BlockTree/Postings 复用；文档抽取边界</td><td>本文在其上扩展 _bin 字段子串检索</td></tr>
+    <tr><td><strong>PostgreSQL</strong></td><td>bytea 列按字节存储，LIKE 通过<strong>逐字节比较</strong>实现；没有对任意位置子串建专用倒排，中缀多需扫表。前缀查询可建 B-tree 或对 substring(列,1,N) 建函数索引；还可用 v≥x AND v&lt;y 做前缀区间。通用关系库，非专用「全量子串高召回」索引。</td><td>bytea LIKE、函数索引与区间写法</td><td>前缀与区间查询；通用方案对照</td><td>bytea+LIKE、前缀/函数索引；非专用高召回</td></tr>
+    <tr><td><strong>MariaDB / MySQL</strong></td><td>BINARY 列按字节存，LIKE 逐字节比较、区分大小写；没有对任意子串建专用倒排。可为列建<strong>前缀索引</strong>加速「前 N 字节等于某值」的查询；中缀匹配多扫表。与 PG 类似，通用 SQL。</td><td>BINARY LIKE、前缀索引</td><td>同上</td><td>BINARY+LIKE、可建前缀索引</td></tr>
+    <tr><td><strong>sparse_ngrams</strong>（GitHub）</td><td>只对<strong>部分 gram 或稀疏表示</strong>建倒排（不建全部），减少索引体积。查询时仍从查询串取若干 gram，对对应 list 做交得候选，再验证。类 Blackbird 思路的 C++ 开源参考，实验/学习用。</td><td>Sparse 减体积、类 Blackbird 开源参考</td><td>稀疏 gram 与 list 交；学习 n-gram 实现</td><td>倒排+候选；C++ 库，实验/学习用</td></tr>
+    <tr><td><strong>snugglefish</strong></td><td>对文本做 n-gram 切分，每个 gram 映射到包含它的文档或位置，建<strong>简单倒排</strong>；查询时用查询串的 n-gram 在倒排里找交/并，实现快速子串检索。体量小、逻辑直接，适合理解 n-gram 索引原理，非生产级。</td><td>极简 n-gram 倒排、逻辑清晰</td><td>理解 n-gram 索引最小实现</td><td>滑动窗口→倒排；体量小，原理验证</td></tr>
+    <tr><td><strong>ngrammatic</strong>（Rust）</td><td>针对单条或小批量字符串：按 n-gram 切分后做<strong>相似度或模糊匹配</strong>（如重叠度），不建大规模倒排，偏内存内比对。固定长度 gram，适合小规模文本的 n-gram 相似/模糊，非分布式检索。</td><td>n-gram 模糊/相似度、固定 gram</td><td>小规模模糊匹配思路</td><td>n-gram 模糊匹配；单条/小规模</td></tr>
+    <tr><td><strong>ngram-search</strong>（Rust）</td><td>把字符串集合以自定义格式<strong>索引到二进制文件</strong>，支持模糊/子串类查询；索引与查询是库级 API，可嵌入到其他程序。体量小，缺大规模验证。</td><td>索引落盘二进制、库级可嵌入</td><td>索引格式与嵌入方式</td><td>字符串索引+模糊搜索；库级可嵌入</td></tr>
+    <tr><td><strong>pywb binsearch</strong></td><td>在 Web 归档场景下，对 CDX 等索引做<strong>二进制/字节序列</strong>查找：根据 URL 或内容字节在归档索引里定位资源，服务于归档的 URL 与内容检索。Python，pywb 一部分，场景专用。</td><td>归档场景二进制/字节序列检索</td><td>场景化二进制检索</td><td>二进制/字节序列搜索、CDX；场景专用</td></tr>
+  </tbody>
+</table>
+
+<h3>14.2 商业化产品</h3>
+<table>
+  <thead><tr><th>产品</th><th>基本原理/思路（简述）</th><th>创新点</th><th>可借鉴的地方</th><th>与本文类似的实现思路 / 备注</th></tr></thead>
+  <tbody>
+    <tr><td><strong>GitHub Code Search</strong>（Blackbird）</td><td>文档按 n-gram（如 trigram）切分，每个 n-gram 对应一条 posting list，形成倒排。查询时从查询串切出若干 n-gram，对这些 list 做<strong>交集</strong>得候选文档，再对候选做验证或正则匹配。用<strong>懒迭代器</strong>按需推进各 list，只读必要片段；Rust 自研引擎，闭源，博客公开思路。</td><td>懒迭代、超大规模子串/正则、自研引擎</td><td>多 list 交+验证；懒推进与 I/O 节约</td><td>n-gram 倒排、list 交、懒迭代；闭源，博客公开思路</td></tr>
+    <tr><td><strong>Elasticsearch</strong>（Elastic 商业版 + 生态）</td><td>binary 字段<strong>只存不建索引</strong>，写入时解码后原样存，不能按内容检索。PDF/Office 等通过 Tika 或 Data Extraction <strong>先提文本</strong>，再对文本建全文倒排；用户检索的是提取出的文本。商业版与托管提供支持与生态，不做原始字节子串索引。</td><td>存检分离、Tika/Data Extraction 生态、商业与托管</td><td>只存不检边界；文档抽取与 ingest</td><td>binary 存而不检；不做原始字节子串索引</td></tr>
+    <tr><td><strong>Elastic Data Extraction Service</strong></td><td>大文件二进制文档（PDF/Office 等）<strong>先经服务提文本</strong>，再对提取出的文本建索引，用户检索的是文本而非原始 byte[]。与本文「先处理再索引」思路一致，但处理对象是「文档→文本」，不是「byte[]→子串索引」。8.9+，面向 PDF/Office。</td><td>大文件→提文本→可检索、8.9+ 面向 PDF/Office</td><td>「先处理再索引」与本文思路类似，对象为文本</td><td>先处理再索引；对象是文本而非 byte[] 子串</td></tr>
+    <tr><td><strong>Zilliz / Milvus Cloud</strong></td><td>与开源 Milvus 相同：用<strong>NGRAM 滑动窗口</strong>建倒排（gram→docId），LIKE 查询先走 NGRAM 取交得候选，再精确匹配；同时支持向量检索，即向量+标量混合。商业化托管与企业版，提供参数调优与运维支持。</td><td>向量+标量混合、NGRAM 托管与企业版</td><td>滑动窗口+候选验证；托管与参数调优经验</td><td>与本文「滑动窗口+候选验证」一致；商业化托管</td></tr>
+    <tr><td><strong>ClickHouse Cloud</strong></td><td>与开源版相同：数据按块存，每块有 minmax、Bloom、ngrambf 等<strong>跳过索引</strong>；查询时先根据这些元数据判断块是否可能命中，不可能则整块跳过，只读候选块。托管与商业支持。</td><td>与开源相同的块级跳过、托管与支持</td><td>块级过滤；托管场景下的参数与运维</td><td>块级跳过索引；托管与商业支持</td></tr>
+    <tr><td><strong>Sourcegraph</strong>（代码搜索）</td><td>基于 Zoekt 等实现：<strong>位置化 trigram</strong>（存偏移）、子串查询时取首尾等 gram 的 list 交并校验文档内距离，再验证。以 SaaS 形式提供代码搜索，与本文「倒排+候选再验证」同族。</td><td>基于 Zoekt 的 SaaS、trigram/子串代码检索</td><td>倒排+候选再验证；SaaS 化与产品形态</td><td>与本文「倒排+候选再验证」同族；SaaS 代码搜索</td></tr>
+    <tr><td><strong>Amazon OpenSearch / AWS 相关</strong></td><td>全文倒排、binary 字段只存不检。要对二进制<strong>内容</strong>做检索时，依赖 ingest 管道在写入时<strong>提文本</strong>再建全文索引，检索对象是文本。与 ES 思路接近，无原生 byte[] 子串索引。</td><td>ES 系全文、AWS 托管与 ingest 生态</td><td>与 ES 类似；ingest 提文本的边界</td><td>依赖 ingest 提文本；无原生 byte[] 子串索引</td></tr>
+    <tr><td><strong>Microsoft 等企业搜索 / 合规产品</strong></td><td>文档（含二进制）经解析<strong>提取文本或元数据</strong>，再对文本建全文索引；子串/关键词检索针对的是提取出的文本。多为「提文本再索引」、合规与证据管理场景，非对原始二进制流建子串索引。</td><td>文档解析+全文索引、合规与证据管理</td><td>提文本再索引；合规场景的检索形态</td><td>多为「提文本再索引」；偏文档与合规</td></tr>
+  </tbody>
+</table>
+
+<h3>14.3 小结</h3>
+<p><strong>开源</strong>里与本文思路最接近的，是 Zoekt（trigram + 位置 + 验证）、Milvus NGRAM（滑动窗口 + 倒排 + LIKE）、ClickHouse 块级过滤（minmax/Bloom/ngram）；Lucene/ES 是本文的扩展基础，但不对原始 binary 做子串索引。<strong>商业化</strong>里，GitHub Code Search（Blackbird）、Elastic 文档抽取、Zilliz/Milvus Cloud、Sourcegraph 等都在「子串/模糊/块级过滤」上有重叠，但多数面向文本或代码，<strong>针对原始二进制 byte[] 做高召回子串索引的成熟产品较少</strong>，本方案可视为在该方向上的补充。</p>
+
+<!-- ========== 十五、与本技术实现相关的文档与参考文献 ========== -->
+<h2 id="references">十五、与本技术实现相关的文档与参考文献</h2>
+<p>本节整理与本文技术实现相关的<strong>论文、官方文档、技术博客与书籍</strong>，便于深入理解滑动窗口、n-gram、BitSet 过滤、倒排索引、块级跳过等思路，多了解、多学习。</p>
+
+<h3>15.1 论文与经典文献</h3>
+<table>
+  <thead><tr><th>文献</th><th>基本原理/思路（简述）</th><th>创新点</th><th>可借鉴的地方</th><th>与本文的关联 / 备注</th></tr></thead>
+  <tbody>
+    <tr><td>Baeza-Yates, R., <em>A New Approach to Text Searching</em>, CACM, 1989.</td><td>为待查子串（pattern）预处理出<strong>256 个 bitmask</strong>：mask[b] 的第 i 位为 1 表示 pattern 第 i 字节等于 b。扫描文本时维护一个状态字（一比特表示「当前窗口前若干字节是否与 pattern 前若干字节匹配」）：每读一字节 c，状态右移一位并与 mask[c] 相与；若状态最高位为 1 则当前窗口与 pattern 完全匹配。全程<strong>移位+与</strong>，无分支，pattern 长度受机器字长限制（如 ≤64 字节）。</td><td>位并行子串匹配、无分支、256×位置 mask、单字长状态</td><td>按字节查表+位运算；精确比对单块；Sparse 与 SIMD 化</td><td>与本文 BitSet/按字节过滤同族；CiteSeer/ResearchGate 可获取</td></tr>
+    <tr><td>Baeza-Yates, R., <em>Algorithms for String Searching</em> (report / 综述).</td><td>系统综述多种串搜索算法：暴力、KMP、Boyer-Moore、位并行（Bitap/Shift-Or）等，给出统一框架与时间复杂度。帮助理解各算法适用场景（如短 pattern 下位并行的优势、长 pattern 下 KMP/BM 的跳跃）。</td><td>串搜索算法系统综述与复杂度分析</td><td>算法选型与复杂度权衡；位并行在短 pattern 下的优势</td><td>含位并行、子串匹配；扩展阅读</td></tr>
+    <tr><td>Bloom, B., <em>Space/Time Trade-offs in Hash Coding with Allowable Errors</em>, CACM, 1970.</td><td>用<strong>k 个哈希函数</strong>把集合中的元素映射到长度为 m 的位图：每个元素把 k 个位置置 1。查询时对待查元素算 k 个位置，若全为 1 则「可能存在」（有假阳性），若有 0 则「一定不存在」（无假阴性）。用较小空间实现集合成员判断，本文 3.3.2 段级 Bloom、q-gram 存在性判断即此思路。</td><td>允许假阳性的空间高效成员判断、Bloom 过滤器原形</td><td>本文 3.3.2 段级 Bloom、q-gram 存在性判断；假阳性与参数 k/m</td><td>经典文献；与段级 Bloom 对应</td></tr>
+    <tr><td>Zobel, J., Moffat, A., <em>Inverted Files for Text Search Engines</em>, ACM Computing Surveys, 2006.</td><td>系统讲<strong>倒排文件</strong>结构：词项→posting list；list 内用<strong>delta 编码</strong>与 VByte 等压缩；多 list 合并、跳跃表等加速交/并。与本文 DocList 分块、压缩、按块读取等设计一致，适合系统学习倒排索引的工程形态。</td><td>倒排索引结构、压缩与 list 组织的系统综述</td><td>DocList 分块、压缩（delta/VByte）；list 合并与跳跃</td><td>与本文 DocList 分块、压缩一致；系统学习倒排</td></tr>
+    <tr><td>Manber, U., Myers, G., <em>Suffix Arrays: A New Method for On-Line String Searches</em>, SIAM J. Computing, 1993.</td><td>对文本所有<strong>后缀</strong>按字典序排序得到后缀数组 SA；任意子串都是某个后缀的前缀，因此用 SA + 二分 + LCP（最长公共前缀）可在 O(m log n) 等复杂度内做在线子串搜索。另一种子串索引思路，与 n-gram/滑动窗口方案在结构与适用场景上不同。</td><td>后缀数组在线子串搜索、O(n) 构建与 LCP</td><td>另一种子串索引思路，与 n-gram/滑动窗口对比；理论完备性</td><td>经典，偏理论；可与滑动窗口方案对比</td></tr>
+    <tr><td>Navarro, G., <em>A guided tour to approximate string matching</em>, ACM Computing Surveys, 2001.</td><td>全面综述<strong>近似串匹配</strong>：编辑距离、动态规划、基于过滤的方法、索引方法以及实用算法的取舍。与「高召回、可接受误检再验证」的思路相关，扩展对模糊检索、过滤+验证的理解。</td><td>近似匹配与过滤的全面综述</td><td>模糊检索、编辑距离与「高召回」；过滤与验证结合</td><td>扩展视野；高召回与近似匹配</td></tr>
+  </tbody>
+</table>
+
+<h3>15.2 官方文档与设计说明</h3>
+<table>
+  <thead><tr><th>文档</th><th>基本原理/思路（简述）</th><th>创新点</th><th>可借鉴的地方</th><th>与本文的关联 / 链接</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Apache Lucene</strong> 官方文档与 API</td><td>说明全文索引与检索全链路：文档经 <strong>Analyzer→TokenStream</strong> 产生 token，每个 token 写入倒排（词项→posting list）；词典用 <strong>BlockTree</strong> 组织，查询时 <strong>Query→Weight→Scorer</strong> 与 <strong>PostingsEnum</strong> 迭代 list。本文在其上扩展 _bin 字段，需对齐这些抽象（Terms、PostingsEnum 等）。</td><td>标准倒排与检索抽象、BlockTree、Postings 接口</td><td>扩展 _bin 字段的接入点；BlockTree/Postings 复用；Terms 适配器设计</td><td>本文在其上扩展 _bin；<a href="https://lucene.apache.org/core/documentation.html" target="_blank" rel="noopener">lucene.apache.org</a></td></tr>
+    <tr><td><strong>Elasticsearch</strong> 官方指南（Binary、Mapping、Ingest）</td><td>规定 <strong>binary</strong> 字段为 Base64 解码后存储、默认<strong>不参与检索</strong>；若要对二进制文档（PDF/Office）做搜索，需通过 Ingest 与 Tika 等<strong>先提文本</strong>再建全文索引。说明文档抽取与「先处理再索引」的边界，与本文子串索引形成对照。</td><td>binary 语义、文档抽取与 ingest 流水线</td><td>存而不检边界；文档抽取与「先处理再索引」衔接</td><td>对比子串索引；<a href="https://www.elastic.co/guide/en/elasticsearch/reference/current/index.html" target="_blank" rel="noopener">elastic.co/guide</a></td></tr>
+    <tr><td><strong>Zoekt</strong> design doc</td><td>描述<strong>位置化 trigram</strong>索引：每个 trigram 存其在文件内的偏移；子串查询时取首尾等 gram，在索引里取 list 交并<strong>校验它们在文档内的相对距离</strong>是否与子串一致，从而筛候选再验证。还说明亚 50ms 目标、两层 slice 省内存等设计。</td><td>位置+距离、两层 slice、延迟目标与内存优化</td><td>list 交与验证流程；紧凑索引与加载策略</td><td>与本文候选再验证一致；<a href="https://github.com/google/zoekt/blob/master/doc/design.md" target="_blank" rel="noopener">Zoekt design.md</a></td></tr>
+    <tr><td><strong>Milvus</strong> NGRAM 文档</td><td>说明建索引时用 <strong>min_gram/max_gram</strong> 滑动窗口把文本切 n-gram，每个 gram 映射到 docId，写成倒排；LIKE 查询时<strong>先走 NGRAM</strong>取交得候选，再对候选做精确字符串匹配。两阶段 API、参数含义与向量+标量混合用法。</td><td>gram 可配、两阶段 API、向量+标量混合</td><td>滑动窗口+倒排参数；建索引/查询 API 设计</td><td>与本文滑动窗口+倒排一致；<a href="https://milvus.io/docs/ngram.md" target="_blank" rel="noopener">milvus.io/docs/ngram</a></td></tr>
+    <tr><td><strong>ClickHouse</strong> Data Skipping Indexes</td><td>介绍多种<strong>跳过索引</strong>类型：minmax（块内最小/最大值）、bloom_filter、ngrambf_v1（块内字符串 n-gram 的 Bloom）、tokenbf_v1 等，以及 granularity（块粒度）。查询时先根据这些元数据判断块是否可能命中，不可能则整块跳过，只读候选块。</td><td>多类型跳过索引、granularity、块级 I/O 节约</td><td>块级元数据设计；ngrambf 参数与 3.3.2 对应</td><td>与 3.3.2 块/段级过滤对应；<a href="https://clickhouse.com/docs/en/optimize/skipping-indexes" target="_blank" rel="noopener">clickhouse.com/docs</a></td></tr>
+    <tr><td><strong>PostgreSQL</strong> 文档（bytea、LIKE、索引）</td><td>说明 <strong>bytea</strong> 类型与存储方式、LIKE/ILIKE 对 bytea 的语义（逐字节比较）；如何用前缀 B-tree 或对 <strong>substring(列,1,N)</strong> 建函数索引加速前缀查询，以及用 v≥x AND v&lt;y 做前缀区间。通用库做法，与本文「专用二进制子串索引」的差异。</td><td>bytea LIKE、函数索引与区间写法</td><td>通用库做法；bytea 子串与专用索引差异</td><td>通用方案对比；postgresql.org/docs</td></tr>
+  </tbody>
+</table>
+
+<h3>15.3 技术博客与文章</h3>
+<table>
+  <thead><tr><th>文章</th><th>基本原理/思路（简述）</th><th>创新点</th><th>可借鉴的地方</th><th>与本文的关联 / 链接</th></tr></thead>
+  <tbody>
+    <tr><td><strong>The technology behind GitHub's new code search</strong>（GitHub Blog）</td><td>介绍 Blackbird 架构：文档按 n-gram 建倒排，查询时对多个 n-gram 的 posting list 做<strong>交</strong>得候选再验证；用<strong>懒迭代器</strong>按需推进各 list 以节省 I/O；Rust 自研、规模与一致性设计。帮助理解大规模代码检索下 n-gram 与 list 交的工程取舍。</td><td>大规模代码检索架构、懒迭代与 I/O、Rust 自研</td><td>整体架构对照；n-gram 与 list 交的工程取舍</td><td>与本文架构可对照；<a href="https://github.blog/engineering/architecture-optimization/the-technology-behind-githubs-new-code-search" target="_blank" rel="noopener">GitHub Blog</a></td></tr>
+    <tr><td><strong>A brief history of code search at GitHub</strong></td><td>回顾 GitHub 代码搜索从使用 Elasticsearch 到<strong>自研 Blackbird</strong>的演进：为何通用全文引擎不够（规模、子串/正则需求、延迟等），需求与规模如何驱动技术选型。理解「为何要做专用子串/代码检索」的背景与动机。</td><td>从通用全文到专用代码检索的演进与动机</td><td>为何通用全文不够、需要专用子串能力；产品与技术选型</td><td>背景与动机；GitHub Blog 搜索可得</td></tr>
+    <tr><td><strong>Sparse Bit Matrix Substring Search</strong>（Richard Startin）</td><td>在 Baeza-Yates 位矩阵基础上做<strong>Sparse 变体</strong>：只为 pattern 中<strong>实际出现的字节</strong>建 mask（不建 256 个），减少内存与缓存未命中。给出 ≤64 字节的 Java 实现与基准，说明短 pattern 下位并行的优势。与本文 BitSet/按字节查表思路相近。</td><td>Sparse mask 省空间、缓存友好、可复现实现与基准</td><td>BitSet/字节查表；单模式扫描组件；Sparse 与 SIMD</td><td>与本文思路相近；<a href="https://richardstartin.github.io/posts/sparse-bitmatrix-substring-search" target="_blank" rel="noopener">richardstartin.github.io</a></td></tr>
+    <tr><td><strong>Elasticsearch: Binary document ingestion, Data Extraction Service</strong>（Elasticsearch Labs）</td><td>说明二进制文档（PDF/Office）如何入库：经 <strong>Data Extraction</strong> 服务<strong>先提文本</strong>再建可检索索引，binary 字段仍只存不检。明确「二进制文档→提文本→可检索」的流水线与「原始 byte[] 子串索引」的差异。</td><td>二进制文档→提文本→可检索的完整流水线</td><td>与「原始 byte[] 子串索引」的差异；提文本再索引边界</td><td>对比本文子串索引；<a href="https://www.elastic.co/search-labs/blog/binary-document-evolution" target="_blank" rel="noopener">Elasticsearch Labs</a></td></tr>
+    <tr><td><strong>Beating textbook algorithms in string search</strong>（Wix Engineering / Medium）</td><td>在<strong>短 pattern</strong>场景下，位并行等算法在吞吐上优于 KMP、Boyer-Moore 等教科书算法；通过实验对比与取舍说明何时用位并行、何时用经典算法。与 Bit Matrix、本文精确比对阶段的算法选型相关。</td><td>短 pattern 下位并行优于经典算法、实验数据</td><td>短 pattern 精确比对选型；Bit Matrix 相关</td><td>短 pattern 精确比对参考；Medium / Wix</td></tr>
+    <tr><td><strong>SIMD-friendly algorithms for substring searching</strong>（0x80.pl）</td><td>用<strong>SIMD</strong>做子串搜索：一次加载多字节、向量化比较与掩码，提高单次扫描的吞吐。适合在精确比对或扫描阶段做高性能优化，可与本文「精确比对」结合做 SIMD/GPU 加速参考。</td><td>SIMD 子串搜索、向量化比较与掩码</td><td>精确比对阶段 SIMD/GPU 优化；高吞吐扫描</td><td>SIMD/GPU 优化参考；0x80.pl/notesen</td></tr>
+  </tbody>
+</table>
+
+<h3>15.4 书籍与综述</h3>
+<table>
+  <thead><tr><th>资料</th><th>基本原理/思路（简述）</th><th>创新点</th><th>可借鉴的地方</th><th>与本文的关联 / 备注</th></tr></thead>
+  <tbody>
+    <tr><td>Manning et al., <em>Introduction to Information Retrieval</em>（信息检索导论）</td><td>系统讲<strong>倒排索引</strong>：词项→posting list；list 内用 delta、VByte 等<strong>压缩</strong>；布尔查询与 ranked 检索、评估指标（准确率、召回率等）。建立 IR 与索引的概念基础，与本文 DocList、压缩、交/并等设计一致。</td><td>IR 与索引的系统教材、压缩与评估</td><td>建立倒排与索引概念；与本文 DocList、压缩一致</td><td>系统学习 IR；informationretrieval.org 可在线阅读</td></tr>
+    <tr><td>Witten, Moffat, Bell, <em>Managing Gigabytes</em></td><td>讲<strong>大规模文本索引</strong>与压缩：B-tree、倒排、位图与压缩编码、磁盘与内存的权衡。与本文「分块、压缩 DocList、大规模索引」的工程决策相关，适合做大规模索引时的参考。</td><td>大规模索引与压缩、磁盘与内存权衡</td><td>分块、压缩 DocList；大规模索引工程</td><td>经典 IR/索引教材</td></tr>
+    <tr><td>Lucene in Action（第 2 版或新版）</td><td>讲 Lucene 架构与 API：<strong>Analyzer</strong>、索引写入与段、<strong>Query/Weight/Scorer</strong>、Filter、高亮与扩展点。实现时查 API 与最佳实践；扩展 _bin 字段需对齐其 Terms、PostingsEnum 等抽象。</td><td>Lucene API 与最佳实践、扩展点</td><td>实现时查 API；扩展 _bin 需对齐其抽象</td><td>Manning 出版</td></tr>
+    <tr><td>Elasticsearch: The Definitive Guide（官方指南书）</td><td>讲 ES 映射、分析器、查询 DSL、聚合与运维，以及<strong>与 Lucene 的关系</strong>、binary 与全文的边界。若在 ES 上暴露 _bin 子串检索能力，可参考其字段设计、ingest 与映射方式。</td><td>ES 与 Lucene 关系、binary/全文边界</td><td>若在 ES 上暴露 _bin 可参考；字段与 ingest 设计</td><td>可在线阅读（elastic.co/guide）</td></tr>
+  </tbody>
+</table>
+
+<h3>15.5 小结</h3>
+<p>建议学习路径：先通过<strong>官方文档</strong>（Lucene、Zoekt、Milvus、ClickHouse）掌握现有实现的术语与结构；再读<strong>技术博客</strong>（GitHub Code Search、Bit Matrix）理解工程取舍；最后用<strong>论文与书籍</strong>（Baeza-Yates、Bloom、倒排综述、IR 导论）夯实算法与理论基础。实现与调优时可反复查阅上述文档与参考文献。</p>
+
+<!-- ========== 十六、与本文同类目标：二进制检索的业界方案 ========== -->
+<h2 id="binary-retrieval-industry">十六、与本文同类目标：二进制检索的业界方案</h2>
+<p>本节聚焦与本文<strong>同类目标</strong>的业界方案：即面向<strong>二进制数据</strong>的检索（byte 级子串/模式匹配、二进制内容索引或扫描），按<strong>开源</strong>与<strong>商业</strong>分类列出，便于对照与选型。与「类似实现思路」（十二、十四）的区别在于：此处以「是否以二进制检索为主要目标」为筛选条件。</p>
+
+<h3>16.1 开源方案</h3>
+<table>
+  <thead><tr><th>方案</th><th>基本原理/思路（简述）</th><th>创新点</th><th>可借鉴的地方</th><th>目标与能力 / 与本文的异同 / 备注</th></tr></thead>
+  <tbody>
+    <tr><td><strong>BigGrep</strong>（CMU SEI）</td><td>对<strong>二进制文件</strong>做 3-gram/4-gram 切分，每个 gram 映射到「包含该 gram 的文档/偏移」等，建成倒排索引。查询时用户给出一段<strong>任意字节序列</strong>，系统从中取若干 gram，在倒排里取这几条 list 的<strong>交</strong>得候选，再用<strong>概率式预过滤</strong>进一步缩小候选集，最后对候选做逐字节验证。TB 级库上把「数天全扫」压到「数分钟」；C++，基于 2012 MALWARE 论文，与本文目标最接近，无 Lucene 集成。</td><td>面向二进制文件的 n-gram 索引、概率式预过滤、TB 级缩至数分钟；论文+开源实现</td><td>二进制 n-gram 倒排+候选验证；gram 选取与 list 交；与本文目标最接近、可对照实现</td><td>目标最接近：二进制+子串+索引；无 Lucene 集成。GitHub: cmu-sei/BigGrep，C++，2012 MALWARE。</td></tr>
+    <tr><td><strong>Binacle</strong>（ANSSI-FR）</td><td><strong>全二进制索引</strong>：对二进制文件内容建索引（具体索引结构见 SSTIC 2017 白皮书），支持按字节/模式做快速检索。Rust 实现，面向安全与取证场景；仓库已归档（2024），Beta、仅供研究/参考。与本文同属「二进制内容索引」，可参考白皮书中的索引设计。</td><td>全二进制索引、SSTIC 2017 白皮书与实现、Rust</td><td>二进制内容索引的另一种结构；白皮书与索引设计可参考</td><td>同属「二进制内容索引」；仓库已归档（2024）。GitHub: ANSSI-FR/Binacle。</td></tr>
+    <tr><td><strong>pywb binsearch</strong></td><td>在<strong>Web 归档</strong>场景下，对 CDX 等索引做二进制/字节序列查找：根据 URL 或内容字节在归档索引里定位资源，服务于归档的 URL 与内容检索。Python，pywb 项目一部分；场景专用，非通用「任意 byte[] 高召回子串」索引。</td><td>归档场景下二进制/字节序列检索、CDX 集成</td><td>场景化二进制检索；CDX 类索引形态</td><td>场景聚焦归档；非通用 byte[] 高召回。Python，pywb 一部分。</td></tr>
+    <tr><td><strong>ripgrep / grep</strong>（binary 模式）</td><td><strong>无索引</strong>：对文件或流做逐字节/块扫描，用自动机或 Boyer-Moore 等做模式匹配。每次查询都扫一遍数据，适合单次查询或小数据；支持正则、多线程、binary 模式（如 ripgrep <code>-a</code>）。与本文「先建索引再查」不同，大库下一次查询成本高。</td><td>无索引、多线程扫描、正则与字节模式、命令行友好</td><td>扫描阶段算法与多线程；作为「无索引」对照</td><td>扫描而非索引；与本文「先索引再查」不同。常用命令行工具。</td></tr>
+    <tr><td><strong>EBILS</strong>（Erlang Binary Lightweight Search）</td><td>轻量级<strong>二进制搜索</strong>库：在 Erlang 的 binary 类型上做子串/模式查找，偏内存或小规模数据，不建持久化倒排。目标与本文一致（二进制数据检索），体量小，能力与规模需自行评估；GitHub 可搜 ebils。</td><td>Erlang 生态内二进制检索、轻量级 API</td><td>目标一致时的轻量实现与 API 设计</td><td>目标一致；体量小。GitHub 可搜 ebils。</td></tr>
+    <tr><td><strong>BitFunnel</strong></td><td>文档用<strong>Bloom-like signature</strong>（位向量）表示每个 term 是否出现；查询时把查询转为 signature，与文档 signature 做与运算做过滤，再对候选精排。曾用于 Bing，偏<strong>文本</strong> term 签名，与二进制 byte 子串检索有区别；可作「签名/过滤」思路参考。</td><td>Signature 过滤、曾用于 Bing、文本 term 签名</td><td>「签名/过滤」思路；可类比本文 BitSet 过滤</td><td>偏文本签名与过滤；可作签名思路参考。GitHub: BitFunnel/BitFunnel。</td></tr>
+    <tr><td><strong>Lucene / Elasticsearch binary 字段</strong></td><td>binary 字段在写入时将 Base64 解码后<strong>原样写入</strong> stored 流，<strong>不建倒排、不建词典</strong>，因此不能按内容检索，仅支持按文档取回原值。本文在其上扩展 _bin 字段，使二进制内容可被索引与子串检索。</td><td>存与检分离、简单语义、与全文字段并存</td><td>在其上扩展 _bin 可检索；明确「只存不检」边界</td><td>存二进制不做子串索引；本文扩展 _bin。官方文档 binary type。</td></tr>
+  </tbody>
+</table>
+
+<h3>16.2 商业化方案</h3>
+<table>
+  <thead><tr><th>方案</th><th>基本原理/思路（简述）</th><th>创新点</th><th>可借鉴的地方</th><th>目标与能力 / 与本文的异同 / 备注</th></tr></thead>
+  <tbody>
+    <tr><td><strong>VX Search</strong></td><td>按<strong>十六进制（HEX）模式</strong>或关键字在文件/磁盘上做扫描或有限索引：用户输入 HEX 或关键字，系统在指定字节偏移或范围内查找，多线程、可扫本地/网络。偏取证与文件级检索，多为「扫描」或「元数据+内容扫描」，非大规模先建通用 byte[] 子串索引再查询的引擎。vxsearch.com。</td><td>HEX 模式、偏移与范围、多线程与本地/网络、取证场景</td><td>HEX 与字节偏移的 UI/API；扫描与有限索引结合</td><td>目标包含二进制模式；多为扫描或元数据+内容扫描。vxsearch.com。</td></tr>
+    <tr><td><strong>Advanced File Finder</strong>（BinaryMark）</td><td>按<strong>字节序列</strong>或正则递归扫描文件内容，多线程匹配；桌面工具，无分布式倒排。用户指定目录与字节序列/正则，工具在文件中逐文件查找，支持二进制内容匹配。与本文同属「二进制内容检索」，但偏桌面/单机文件扫描，非 LIKE 类高召回子串索引。binarymark.com。</td><td>字节序列+正则、递归目录、多线程、桌面/单机</td><td>二进制内容匹配与正则；单机工具的交互与性能</td><td>同属二进制内容检索；偏桌面扫描，非高召回子串索引。binarymark.com。</td></tr>
+    <tr><td><strong>Forensic Explorer (FEX)</strong>（GetData Forensics）</td><td>取证分析平台：对镜像/文件建索引（<strong>关键字、哈希、元数据</strong>），支持关键字与索引搜索、十六进制查看、字节分布分析与证据管理。目标包含二进制与内容检索，但偏取证工作流与证据管理，索引形态与通用「byte[] 子串索引」可能不同。getdataforensics.com。</td><td>取证工作流、关键字与索引、十六进制与证据管理</td><td>关键字索引与二进制/十六进制结合的形态；取证场景需求</td><td>目标包含二进制与内容检索；偏取证，索引形态可能不同。getdataforensics.com。</td></tr>
+    <tr><td><strong>EnCase / X-Ways / 等取证套件</strong></td><td>磁盘/镜像解析后<strong>建索引或做活扫</strong>：支持关键字/十六进制/正则搜索，多为在文件或扇区级做扫描或专用索引，与取证工作流（证据链、报告等）深度结合。二进制与内容检索是核心能力之一，但面向取证而非通用检索 API；多为「索引+扫描」混合。</td><td>索引+活扫混合、取证套件、关键字/HEX/正则</td><td>索引与扫描混合的工程形态；取证场景的检索 API</td><td>二进制与内容检索是核心能力；面向取证而非通用 API。商业取证工具。</td></tr>
+    <tr><td><strong>Elasticsearch（商业版） + 文档抽取</strong></td><td>二进制文档（PDF/Office）经 Tika 或 Data Extraction <strong>先提文本</strong>再建全文倒排；binary 字段仍只存不检，用户检索的是「提取出的文本」而非原始 byte[] 子串。与本文「直接对二进制建子串索引」不同；商业版与托管提供支持与文档生态。</td><td>提文本再全文索引、商业与托管、文档生态</td><td>与「直接对二进制建子串索引」的差异；文档类二进制的产品边界</td><td>检索对象是提取的文本而非 byte[] 子串。Elastic 商业与托管。</td></tr>
+  </tbody>
+</table>
+
+<h3>16.3 论文与未实现方案</h3>
+<p>以下为与「二进制检索 / 字节子串索引」目标一致的<strong>学术论文或理论方案</strong>，含<strong>已实现</strong>与<strong>未实现或仅局部实现</strong>的，便于拓展视野与引用。</p>
+<table>
+  <thead><tr><th>论文 / 方案</th><th>基本原理/思路（简述）</th><th>创新点</th><th>可借鉴的地方</th><th>是否实现 / 与本文的关联</th></tr></thead>
+  <tbody>
+    <tr><td>Jin, Hines, Cohen, Narasimhan, <em>A Scalable Search Index for Binary Files</em>, IEEE MALWARE 2012.</td><td>针对<strong>大规模二进制文件</strong>（如恶意软件库）设计可扩展搜索索引：对二进制做 n-gram 切分建倒排，查询字节序列时用<strong>概率式 n-gram 预过滤</strong>得候选再验证，把 TB 级全扫从「数天」压到「数分钟」。与本文目标高度一致（二进制+子串+索引）；n-gram 与本文滑动窗口+BitSet 同属「先过滤再验证」。已实现为 BigGrep（CMU SEI），见 16.1。</td><td>二进制可扩展搜索索引、概率式 n-gram 预过滤、TB 级规模验证</td><td>与本文目标高度一致；n-gram 与滑动窗口+BitSet 同属「先过滤再验证」；可引用与对照</td><td><strong>已实现</strong>：BigGrep，见 16.1。</td></tr>
+    <tr><td>Baeza-Yates, <em>A New Approach to Text Searching</em>, CACM 1989；Bitap/Shift-Or（位并行）。</td><td>为 pattern 建<strong>256×位置 bitmask</strong>，扫描时用单字长状态：每读一字节 c，状态右移并与 mask[c] 相与，≤64 字节内若高位为 1 即匹配。全程<strong>移位+与</strong>，无分支，位并行高吞吐。有多个实现（Sparse Bit Matrix、教科书代码），多为单模式扫描组件，非完整「索引+检索」系统。本文 BitSet/按字节过滤与 64B 块在「按字节查表+位运算」上与之一脉相承。</td><td>位并行子串匹配、无分支、单字长状态、经典算法</td><td>本文 BitSet/按字节过滤与 64B 块在「按字节查表+位运算」上与之一脉相承；精确比对与 SIMD</td><td>有多个实现；非完整索引+检索系统。</td></tr>
+    <tr><td>Faro, Lecroq, <em>Efficient Pattern Matching on Binary Strings</em>（如 arXiv 0810.2390 等）。</td><td>针对<strong>二进制串</strong>的高效模式匹配：按字节或字节块处理，设计适合二进制的跳跃与比较策略（而非直接套用面向文本的 KMP/BM 等），在二进制场景下更优。多为算法层实现或实验代码，无通用「二进制索引+检索」产品；与本文「二进制子串匹配」目标一致，可作精确比对或扫描阶段算法参考。</td><td>二进制串专用模式匹配、跳跃与比较策略</td><td>与本文「二进制子串匹配」目标一致；精确比对或扫描阶段算法参考</td><td>多为算法层实现；无通用二进制索引+检索产品。</td></tr>
+    <tr><td>「克服字长限制的位并行匹配」类工作（如 BLIM、分段位并行）。</td><td>将 Baeza-Yates 类方法扩展到<strong>长于机器字长</strong>的 pattern（&gt;64 字节）：用分治、多字状态或分段位并行拼接，在保持位并行优势的同时支持长 pattern。部分有实验实现，未形成通用二进制检索产品；本文多块查询（&gt;64B）时的「分块再合并」与长 pattern 处理可与此类思路结合。</td><td>长 pattern 位并行、分治与多字拼接</td><td>本文多块查询（&gt;64B）时的「分块再合并」与长 pattern 处理可与此类思路结合</td><td>部分有实验实现；未形成通用二进制检索产品。</td></tr>
+    <tr><td>Binacle 对应 SSTIC 2017 白皮书（ANSSI-FR）。</td><td><strong>全二进制索引</strong>的设计与实现：对二进制文件内容建索引以支持快速字节/模式检索，具体索引结构见白皮书与 Binacle（Rust）代码。与本文同属「二进制内容索引」；已实现为 Binacle，见 16.1，仓库已归档。</td><td>全二进制索引设计与实现、SSTIC 白皮书、Rust 实现</td><td>与本文同属「二进制内容索引」；具体结构见白皮书可借鉴</td><td><strong>已实现</strong>：Binacle，见 16.1；仓库已归档。</td></tr>
+    <tr><td>基于 byte n-gram 的恶意软件分类/相似度（如 Journal in Computer Virology 等）。</td><td>用<strong>字节 n-gram</strong>作为特征做恶意软件分类或相似度计算（如 Jaccard、TF-IDF），目标为分类/聚类而非子串检索。n-gram 特征与索引的构建可借鉴，但应用目标不同（分类 vs 检索）；研究代码或实验居多，非通用检索系统。</td><td>字节 n-gram 特征、分类与相似度、恶意软件场景</td><td>n-gram 特征与索引可借鉴；目标不同（分类 vs 检索）</td><td>研究或实验居多；非通用检索系统。</td></tr>
+  </tbody>
+</table>
+<p>上述论文与方案中，<strong>已实现</strong>的仅有 BigGrep（Jin et al. 2012）与 Binacle（SSTIC 2017）；Baeza-Yates 位并行有大量实现但多为单模式扫描组件。<strong>未实现或仅局部实现</strong>的（如长 pattern 位并行、部分二进制 n-gram 索引变体）仍可作为算法与索引设计的参考文献。</p>
+
+<h3>16.4 小结</h3>
+<p><strong>开源</strong>里与本文<strong>目标最接近</strong>的是 <strong>BigGrep</strong>（二进制文件 n-gram 索引、任意字节序列查询）和 <strong>Binacle</strong>（全二进制索引）；其余多为扫描型（ripgrep/grep）或仅存不检（Lucene/ES binary）。<strong>商业</strong>里多为<strong>取证/文件搜索</strong>（VX Search、Advanced File Finder、FEX、EnCase 等），侧重二进制与 HEX 检索，但多为扫描或专用索引，与本文「在 Lucene 上扩展、高召回 byte[] 子串、双模式查询」的定位不完全重合。<strong>论文</strong>中与本文同目标的以 Jin et al. 2012、Baeza-Yates 位并行、Faro/Lecroq 二进制匹配等为代表；部分仅有算法或实验实现、无通用产品，仍值得学习与引用。若需<strong>与 Lucene 生态集成</strong>且支持<strong>二进制高召回子串 + 可选精准/快速模式</strong>，本方案仍具有明确差异化和实现价值。</p>
+
+<!-- ========== 十七、国内外科技大厂相关算法与系统 ========== -->
+<h2 id="tech-giants">十七、国内外科技大厂相关算法与系统</h2>
+<p>本节单独整理<strong>国内外科技大厂</strong>（如 Google、Microsoft、GitHub、阿里巴巴、腾讯等）在<strong>代码搜索、子串/正则检索、大规模索引或二进制相关</strong>方面公开的先进算法与系统，便于对照与借鉴。大厂方案多面向代码或文本子串/正则，与本文「二进制 64B 滑动窗口 + BitSet + 精确比对」在思路上有交集（n-gram/trigram、倒排+候选验证、签名过滤等），可作为算法与工程上的参考。</p>
+
+<h3>17.1 国外大厂</h3>
+<table>
+  <thead><tr><th>公司 / 产品</th><th>基本原理/思路</th><th>创新点</th><th>可借鉴之处</th><th>参考</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Google Code Search</strong>（2006–2012）</td>
+      <td>对<strong>全球公开源码</strong>建<strong>trigram（3-gram）倒排索引</strong>：每个 trigram 对应包含该 3 字符子串的文档列表（posting list），并可选存位置。用户输入<strong>正则表达式</strong>时，系统从正则中提取「必须出现的 trigram」组成 AND/OR 查询，在索引里取交得到<strong>候选文档</strong>，再仅对候选运行正则引擎做最终匹配，避免对全库逐文件跑正则。正则引擎使用 <strong>RE2</strong>（线性时间、防 ReDoS），由 Russ Cox 在 2006 年实习期间开发，2010 年开源。</td>
+      <td>首个支持<strong>正则查询</strong>的代码搜索引擎；trigram 索引 + 正则两阶段（先索引过滤、再正则验证）；RE2 保证线性时间、开源；技术细节由 Russ Cox 在 2012 年撰文公开（<em>How Google Code Search Worked</em>）。</td>
+      <td>「从正则中提取必须出现的 trigram → 取交得候选 → 再验证」与本文「多 term/BitSet 交 → 精确比对」一致；trigram 与 64B 块都是定长子串索引；可参考候选集缩小与验证分离的设计。</td>
+      <td>Russ Cox, <a href="https://swtch.com/~rsc/regexp/regexp4.html" target="_blank" rel="noopener">Regular Expression Matching with a Trigram Index (or How Google Code Search Worked)</a>；Google 开源 <a href="https://github.com/google/codesearch" target="_blank" rel="noopener">codesearch</a>（Go）。</td>
+    </tr>
+    <tr>
+      <td><strong>Google / Zoekt</strong></td>
+      <td>Zoekt 源自 Google 的代码搜索思路，采用<strong>位置化 trigram</strong>：每个 trigram 存「哪些文档包含」以及<strong>在文档内的偏移</strong>。子串查询时取首尾等若干 gram，对 list 取交并校验<strong>同一文档内相对距离</strong>是否与子串一致，从而在不读全文的情况下筛候选再验证。两层 slice 索引省内存，目标亚 50ms；被 Sourcegraph 等采用。</td>
+      <td>位置化 trigram + 距离约束；两层 slice 替代 map 大幅省内存；开源、有设计文档，与本文「候选再验证」同族。</td>
+      <td>距离约束减候选、少量 list 交即高精度；紧凑索引结构；见十二、十三、十四中 Zoekt 描述。</td>
+      <td><a href="https://github.com/google/zoekt/blob/master/doc/design.md" target="_blank" rel="noopener">Zoekt design.md</a>；十二 12.2。</td>
+    </tr>
+    <tr>
+      <td><strong>Microsoft / Bing — BitFunnel</strong></td>
+      <td>用<strong>位切片签名（bit-sliced signatures）</strong>替代传统倒排：每个文档用一个基于 Bloom 过滤器的<strong>位签名</strong>表示其包含的 term，查询时把查询转为签名，与文档签名做特定方式的与/交运算做过滤，再对候选精排。解决传统 signature 的 CPU/内存成本、term  Zipf 分布、文档大小差异等问题，在 Bing 的 super-fresh、新闻、媒体等索引中部署，替代了部分倒排系统以降低运营成本。</td>
+      <td>「签名文件」思路的复兴与算法改进；SIGIR 2017 Best Paper；开源（BitFunnel/BitFunnel）；与本文「BitSet/按位过滤」在「用位结构做候选过滤」上有相似性。</td>
+      <td>用位/签名做第一层过滤、再精排的两阶段；大规模下的成本与可配置优化；可类比本文 BitSet 过滤 + 精确比对。</td>
+      <td>Microsoft Research, <a href="https://www.microsoft.com/en-us/research/publication/bitfunnel-revisiting-signatures-search/" target="_blank" rel="noopener">BitFunnel: Revisiting Signatures for Search</a>；<a href="https://github.com/BitFunnel/BitFunnel" target="_blank" rel="noopener">GitHub: BitFunnel/BitFunnel</a>；十六 16.1 BitFunnel。</td>
+    </tr>
+    <tr>
+      <td><strong>GitHub — Code Search (Blackbird)</strong></td>
+      <td>自研引擎 Blackbird（Rust）：文档按<strong>n-gram（如 trigram）</strong>切分建倒排，查询时对多个 n-gram 的 posting list 做<strong>交</strong>得候选，再验证或正则匹配；用<strong>懒迭代器</strong>按需推进各 list，只读必要片段。支撑 45M+ 仓库、约 115TB 代码、15.5B 文档，博客公开架构思路。</td>
+      <td>超大规模代码子串/正则检索；懒迭代与 I/O 节约；n-gram 倒排 + 候选验证的工程落地；见十二 12.1。</td>
+      <td>多 list 交 + 验证；懒推进与 DocList 按需读块；大规模分片与一致性。</td>
+      <td><a href="https://github.blog/engineering/architecture-optimization/the-technology-behind-githubs-new-code-search" target="_blank" rel="noopener">The technology behind GitHub's new code search</a>；十二 12.1、十四 14.2。</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>17.2 国内大厂</h3>
+<table>
+  <thead><tr><th>公司 / 产品</th><th>基本原理/思路</th><th>创新点</th><th>可借鉴之处</th><th>参考</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>阿里巴巴 — Alibaba Code / 通义灵码</strong></td>
+      <td>企业级代码搜索与智能服务：除关键词/子串外，强调<strong>语义与 IDE 级能力</strong>。索引方面采用<strong>抽象语法树（AST）</strong>与 <strong>LSIF（Language Server Index Format）</strong> 构建静态索引，保证编译器级准确度；支持悬停提示、转到定义、查看引用等，跨文件/跨仓库。性能目标为分钟级索引构建、毫秒级查询响应，支持<strong>百亿级</strong>索引服务；支持增量构建。通义灵码相关代码搜索研究被软件工程顶会 FSE 录用。</td>
+      <td>AST/LSIF 静态索引与 IDE 级能力；百亿级索引、分钟级建索引与毫秒级查询；与「纯文本/子串」形成互补（语义+结构）。</td>
+      <td>大规模代码索引的工程目标与增量构建；若本文将来与「代码」场景结合，可参考 AST/语义与子串检索的分工。</td>
+      <td>阿里云开发者、掘金等：Alibaba Code 代码索引技术实践；通义灵码 FSE 论文与阿里技术博客。</td>
+    </tr>
+    <tr>
+      <td><strong>腾讯 / 伴鱼 — 代码搜索引擎</strong></td>
+      <td>代码搜索引擎通常采用<strong>双层架构</strong>：Web Server 处理查询与展示，Index Server 维护索引与数据同步。查询语言包含<strong>修饰词</strong>（仓库、文件、语言等）与<strong>匹配器</strong>：支持<strong>关键词、子串、正则表达式</strong>与结构化查询。索引结构分为<strong>基于文本的倒排索引</strong>与<strong>语言感知的索引</strong>（语法结构分析）；倒排以词/子串为 key、文档列表为 value，多词联合查询通过有序链表交/并实现。</td>
+      <td>关键词/子串/正则 + 语言感知的双轨索引；双层架构与查询语言设计；与本文「子串 + 倒排」在文本侧一致。</td>
+      <td>子串与正则的查询语言与索引分工；倒排 + 语言感知的混合形态可作产品形态参考。</td>
+      <td>腾讯云开发者社区、伴鱼技术团队：代码搜索引擎基础篇等。</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>17.3 小结</h3>
+<p><strong>国外</strong>：Google Code Search 的 trigram 索引 + 正则两阶段、RE2 开源，奠定了「子串/正则 + 倒排候选再验证」的经典思路；Zoekt 将位置化 trigram 与距离约束工程化；Microsoft BitFunnel 用签名/Bloom 做过滤，与本文 BitSet 过滤在「位结构做候选过滤」上可类比；GitHub Blackbird 在超大规模下验证了 n-gram 倒排 + 懒迭代的可行性。<strong>国内</strong>：阿里巴巴侧重 AST/LSIF 与百亿级代码索引、通义灵码与 FSE 论文；腾讯/伴鱼等公开了代码搜索引擎的双层架构与关键词/子串/正则的匹配器设计。上述大厂方案多面向<strong>代码或文本</strong>，与本文「原始二进制 byte[] 高召回子串 + Lucene 扩展」形成差异化；在「倒排 + 候选再验证」、位/签名过滤、两阶段查询等思路上可借鉴。</p>
+
+<!-- ========== 十八、高校相关研究与实践 ========== -->
+<h2 id="university-research">十八、高校相关研究与实践</h2>
+<p>本节单独整理<strong>国内外高校</strong>（大学及附属研究所）在<strong>代码搜索、子串/n-gram 索引、二进制文件检索</strong>等方面的研究与开源实践，便于学术对照与引用。高校工作多带有论文、开源实现或技术报告，与本文「滑动窗口 + 倒排 + 候选验证」或「二进制子串索引」在目标或方法上有交集。与高校同属学术与工程参考的<strong>科研机构</strong>（政府实验室、非营利 R&D 等）见<strong>十九、科研机构相关研究与实践</strong>。</p>
+
+<h3>18.1 国外高校</h3>
+<table>
+  <thead><tr><th>机构 / 项目</th><th>基本原理/思路</th><th>创新点</th><th>可借鉴之处</th><th>参考</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>CMU SEI — BigGrep</strong></td>
+      <td>卡内基梅隆大学软件工程研究所（SEI）的 Wesley Jin、Chuck Hines、Cory Cohen、Priya Narasimhan 等在 <strong>IEEE MALWARE 2012</strong> 发表《A Scalable Search Index for Binary Files》。对<strong>大规模二进制文件</strong>（如恶意软件库）做<strong>概率式 n-gram</strong>索引：3-gram/4-gram 切分建倒排，查询字节序列时用 n-gram 预过滤得候选再验证，将 TB 级全扫从「数天」压到「数分钟」。开源实现 BigGrep（C++），含 bgindex 建库、bgsearch 查询。</td>
+      <td>面向二进制文件的<strong>可扩展搜索索引</strong>、概率式 n-gram 预过滤、TB 级验证；与本文目标高度一致（二进制+子串+索引）；论文+开源工具。</td>
+      <td>二进制 n-gram 倒排 + 候选验证；gram 选取与 list 交；与本文「先过滤再验证」同族；见十六 16.1。</td>
+      <td>Jin et al., IEEE MALWARE 2012；<a href="https://github.com/cmu-sei/BigGrep" target="_blank" rel="noopener">GitHub: cmu-sei/BigGrep</a>；SEI 技术报告。</td>
+    </tr>
+    <tr>
+      <td><strong>华盛顿大学 — Infini-gram</strong></td>
+      <td>华盛顿大学（University of Washington）研究者提出的<strong>大规模 n-gram 检索引擎</strong>：基于<strong>后缀数组（suffix array）</strong>索引，支持<strong>任意长度 n-gram</strong>的快速查询与计数，无需预计算所有 n-gram 表。可扩展到<strong>万亿级 token</strong>语料（如 5 trillion tokens），查询延迟约 20ms；支持 ∞-gram 回退语言模型。后续 infini-gram mini 采用 FM-Index 等，获 EMNLP 2025 Best Paper，索引速度与内存占用进一步优化。</td>
+      <td>后缀数组实现<strong>任意长 n-gram</strong>检索、万亿级规模、毫秒级延迟；与「定长 n-gram 倒排」形成互补思路；开源与 Web 演示。</td>
+      <td>若需支持「任意长 n-gram」或与语言模型结合，可参考后缀数组/FM-Index 与本文滑动窗口倒排的取舍；大规模语料下的索引与查询工程。</td>
+      <td><a href="https://infini-gram.io/" target="_blank" rel="noopener">infini-gram.io</a>；arXiv:2401.17377；UW Allen School 新闻（EMNLP 2025）。</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>18.2 国内高校</h3>
+<p>国内高校在<strong>代码检索、程序分析、软件工程</strong>方向有较多实验室与论文工作，多侧重<strong>语义检索、基于 AST/IR 的代码理解、代码克隆检测、程序分析</strong>等，与「原始字节流子串/n-gram 索引」的直接交叉相对较少；部分工作会结合关键词、子串或 n-gram 作为特征。可关注：</p>
+<ul>
+  <li><strong>软件所/计算机系</strong>在代码搜索、代码理解、程序分析方向的实验室与发表（如 FSE、ICSE、ASE 等会议）；</li>
+  <li>与<strong>通义灵码</strong>、阿里巴巴等企业合作或联合发表的代码检索与索引技术（见十七 17.2）；</li>
+  <li>若将「二进制/字节流子串索引」与<strong>恶意软件分析、二进制程序分析</strong>结合，可进一步检索安全与软件工程交叉方向的高校论文与开源项目。</li>
+</ul>
+<p>本节暂不列举具体高校项目名，以避免遗漏或过时；实现与调研时可结合上述方向检索最新论文与开源仓库。</p>
+
+<h3>18.3 小结</h3>
+<p><strong>国外高校</strong>：CMU SEI BigGrep 与本文目标最接近（二进制 + n-gram 索引 + 候选验证），有 IEEE MALWARE 论文与开源实现；华盛顿大学 Infini-gram 以后缀数组实现万亿级任意长 n-gram 检索，可作为「长 n-gram / 大规模语料」的对照思路。<strong>国内高校</strong>在代码检索与程序分析方向有丰富工作，多侧重语义与结构；与本文「二进制 byte[] 高召回子串索引」的交叉可结合软件工程与安全会议、企业联合发表进一步追踪。更多<strong>科研机构</strong>（如 MITRE、ANSSI 等）见十九节。</p>
+
+<!-- ========== 十九、科研机构相关研究与实践 ========== -->
+<h2 id="research-institutions">十九、科研机构相关研究与实践</h2>
+<p>本节单独整理<strong>国内外科研机构</strong>（政府实验室、非营利 R&D、安全与国防相关研究所等，<strong>不含高校</strong>）在<strong>代码搜索、子串/n-gram 索引、二进制文件检索</strong>等方面的研究与开源实践。高校相关工作见<strong>十八、高校相关研究与实践</strong>。科研机构多面向安全、取证、国防等场景，与本文「二进制子串索引」在目标或方法上有交集。</p>
+
+<h3>19.1 国外科研机构</h3>
+<table>
+  <thead><tr><th>机构 / 项目</th><th>基本原理/思路</th><th>创新点</th><th>可借鉴之处</th><th>参考</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>ANSSI — Binacle</strong></td>
+      <td>法国国家网络安全局（ANSSI, Agence nationale de la sécurité des systèmes d'information）提出的<strong>全二进制索引</strong>（full-binary indexation）工具：对二进制文件内容建索引以支持快速字节/模式检索，Rust 实现，在 <strong>SSTIC 2017</strong> 发表。仓库已于 2024 年归档，Beta、供研究/参考；与本文同属「二进制内容索引」。</td>
+      <td>全二进制索引设计与实现、SSTIC 白皮书、Rust 实现；政府安全机构开源。</td>
+      <td>二进制内容索引的另一种结构；白皮书与索引设计可参考；见十六 16.1。</td>
+      <td><a href="https://github.com/ANSSI-FR/Binacle" target="_blank" rel="noopener">GitHub: ANSSI-FR/Binacle</a>；SSTIC 2017 白皮书。</td>
+    </tr>
+    <tr>
+      <td><strong>MITRE — Snugglefish</strong></td>
+      <td>MITRE 是美国联邦资助的 R&D 中心（FFRDC），非高校。其开源的<strong>简易 n-gram 快速索引与搜索</strong>实现 Snugglefish：对文本/内容做 n-gram 切分并建简单倒排，支持快速子串检索。体量小、逻辑直接，适合理解 n-gram 索引原理与最小实现；仓库已于 2023 年归档。</td>
+      <td>极简 n-gram 倒排、代码清晰；科研机构开源，教学/实验用。</td>
+      <td>理解 n-gram 索引最小实现；与本文滑动窗口→倒排思路一致。</td>
+      <td><a href="https://github.com/MITRECND/snugglefish" target="_blank" rel="noopener">GitHub: MITRECND/snugglefish</a>；十三 13.2。</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>19.2 国内科研机构</h3>
+<p>国内<strong>科研院所</strong>（如中科院各所、中国电子科技集团、航天/兵器等下属研究所）在<strong>软件工程、程序分析、安全与取证</strong>方向有大量工作；与「二进制/字节流子串索引」直接相关的公开开源或论文相对较少，多与恶意软件分析、固件分析、二进制程序分析等场景结合。可结合以下方向进一步检索：</p>
+<ul>
+  <li><strong>中科院</strong>软件所、信工所等在程序分析、代码检索、安全分析方向的实验室与发表；</li>
+  <li><strong>国防、航天、电子</strong>等系统下属研究所在二进制分析、取证、特征检索方向的技术报告与项目；</li>
+  <li>与<strong>企业或高校</strong>联合发表的代码/二进制检索与索引技术。</li>
+</ul>
+<p>本节暂不列举具体机构或项目名，以避免遗漏或涉密；实现与调研时可结合上述方向检索最新公开论文、技术报告与开源仓库。</p>
+
+<h3>19.3 小结</h3>
+<p><strong>国外科研机构</strong>：ANSSI（法国国家网络安全局）Binacle 提供全二进制索引的另一种实现与 SSTIC 白皮书；MITRE（美国 FFRDC）Snugglefish 为极简 n-gram 索引，适合学习与对照。<strong>国内科研机构</strong>在软件工程、安全与取证方向有丰富积累，与「二进制 byte[] 高召回子串索引」的交叉可结合程序分析、恶意软件分析等场景进一步追踪。整体上，科研机构工作可作为<strong>算法引用、开源实现对照与安全/取证场景调研</strong>的补充。</p>
+
+<!-- ========== 二十、GitHub 上的相关项目与资源 ========== -->
+<h2 id="github-projects">二十、GitHub 上的相关项目与资源</h2>
+<p>本节单独整理<strong>GitHub 上</strong>与本文技术相关的<strong>开源仓库、文档与资源</strong>，便于按图索骥、克隆学习与引用。按「与二进制/子串索引直接相关」「代码搜索与 n-gram」「签名/过滤与检索」「正则与工具」「本文扩展基础与文档」分类列出，并给出仓库链接与简要说明。</p>
+
+<h3>20.1 与二进制/子串索引直接相关</h3>
+<table>
+  <thead><tr><th>仓库</th><th>简介</th><th>与本文关系</th><th>链接</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>cmu-sei/BigGrep</strong></td>
+      <td>CMU SEI 开源：对二进制文件做 3/4-gram 倒排索引，bgindex 建库、bgsearch 查询，TB 级从数天压到数分钟；C++，基于 IEEE MALWARE 2012 论文。</td>
+      <td>与本文目标最接近（二进制+子串+索引）；n-gram 倒排+候选验证，可对照实现。</td>
+      <td><a href="https://github.com/cmu-sei/BigGrep" target="_blank" rel="noopener">github.com/cmu-sei/BigGrep</a></td>
+    </tr>
+    <tr>
+      <td><strong>ANSSI-FR/Binacle</strong></td>
+      <td>法国 ANSSI 开源：全二进制索引（full-binary indexation），Rust 实现，SSTIC 2017 白皮书；仓库已归档（2024），Beta。</td>
+      <td>同属「二进制内容索引」；白皮书与索引设计可参考。</td>
+      <td><a href="https://github.com/ANSSI-FR/Binacle" target="_blank" rel="noopener">github.com/ANSSI-FR/Binacle</a></td>
+    </tr>
+    <tr>
+      <td><strong>webrecorder/pywb</strong></td>
+      <td>Web 归档工具，内含 binsearch 等：在 CDX 等索引上做二进制/字节序列查找，服务于归档场景。</td>
+      <td>场景化二进制检索；非通用 byte[] 高召回子串索引。</td>
+      <td><a href="https://github.com/webrecorder/pywb" target="_blank" rel="noopener">github.com/webrecorder/pywb</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>20.2 代码搜索与 n-gram / trigram</h3>
+<table>
+  <thead><tr><th>仓库</th><th>简介</th><th>与本文关系</th><th>链接</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>google/zoekt</strong></td>
+      <td>Google 开源：位置化 trigram 代码搜索，子串查询取首尾等 gram 交并校验文档内距离再验证；Go，设计文档在 repo 内。</td>
+      <td>与本文「候选再验证」同族；距离约束、紧凑索引可借鉴。</td>
+      <td><a href="https://github.com/google/zoekt" target="_blank" rel="noopener">github.com/google/zoekt</a></td>
+    </tr>
+    <tr>
+      <td><strong>google/codesearch</strong></td>
+      <td>Google 开源：类 Code Search 的 trigram 索引 + 正则检索，单机可索引与搜索大型代码库；Go，Russ Cox 等。</td>
+      <td>trigram 索引 + 正则两阶段；与本文多 term 交再验证一致。</td>
+      <td><a href="https://github.com/google/codesearch" target="_blank" rel="noopener">github.com/google/codesearch</a></td>
+    </tr>
+    <tr>
+      <td><strong>MITRECND/snugglefish</strong></td>
+      <td>MITRE 开源：简易 n-gram 快速索引与搜索，体量小、逻辑直接；仓库已归档（2023）。</td>
+      <td>理解 n-gram 索引最小实现；滑动窗口→倒排思路一致。</td>
+      <td><a href="https://github.com/MITRECND/snugglefish" target="_blank" rel="noopener">github.com/MITRECND/snugglefish</a></td>
+    </tr>
+    <tr>
+      <td><strong>danlark1/sparse_ngrams</strong></td>
+      <td>类 Blackbird 的 sparse n-gram 索引：只对部分 gram 建倒排，C++，实验/学习用。</td>
+      <td>稀疏 gram 与 list 交；学习 n-gram 实现。</td>
+      <td><a href="https://github.com/danlark1/sparse_ngrams" target="_blank" rel="noopener">github.com/danlark1/sparse_ngrams</a></td>
+    </tr>
+    <tr>
+      <td><strong>liujch1998/infini-gram</strong></td>
+      <td>华盛顿大学相关：基于后缀数组的大规模 n-gram 检索引擎，支持万亿级 token、任意长 n-gram；Python 包与 Web 演示。</td>
+      <td>任意长 n-gram、大规模语料的另一种思路；可与定长倒排对照。</td>
+      <td><a href="https://github.com/liujch1998/infini-gram" target="_blank" rel="noopener">github.com/liujch1998/infini-gram</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>20.3 签名/过滤与检索</h3>
+<table>
+  <thead><tr><th>仓库</th><th>简介</th><th>与本文关系</th><th>链接</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>BitFunnel/BitFunnel</strong></td>
+      <td>Microsoft 开源：基于位切片签名（Bloom 类）的搜索引擎，曾用于 Bing；SIGIR 2017 Best Paper，C++。</td>
+      <td>位/签名做第一层过滤再精排；可类比本文 BitSet 过滤 + 精确比对。</td>
+      <td><a href="https://github.com/BitFunnel/BitFunnel" target="_blank" rel="noopener">github.com/BitFunnel/BitFunnel</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>20.4 正则引擎与子串扫描</h3>
+<table>
+  <thead><tr><th>仓库</th><th>简介</th><th>与本文关系</th><th>链接</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>google/re2</strong></td>
+      <td>Google 开源：RE2 正则引擎，线性时间、防 ReDoS，原为 Code Search 设计；C++，多语言绑定。</td>
+      <td>若在「候选再验证」阶段用正则，可选用 RE2。</td>
+      <td><a href="https://github.com/google/re2" target="_blank" rel="noopener">github.com/google/re2</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>20.5 本文扩展基础与 GitHub 文档/博客</h3>
+<table>
+  <thead><tr><th>资源</th><th>简介</th><th>与本文关系</th><th>链接</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>apache/lucene</strong></td>
+      <td>Apache Lucene 官方仓库：本文在其上扩展 _bin 字段与二进制子串检索。</td>
+      <td>本文扩展基础；BlockTree、Postings、Terms 等复用。</td>
+      <td><a href="https://github.com/apache/lucene" target="_blank" rel="noopener">github.com/apache/lucene</a></td>
+    </tr>
+    <tr>
+      <td><strong>GitHub Blog — Code Search</strong></td>
+      <td>GitHub 官方博客：The technology behind GitHub's new code search（Blackbird 架构：n-gram 倒排、懒迭代、规模与一致性）。</td>
+      <td>大规模代码检索架构与工程取舍；Blackbird 闭源，博客在 GitHub 站内。</td>
+      <td><a href="https://github.blog/engineering/architecture-optimization/the-technology-behind-githubs-new-code-search" target="_blank" rel="noopener">github.blog</a>（搜索 Code Search）</td>
+    </tr>
+    <tr>
+      <td><strong>Zoekt design doc</strong></td>
+      <td>Zoekt 设计文档位于 google/zoekt 仓库内（如 <code>doc/design.md</code>），描述位置化 trigram、距离约束、两层 slice 等。</td>
+      <td>候选再验证、紧凑索引与加载策略可借鉴。</td>
+      <td><a href="https://github.com/google/zoekt/blob/master/doc/design.md" target="_blank" rel="noopener">github.com/google/zoekt (doc/design.md)</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>20.6 小结</h3>
+<p>GitHub 上与本文最直接相关的仓库包括：<strong>二进制/子串索引</strong>（BigGrep、Binacle）、<strong>代码搜索与 n-gram</strong>（Zoekt、codesearch、snugglefish、sparse_ngrams、infini-gram）、<strong>签名过滤</strong>（BitFunnel）、<strong>正则与基础</strong>（RE2、Lucene）。GitHub Blog 与各仓库内文档可补充架构与设计说明。实现与调研时可直接按上述链接克隆、阅读与对照。</p>
+
+<hr>
+<p class="meta" style="margin-top:2rem;">— 文档结束 —</p>
+
+</body>
+</html>

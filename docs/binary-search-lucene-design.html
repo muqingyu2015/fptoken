@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>基于 Lucene 的二进制数据模糊检索技术方案</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --surface2: #243044;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent2: #3fb950;
+      --warn: #d29922;
+      --border: #30363d;
+      --code-bg: #161b22;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      margin: 0;
+      padding: 2rem max(2rem, 10vw);
+      max-width: 960px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      color: var(--accent);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+      margin-top: 2rem;
+    }
+    h2 {
+      font-size: 1.35rem;
+      color: var(--text);
+      margin-top: 2rem;
+    }
+    h3 { font-size: 1.15rem; margin-top: 1.5rem; color: var(--accent2); }
+    h4 { font-size: 1rem; margin-top: 1.2rem; color: var(--text-muted); }
+    p { margin: 0.75rem 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+      background: var(--surface);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.6rem 0.9rem;
+      text-align: left;
+    }
+    table th:first-child,
+    table td:first-child {
+      min-width: 11em;
+      white-space: nowrap;
+    }
+    th {
+      background: var(--surface2);
+      color: var(--accent);
+      font-weight: 600;
+    }
+    code, .code-block {
+      font-family: var(--font-mono);
+      font-size: 0.88em;
+    }
+    code {
+      background: var(--code-bg);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      color: #79c0ff;
+    }
+    pre {
+      background: var(--code-bg);
+      padding: 1rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+    }
+    pre code {
+      background: none;
+      padding: 0;
+    }
+    .box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+    }
+    .box-title {
+      font-weight: 600;
+      color: var(--accent2);
+      margin-bottom: 0.5rem;
+    }
+    .toc {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.5rem;
+      margin: 2rem 0;
+    }
+    .toc ul { margin: 0.5rem 0 0 1rem; padding: 0; }
+    .toc li { margin: 0.35rem 0; }
+    .toc a { color: var(--accent); text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    .note {
+      border-left: 4px solid var(--warn);
+      background: rgba(210, 153, 34, 0.08);
+      padding: 0.75rem 1rem;
+      margin: 1rem 0;
+      border-radius: 0 6px 6px 0;
+    }
+    .tip {
+      border-left: 4px solid var(--accent2);
+      background: rgba(63, 185, 80, 0.08);
+      padding: 0.75rem 1rem;
+      margin: 1rem 0;
+      border-radius: 0 6px 6px 0;
+    }
+    ul, ol { margin: 0.75rem 0; padding-left: 1.5rem; }
+    li { margin: 0.35rem 0; }
+    .ascii-art {
+      font-family: var(--font-mono);
+      font-size: 0.8em;
+      white-space: pre;
+      overflow-x: auto;
+      background: var(--code-bg);
+      padding: 1rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+    .meta { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 2rem; }
+    /* 审阅注释：设计缺陷 / 改进空间 / 命中多时效率 / GPU 扩展 */
+    .review-comment {
+      color: #f85149;
+      background: rgba(248, 81, 73, 0.08);
+      border-left: 3px solid #f85149;
+      padding: 0.5rem 0.75rem;
+      margin: 0.5rem 0;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .review-comment strong { color: #f85149; }
+  </style>
+</head>
+<body>
+
+<h1>基于 Lucene 的二进制数据模糊检索技术方案</h1>
+<div class="box">
+  <div class="box-title">包与命名约定</div>
+  <p>本方案中<strong>所有新增/自定义类</strong>均置于包 <code>cn.lxdb.aicode</code> 下。</p>
+</div>
+
+<nav class="toc">
+  <div class="box-title">目录</div>
+  <ul>
+    <li><a href="#overview">一、核心需求概述</a></li>
+    <li><a href="#index-build">二、索引构建策略</a></li>
+    <li><a href="#index-struct">三、索引数据结构设计</a></li>
+    <li><a href="#query-flow">四、查询执行流程</a></li>
+    <li><a href="#terms-reader">五、terms(field) 与读取侧实现设计</a></li>
+    <li><a href="#thoughts">六、思考与补充</a></li>
+    <li><a href="#improvements">七、改进建议</a></li>
+    <li><a href="#split-chunk">八、拆分与分块策略</a></li>
+    <li><a href="#architecture">九、整体架构设计</a></li>
+    <li><a href="#decouple">十、与 Lucene 的解耦设计</a></li>
+    <li><a href="#lucene-inverted">十一、Lucene 存储集成（Writer/Reader）</a></li>
+  </ul>
+</nav>
+
+<!-- ========== 一、核心需求概述 ========== -->
+<h2 id="overview">一、核心需求概述</h2>
+<div class="box">
+  <div class="box-title">业务目标</div>
+  <p>基于 Apache Lucene 源码进行定制化开发，实现针对二进制数据的模糊检索功能，等效于文本检索中的 <code>LIKE '%xxx%'</code> 模式匹配，<strong>召回率为 100%</strong>。检索时先在 BitSet 候选基础上做二次过滤（如多词位置约束），再对 64B term 做精确比对，只返回<strong>真正包含查询子串</strong>的文档，满足零漏检、无误报。</p>
+</div>
+<table>
+  <thead><tr><th>核心目标</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td>全量覆盖</td><td>确保二进制流中任意位置的连续字节序列均可被检索（零漏检）</td></tr>
+    <tr><td>查准</td><td>二次过滤与 64B 精确比对，只返回真正包含查询子串的文档，无误报</td></tr>
+    <tr><td>可控的膨胀比</td><td>索引膨胀率可控，<strong>膨胀控制在原始数据的 3 倍以内</strong></td></tr>
+    <tr><td>极致性能</td><td>解决高频字节导致的“倒排表膨胀”；通过区分度优先等减少比对与 I/O</td></tr>
+    <tr><td>架构简洁</td><td>采用 Lucene TermVectors 按文档存储，保证可维护性；可选扩展方案为分块+跳跃表</td></tr>
+  </tbody>
+</table>
+
+<h3>1.1 设计本质：四类 Lucene 组件的扩展与实现</h3>
+<p>本方案<strong>本质是对 Lucene 四类组件的扩展与实现</strong>，在保持与现有lucene 段合并等相关API兼容的前提下，为二进制 <code>_bin</code> 字段提供从写入到检索的完整路径：</p>
+<table>
+  <thead><tr><th>Lucene 组件</th><th>本方案中的扩展/实现</th></tr></thead>
+  <tbody>
+    <tr><td><strong>分词器</strong>（Analyzer / Tokenizer）</td><td>滑动窗口：<strong>存储 32B/段</strong>，BitSet 按 <strong>64B 窗口、步长 32B</strong> 产出逻辑 term</td></tr>
+    <tr><td><strong>存储/写入</strong></td><td>对 <code>_bin</code> 字段<strong>当前采用 TermVectors</strong> 写入；通过扩展 TermVectors 可实现分块、BitSet、Term 字典</td></tr>
+    <tr><td><strong>Query</strong></td><td>二进制模糊检索封装为 Lucene Query；<code>BinaryFuzzyQuery</code> 内部为：BitSet/候选 → [二次过滤] → 基于 TermVector 的精确比对</td></tr>
+    <tr><td><strong>读取 TermVectors</strong></td><td>通过 <code>LeafReader.getTermVectors(docId)</code> 获取文档的 term 向量；<code>Fields.terms(fieldName)</code> 对 <code>_bin</code> 字段返回本方案的<strong>定制 Terms 实现</strong>（基于 TermVectors 或封装 TV 数据），提供 TermsEnum、seekCeil、位置/偏移等，与 Lucene 上层调用约定一致</td></tr>
+  </tbody>
+</table>
+<div class="ascii-art">  四类组件在索引与检索中的位置
+
+  【写入链】
+    文档(byte[]) ──► 分词器(存储 32B/段；BitSet 64/32) ──► term₁, term₂, … (带偏移) ──► TermVectorsConsumer ──► TermVectors 存储
+
+  【检索链】
+    · Query 侧：  Query(byte[]) ──► BinaryFuzzyQuery ──► BitSet → 基于termvector的精确比对 → DocList 合并 ──► Collector
+    · 读取侧：    LeafReader.getTermVectors(docId) ──► Fields.terms(_bin) 返回定制 Terms ──► TermsEnum (seekCeil、位置/偏移)
+</div>
+
+<h3 id="tech-background">1.2 技术实现的背景</h3>
+<p>本方案针对二进制模糊检索的技术选型，需考虑通用搜索引擎与经典全文索引结构的局限，说明为何采用「基于 Lucene 的<strong>存储 32B/段 + BitSet 64/32</strong> + 分块 + TermVectors（正排）」而非直接沿用现成方案或后缀结构。</p>
+<p><strong>通用搜索引擎（Lucene / Elasticsearch）：</strong></p>
+<ul>
+  <li>主要针对<strong>文本</strong>设计，依赖分词器（Tokenizer）。</li>
+  <li>二进制文件中包含大量 <strong>0x00、乱码和非打印字符</strong>，标准分词器无法有效处理，甚至会导致<strong>索引膨胀或崩溃</strong>。</li>
+  <li>难以高效支持「<strong>任意字节序列</strong>」的精确子串匹配，尤其是<strong>跨边界</strong>的匹配（如查询子串横跨多个 token 或无法被 token 边界对齐）。</li>
+</ul>
+<p><strong>后缀数组 / 后缀树与 n-gram 索引：</strong></p>
+<ul>
+  <li>二者均可支持子串或「包含」类查询，但面临<strong>同一类问题</strong>：在 TB 级或大规模数据上，<strong>索引构建与存储成本高</strong>（后缀数组通常需要数据数倍的内存，n-gram 则易产生倒排膨胀与大量 gram），<strong>构建时间长</strong>，且<strong>难以动态更新</strong>——增量或删除文档时往往需重建或复杂维护，与 Lucene 的段合并、增量索引模型不易结合。</li>
+  <li>后缀数组 / 后缀树：理论上可完美支持任意子串查询，但在 TB 级数据上构建完整后缀数组需要巨大内存与极长构建时间；n-gram 索引在长 gram 或高基数下同样面临膨胀与维护成本，与 Lucene 的按段合并、按文档更新模式需要额外设计才能较好融合。</li>
+</ul>
+<p>因此，本方案在复用 Lucene 索引与查询框架的前提下，通过<strong>存储 32B/段 + BitSet 逻辑 64B 窗口（步长 32）</strong> 将二进制流变为可索引的 term 流，用<strong>分块 + TermVectors（正排） + BitSet/精确比对</strong>（或如下所述的 TermVectors 实现）在可控内存与 I/O 下实现 100% 召回的模糊检索，避免依赖通用分词器与全量后缀结构。<strong>索引膨胀率低</strong>，约为原始数据的 3 倍。</p>
+
+<h3 id="termvectors">1.3 Lucene TermVectors 背景与本方案采用</h3>
+
+<h4 id="termvectors-background">1.3.1 背景与含义</h4>
+<p>Lucene 的 <strong>TermVectors</strong>（词项向量）是一种<strong>按文档（per-document）</strong>存储的索引结构：对指定字段，为<strong>每个文档</strong>单独存储该文档内出现的 term 列表，以及可选的<strong>词频、位置（position）、起止偏移（start/end offset）、payload</strong> 等。与「term → docId 列表」的倒排表不同，TermVectors 是<strong>正排</strong>形态——以文档为单位，记录「该文档有哪些 term、出现在何处」，因此同一文档的所有 term 天然聚合在一起，不存在跨块问题。</p>
+
+<h4 id="termvectors-usage">1.3.2 典型用途</h4>
+<p>TermVectors 在 Lucene/Elasticsearch 中常用于<strong>高亮显示（highlight）</strong>：根据查询命中文档后，读取该文档的 TermVectors 得到每个 term 的偏移信息，从而在原文中标注匹配片段。此外也用于「More Like This」、文档相似度、短语高亮等需要「按文档看词与位置」的场景。</p>
+
+<h4 id="termvectors-summary">1.3.3 特点小结</h4>
+<p>① 按文档存储，适合按 doc 维度的读取与高亮；② 可存储 position/offset，支持位置相关检索与顺序约束；③ 不提供全局「term → 文档列表」的倒排视图，若要做「包含某 term 的文档」需扫描文档或配合其它索引；④ 与倒排在存储形态上互补，可根据查询模式选择。</p>
+
+<h4 id="termvectors-seek">1.3.4 跳跃式读取（Random Access / Seek）</h4>
+<p>Lucene 的 TermVectors 设计<strong>天生支持「跳跃式读取」</strong>，无需一次性加载整个文档的所有向量数据。具体包括：</p>
+<ul>
+  <li><strong>直接定位文档：</strong> 通过 DocID 直接访问 Term Vector 文件，<strong>跳过其他所有文档</strong>，只读当前文档的向量数据。</li>
+  <li><strong>字典序跳跃：</strong> 利用 TV 内部词项<strong>按字典序排序</strong>的特性，使用 <code>seekCeil()</code> 直接跳到第一个以某前缀（如查询块 xxx）开头的词，无需从头遍历。</li>
+  <li><strong>流式匹配：</strong> 从该位置开始向后遍历，只要前缀匹配就读取详情（位置/偏移量）；一旦前缀不匹配立即停止，<strong>不需要读完该文档剩余的其它 term</strong>（例如文档有上百个 32B 段 term 时，匹配到目标后即可提前结束）。</li>
+</ul>
+
+<h4 id="termvectors-example">1.3.5 使用示例（三个跳跃点）</h4>
+<pre><code>// 假设 docId = 100，查询前缀 prefix = "xxx"
+int docId = 100;
+BytesRef prefixRef = new BytesRef("xxx");
+
+// 【跳跃点 1】Doc 级跳跃：直接定位到文档 100，Doc 0～99 的数据完全不读
+Fields fields = leafReader.getTermVectors(docId);
+Terms terms = fields.terms("_bin");           // 或你的二进制字段名
+TermsEnum termsEnum = terms.iterator();
+
+// 【跳跃点 2】Term 级跳跃：seekCeil 利用内部索引直接跳到首个 ≥ prefix 的 term，前面的 term 不读
+termsEnum.seekCeil(prefixRef);
+BytesRef term = termsEnum.term();
+
+// 【跳跃点 3】流式截断（Early Exit）：前缀不匹配即停止，后续 term 不读
+while (term != null &amp;&amp; StringHelper.startsWith(term, prefixRef)) {
+    // 仅在此处才读取当前 term 的 Positions/Offsets（如 64B 内容）
+    PostingsEnum postings = termsEnum.postings(null, PostingsEnum.ALL);
+    // ... 业务逻辑：精确比对、位置过滤等 ...
+    if (termsEnum.next() == null) break;
+    term = termsEnum.term();
+    // 当 term 不再以 prefix 开头时循环结束，该文档剩余 term 不会发生磁盘 I/O
+}</code></pre>
+
+<h4 id="termvectors-drawback">1.3.6 缺点与本方案改造</h4>
+<p>TermVectors <strong>本身没有检索功能</strong>（不提供「哪些文档包含某 term」的快速定位），因此本方案需对其进行<strong>二次改造</strong>：先通过 BitSet/候选集<strong>快速跳过不需要的文档行</strong>，再利用 TermVector <strong>按文档随机访问</strong>的特点，仅对候选文档读取其向量数据，进行<strong>精确位置与二进制匹配</strong>。在进行精确匹配时，<strong>无需读取整行/整文档数据</strong>，而是<strong>按窗口仅读取需要校验的 term</strong> 进行比对，从而节省 I/O 与 CPU，实现高效的二进制模糊检索。</p>
+
+<h4 id="termvectors-adoption">1.3.7 本方案采用</h4>
+<p>当前实现已由自定义倒排表改为<strong>基于 Lucene TermVectors</strong>。<strong>TermVector 按 32 字节一段存储</strong>（无重叠），需要 64B 比对时<strong>读 2 个连续 vector 拼成 64B</strong>；BitSet 仍按 64B 窗口、步长 32B（交叉）设置。将产出的 (偏移量, term) 按文档写入 TermVectors：每文档对应一条 TermVector，包含该文档各 32B 段的 term 及其在文档字节流中的偏移。检索时按文档读取 TermVectors，在内存中对查询块与文档的 term 做匹配与顺序约束（64B 由 2 个 32B vector 拼接），实现本文所述的二进制模糊检索（64B 精确比对与多词有序过滤）。<strong>TermVectors 本身为高亮等场景设计，经上述扩展后可实现本方案的二进制检索</strong>；第三、五、十一章中基于分块 + TermVectors（正排）的扩展设计仍保留为可选方案或扩展参考。</p>
+
+<p>下文各章按「分词器 → 索引结构（Writer 侧）→ 查询流程（Query 侧）→ terms 实现（Reader 侧）」展开，并在第十一章汇总 Writer/Reader 与 Lucene 的集成方式。</p>
+
+<!-- ========== 二、索引构建策略 ========== -->
+<h2 id="index-build">二、索引构建策略</h2>
+<p>本节对应<strong>分词器</strong>的扩展：在 Lucene 的 Analyzer/Tokenizer 体系下，为 <code>_bin</code> 字段实现“滑动窗口”分词，产出用于检索的 term 流。<strong>存储与 BitSet 分离</strong>：<strong>TermVector 按 32 字节一段存储</strong>（无重叠），存储空间约为“64/32 重叠方案”的一半；需要 64B 精确比对时<strong>读取 2 个连续 vector 拼成 64B</strong>。<strong>BitSet 仍按 64B 窗口、步长 32B（交叉）</strong>设置，保证跨边界子串可被命中、过滤逻辑不变。</p>
+<h3>2.1 分词策略：滑动窗口机制</h3>
+<p>采用 Lucene 的 <code>Analyzer</code> / <code>Tokenizer</code> 实现，与 <code>IndexWriter</code> → <code>Analyzer.tokenStream()</code> → <code>Terms</code> 一致，便于 <code>_bin</code> 字段复用同一套写入与合并。</p>
+<table>
+  <thead><tr><th>项目</th><th>取值</th></tr></thead>
+  <tbody>
+    <tr><td><strong>存储（TermVector）</strong></td><td><strong>32 字节</strong>一段，无重叠；用时读 2 个连续 vector 得到 64B 做精确比对</td></tr>
+    <tr><td><strong>BitSet / 逻辑窗口</strong></td><td>64B 窗口、步长 32B（交叉），保证跨边界内容可被命中</td></tr>
+  </tbody>
+</table>
+
+<p><strong>图 1a：存储按 32B 一段（无重叠）</strong></p>
+<div class="ascii-art">字节偏移  1    32   64   96   128  160  ...
+      ├─────────┤
+      │   V1    │  存储段 1 → 32 字节
+      ├─────────┤
+           ├─────────┤
+           │   V2    │  存储段 2 → 32 字节（无重叠）
+           ├─────────┤
+                ├─────────┤
+                │   V3    │  存储段 3 → 同理
+                ├─────────┤
+                     ├─────────┤  ...
+                     │   V4    │
+                     └─────────┘
+
+→ 每段 32B 写入 TermVector；需 64B 时读相邻 2 段（如 V1+V2）拼接。</div>
+
+<p><strong>图 1b：BitSet 按 64B 窗口、步长 32B（交叉）</strong></p>
+<div class="ascii-art">字节偏移  1    32   64   96   128  160  ...
+      ├─────────┤
+      │   W1    │  逻辑窗口 1 → 64B（BitSet 用）
+      ├─────────┤
+           ├─────────┤
+           │   W2    │  逻辑窗口 2 → 与 W1 重叠 32B
+           ├─────────┤
+                ├─────────┤
+                │   W3    │  逻辑窗口 3 → 同理
+                ├─────────┤
+                     ├─────────┤  ...
+                     │   W4    │
+                     └─────────┘
+
+→ BitSet 按上述 64/32 交叉建索引；精确比对时由 2 个 32B vector 拼成 64B。</div>
+
+<h4>2.1.1 基于 Lucene 分词器：TokenStream 实现思路</h4>
+<p><strong>图 2：从二进制到 term 的流水线</strong></p>
+<div class="ascii-art">  byte[]        Reader 包装        TokenStream（存储 32B/段；BitSet 按 64/32 交叉）
+     │                 │                        │
+     ▼                 ▼                        ▼
+┌─────────┐    ┌──────────────┐    ┌─────────────────────────┐
+│ 二进制   │───►│ ByteArray    │───►│ SlidingWindowTokenizer  │
+│ 文档/查询│    │ Reader       │    │ 存储：32B/段；BitSet：64B 步进 32 │
+└─────────┘    └──────────────┘    └───────────┬─────────────┘
+                                                │
+                                                ▼
+                                    term₁, term₂, … (带偏移) ──► TermVector 存 32B/段；BitSet 按 64/32 逻辑 ──► TermVectorsConsumer / 正排</div>
+<h4>2.1.2 偏移量（position）与排序约定</h4>
+<p>本方案要求写入存储的每条数据<strong>带偏移量</strong>（该 term 在文档字节流中的起始偏移），用于多词有序检索与基于位置的过滤。<strong>偏移量不是通过 Lucene 的 OffsetAttribute 实现</strong>，而是在 <strong>term₁, term₂, term₃, ... → 存储</strong> 这一环实现：在产出的每个 term 写入时，<strong>直接在每个词前面加上偏移量</strong>（4 字节），即写入流为「(偏移量, term)」或等价地由构建逻辑在每条 term 前附带其文档内起始偏移（由当前 32B 段或逻辑窗口位置计算），再交给 TermVectorsConsumer 写入（扩展方案下为分块 + TermVectors 正排与 DocList）。</p>
+<table>
+  <thead><tr><th>约定</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td>偏移量长度</td><td><strong>4 字节</strong>（uint32），可覆盖单文档内 4GB 范围</td></tr>
+    <tr><td>实现位置</td><td>在「term 流 → 存储（TermVectors/正排）」处：<strong>每个词前直接加 4 字节偏移量</strong>，不依赖 TokenStream 的 OffsetAttribute</td></tr>
+    <tr><td>排序</td><td>TermVector 内 term <strong>按偏移量排序</strong>，便于查询时按偏移范围做二分或顺序扫描</td></tr>
+  </tbody>
+</table>
+<p>写入时每条 posting 携带 (docId, offset)，offset 即该 term 在文档中的起始字节位置，来源于上述「每个词前加偏移量」环节。</p>
+
+<h4>2.1.3 高频 term 编号与 TermVector 字典替换（可选）</h4>
+<p>为降低 TermVectors 存储体积，可对在<strong>频繁项集</strong>中反复出现的高频 term 做<strong>编号与字典替换</strong>：对这部分 32B 段分配短整型 ID（如 2B/4B），写入 TermVectors 时不直接存原始 32B，而是存编号；读取侧通过「编号 → 32B term」字典恢复原始内容。这样高频 term 在单文档与多文档间重复出现时只占用编号长度，显著节省 TV 空间。编号集合与字典由频繁项集挖掘（见 3.2.1）或全局 term 统计周期性维护，写入链路在「term 流 → 存储」处做替换，读取链路在定制 Terms/TermsEnum 内部做反查。</p>
+
+<!-- ========== 三、索引数据结构设计 ========== -->
+<h2 id="index-struct">三、索引数据结构设计</h2>
+<p><strong>实现说明：</strong> 当前实现采用<strong> Lucene TermVectors</strong> 存储，按文档保存 <strong>32B 段</strong> term 与偏移，检索时按文档读 TermVectors 做匹配。本节描述<strong>基于分块 + TermVectors（正排）的扩展方案</strong>（BitSet、Term 字典、DocList 等），与当前 TermVectorsConsumer 实现对照参考。</p>
+<p>当前实现由 <strong>TermVectorsConsumer</strong> 写入 TermVectors。以下 3.1～3.4 为<strong>扩展方案</strong>：在 Writer 侧对 <code>_bin</code> 字段收到的 term 流进行分块与块内编号，并设计 BitSet、Term 字典与 DocList 的存储布局。数据来源与二衔接：分词器产出 term₁, term₂, … 后，经 Lucene 排序、去重，在扩展方案中通过 term vector 迭代器拿到这些 Term，在其上构建本节的索引结构。</p>
+<div class="ascii-art">  ① 分词器产生              ② Lucene 中间加工              ③ TermVectorsConsumer（当前）/ 扩展方案分块写入
+
+  ┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
+  │ 每文档 32B 段（存储）  │    │ 排序、去重           │    │ TermsEnum 迭代器     │
+  │ + 逻辑 64B（BitSet）  │──► │ → 全局 Term 集合    │──► │ 遍历上述 Term，     │
+  │ 32B/段，64B 步长 32   │    │ （字典序）           │    │ 分块、编号、BitSet  │
+  └─────────────────────┘    └─────────────────────┘    └─────────────────────┘</div>
+
+<h3>3.1 先分块，再块内编号</h3>
+<p>扩展方案（分块 + TermVectors 正排）中，为避免索引体积过大导致 BitSet、Term 字典、DocList 占用内存过高，先对上述 Term <strong>分块</strong>，再在<strong>块内编号</strong>。</p>
+<p><strong>① 分块：</strong> 扩展方案中 term 迭代器给出的 Term 已是 Lucene 排序、去重后的顺序。<strong>同一 docId 内多个 term 按偏移量顺序存储为 term₁, term₂, …, termₙ</strong>；分块时<strong>不将同一 docId 的 term 拆到不同块</strong>，以保障多词匹配的完整性。按此顺序切分为多个 <strong>Term 块</strong>，每块 <strong>10,240 个 Term</strong>（可配置，如 65,536 或 102,400；块越大块数越少，但单块 BitSet/内存越大，需权衡）。末块不足则实际个数。<strong>见图 1。</strong></p>
+<p><strong>图 1：先分块，再块内编号</strong></p>
+<div class="ascii-art">  全局：Term 序列（Lucene 迭代器顺序，已排序去重） → 按固定大小切块 → 每块内编号 0,1,…,10239
+
+  ┌────────────────────┬────────────────────┬────────────────────┐
+  │ T_min  …  …  T_mid │ …  …  T_mid'  …    │ …  …  T_max        │
+  └────────────────────┴────────────────────┴────────────────────┘
+        │← Block 0 (10240个) →│← Block 1 →│← Block 2 →│
+        ▼                     ▼                     ▼
+  ┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐
+  │ id=0,1,…,10239     │ │ 块内 0..10239      │ │ 块内 0..10239      │
+  │ （块内编号）        │ │ （独立编号）        │ │ （独立编号）        │
+  └────────────────────┘ └────────────────────┘ └────────────────────┘
+
+  → BitSet / Term 字典 都是「每块一套」，只存块内 term id（0..10239），避免爆内存。</div>
+
+<p><strong>② 块内编号与 BitSet 对齐：</strong> 每个 Term 块内部，按迭代器顺序分配<strong>块内 ID：0, 1, …, 10239</strong>，BitSet、Term 字典等<strong>按块组织，只使用块内 term id</strong>，单块内存可控。此外<strong>额外维护一块 BitSet 用于 term 对齐</strong>：<strong>一个块内有多个 doc，每个 doc 内有多个 term</strong>；该 BitSet 按块内 term 顺序，<strong>除每个文档的最后一个 term 对应位为 1 外，其余均为 0</strong>。例如 <code>00001 001</code> 表示两个文档——前者 5 个 term、最后一位为 1，后者 3 个 term、最后一位为 1。通过 <strong>nextSetBit</strong> 可快速定位到「下一文档边界」，结合<strong>32B 段/逻辑窗口</strong>长度，在多词检索与位置检索时可<strong>大幅减少不必要的扫描</strong>。<strong>见图 1b。</strong></p>
+<p><strong>图 1b：块内结构（多 doc，每 doc 多 term，BitSet 仅末 term 为 1）</strong></p>
+<div class="ascii-art">  【单块内部】块内 term 顺序 = doc₁ 的 term₁…termₙ₁ | doc₂ 的 term₁…termₙ₂ | doc₃ 的 term₁…termₙ₃ | …
+  块内 term id:  0  1  2  3  4  |  5  6  7  |  8  9  …  (共 10240 个)
+                 ├─────────────┤  ├────────┤  ├─────
+                   doc₁ (5个)      doc₂(3个)   doc₃…
+
+  对齐 BitSet：  0  0  0  0  1  |  0  0  1  |  0  1  …
+                 └─ 仅每 doc 最后一个 term 为 1，其余为 0
+  → nextSetBit(i) 可快速定位「从 i 起下一个文档边界」，减少多词/位置检索时的无效扫描。</div>
+
+<h3>3.2 基于 TermVector 之上的 BitSet 快速过滤架构</h3>
+<p><strong>思路简介：</strong> 在每个 Term 块内维护 256×3 个 BitSet，按「单字节、双字节哈希、三字节哈希」把块内 term 归类；检索时用查询内容的同样特征在 BitSet 上取交集，快速得到候选块内 term id，再去做精确比对。</p>
+
+<p><strong>生成过程：</strong> 对每个 Term 块，建立 256×3 ＝ 768 个 BitSet（常驻内存），每个 BitSet 长度为块内 Term 个数（如 10240），第 i 位对应块内 term id ＝ i。遍历块内每个<strong>逻辑 64B term</strong>（id 从 0 到 10239；逻辑 64B 可由 2 个 32B 存储段拼成），根据该 term 的 64 字节内容：</p>
+<ul>
+  <li><strong>Level 1：</strong> 对该 64B 中出现的每个不同单字节 b，在 L1[b] 的 BitSet 中将该 term 的 id 位设为 1。</li>
+  <li><strong>Level 2：</strong> 对该 64B 中每个连续双字节做哈希得到桶 h2（0..255），在 L2[h2] 中将该 term 的 id 位设为 1。</li>
+  <li><strong>Level 3：</strong> 对该 64B 中每个连续三字节做哈希得到桶 h3（0..255），在 L3[h3] 中将该 term 的 id 位设为 1。</li>
+</ul>
+<p>遍历完块内所有 term 后，即得到该块的 768 个 BitSet。共 N 个块则共 N 套 BitSet；单块约 768×10240 bit ≈ 960 KB。</p>
+<p><strong>图 2：每块 256×3 个 BitSet，按「特征 → 块内 term id」记录候选关系</strong></p>
+<div class="ascii-art">  【以 Block 0 为例】块内 term id = 0..10239
+  Level 1（单字节）：256 个 BitSet，每个长度 10240 bit（纵轴是块内 term id）
+  ┌────────┬────────┬─────┬────────┐
+  │ L1[0x00]│ L1[0x01]│ …  │ L1[0xFF]│   对任一桶 b，bit[块内 termId]=1 表示「该 term 的 64B 中至少出现过字节 b」
+  └────────┴────────┴─────┴────────┘
+  Level 2 / Level 3：各 256 个 BitSet，同样以块内 term id 为纵轴；bit=1 表示该 term 的 64B 中至少出现过某个映射到该桶的 2 字节/3 字节串</div>
+
+<p>直观理解：</p>
+<ul>
+  <li>对某个块内 <code>termId = i</code>，在 L1/L2/L3 的 256 个 BitSet 里看第 i 位是否为 1，可以知道这个 term 内出现过哪些单字节 / 双字节 / 三字节特征；</li>
+  <li>对某个特征（例如查询块首字节 b，或某个 2B/3B 片段哈希桶），取它在 L1/L2/L3 中对应的 BitSet，即得到「块内所有包含该特征的 termId 集合」。</li>
+</ul>
+
+<p><strong>如何使用（简述）：</strong> 检索时，从查询块提取首字节、双字节哈希、三字节哈希特征，在 L1、L2、L3 中取出对应的 BitSet 并逐位 AND 取交集，得到最终候选的块内 term id；再根据这些 term id 定位到 term 做精确比对。<strong>当前 TermVectors 实现</strong>下无 BitSet/块，直接按 DocID 读 TermVectors，用 seekCeil + 流式遍历定位 term。扩展方案中若候选 term 很多，可整块顺序扫描。</p>
+
+<h4>3.2.1 高命中场景：频繁项集路径与 FP-Growth</h4>
+<p>当过滤条件命中大部分数据时，BitSet 候选占比很高，继续走 BitSet→精确比对路径成本大。本方案增加一条<strong>频繁项集路径</strong>：对支持度超过阈值的 term 组合单独建立「<strong>组合 → DocList（+位置）</strong>」倒排，用空间换时间；查询时若判定为高命中，可先查频繁项集是否覆盖当前查询组合，命中则直接走该倒排获取候选。</p>
+<p><strong>挖掘算法：</strong> 采用 <strong>FP-Growth</strong> 进行频繁项集挖掘。因本方案采用<strong>分块（block）</strong>组织 term，可按 block 或按批处理事务流运行 FP-Growth，单块/单批内维护 FP-Tree 与条件模式基，内存可控；跨块可做周期性合并或只保留 2-项集/3-项集等低阶组合以控制规模。挖掘得到的频繁组合用于构建「combo → DocList」索引，并为其中出现的高频 term 分配编号，供 TermVector 字典替换使用（见 2.1.3）。</p>
+<p><strong>成本模型与路径切换：</strong> 与 BitSet 路径配合形成自适应策略：若 BitSet 初筛后<strong>候选占比 &lt; 阈值（如 5%）</strong>，继续走 BitSet + 精确比对路径；若<strong>候选占比 &gt; 阈值（如 30%）</strong>，则切换到<strong>频繁项集路径</strong>：检查当前查询 term 组合是否落在已建的频繁项集倒排中，若命中则直接通过该倒排的 DocList（+位置）得到候选，再做必要的位置约束与精确比对；若未命中则退化为 TermVector 顺序扫描等路径。阈值与频繁项集支持度可在部署时配置。</p>
+
+<h3>3.3 Term 的 byte[] 独立分块存储 + 块内跳跃表（扩展方案）</h3>
+<p><strong>说明：</strong> 当前实现使用 <strong>TermVectors</strong>，按 DocID 读取文档的 term 列表，用 seekCeil + 流式遍历定位，<strong>无需本小节的块内跳跃表</strong>。以下仅描述可选扩展方案。</p>
+<p><strong>定位：</strong> 在扩展方案（分块 + TermVectors 正排）中，一个 block 内多个 term 合在一起存（Term 与 DocList 分离，DocList 在 3.4），本质仍为按文档/块的<strong>正排</strong>形态。</p>
+<p><strong>为什么需要按 term id 快速定位：</strong> BitSet 筛出候选块内 term id 后，需根据 term id 读出 64 字节 term 做精确比对。扩展方案中用<strong>块内跳跃表</strong>（term id → 块内偏移）实现：候选少时按 id 跳跃定位、只读命中的 64B；候选多时整块顺序扫描。</p>
+<p><strong>结构：</strong> 每个 Term 块内，所有 term 的 64 字节按块内 term id 顺序连续存放；同时维护块内跳跃表（块内 term id → 块内偏移）。</p>
+<p><strong>图 3：块内 Term 字典 + 跳跃表（扩展方案，term id → 64B）</strong></p>
+<div class="ascii-art">  【扩展方案，以 Block 0 为例】块内 10240 个 term
+
+  检索时：BitSet 得候选 id ──► 块内跳跃表按 id 定位 ──► 读出 64B ──► 精确比对
+
+  ┌─────────────────────────────────────────────────────────────────────────────────────────┐
+  │ 块内跳跃表：块内 term id → 块内偏移                                                       │
+  └─────────────────────────────────────────────────────────────────────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────────────────────────────────┐
+  │ 本块 Term 字典（10240×64B，按块内 id 顺序）                                               │
+  └─────────────────────────────────────────────────────────────────────────────────────────┘
+
+  → TermVectors 实现无此结构，按 DocID + seekCeil 读取 term。</div>
+
+<!-- ========== 四、查询执行流程 ========== -->
+<h2 id="query-flow">四、查询执行流程</h2>
+<p>本节对应<strong>Query</strong> 的扩展：将二进制模糊检索实现为 Lucene 的 <code>Query</code> 子类（如 <code>BinaryFuzzyQuery</code>），供上层通过 <code>IndexSearcher.search(Query, Collector)</code> 调用。</p>
+<div class="box">
+  <div class="box-title">检索原则：优先处理具有区分度的词</div>
+  <p>检索时，应<strong>首先处理具有区分度的词</strong>（即出现较少、能大幅缩小候选集的 term/gram）。先用高区分度词做 BitSet 初筛或得到锚点 (docId, offset)，再在缩小后的候选上处理其余词或做精确比对，可显著减少 I/O、DocList 合并与精确比对量。单块查询时优先选用区分度高的特征；多块/多词时先检高区分度块或词、再按顺序或取交约束其余部分。</p>
+</div>
+
+<div class="ascii-art">  图：查询总览
+
+  查询 ──► ① 切块 ──► ② BitSet ──► ③ 二次过滤 ──► ④ 精确比对(得真实 term id) ──► ⑤ 读 DocList ──► ⑥ 合并去重 ──► Collector</div>
+<div class="review-comment"><strong>［审阅·查询链路］</strong> ①→②→③ 为过滤阶段，④→⑤→⑥ 为「读 + 算」阶段。<strong>命中 term 很多时</strong>，④ 精确比对与 ⑤ DocList 读取/⑥ 合并去重是主要成本；建议在 ② 或 ③ 后增加「候选数统计」，超过阈值时走「批量路径」（整块读 Term、整区读 DocList、批量合并），并与 GPU 路径共用同一批数据布局，便于后续只替换执行器。</div>
+
+<h3>4.1 查询预处理</h3>
+<p><strong>输入：</strong> 用户查询内容（可变长度二进制数据）。</p>
+<p><strong>处理流程：</strong></p>
+<div class="ascii-art">  Step 1：按窗口切分
+  ┌────────────────────────────┐
+  │ 窗口大小 = 64 字节          │
+  │ 将查询内容切分为若干 64 字节块 │
+  │ 末块不足 64 字节时保留实际长度 │
+  └────────────────────────────┘
+              ▼
+  Step 2：生成查询块序列
+  ┌────────────────────────────┐
+  │ Q₁ = 字节 [000 - 063]       │
+  │ Q₂ = 字节 [064 - 127]       │
+  │ Q₃ = 字节 [128 - 191]       │
+  │ ...                         │
+  │ Qₙ = 字节 [XXX - END]       │
+  └────────────────────────────┘
+              ▼
+  Step 3：输出查询块
+  ┌────────────────────────────┐
+  │ { Q₁, Q₂, Q₃, ..., Qₙ }    │
+  │ N = ceil(查询长度 / 64)     │
+  └────────────────────────────┘</div>
+<p><strong>示例：</strong> 查询长度 = 150 字节 → Q₁ [0–63] 64 字节，Q₂ [64–127] 64 字节，Q₃ [128–150] 23 字节；N = 3。</p>
+
+<h3>4.1.1 高频组合优先路径（FP-Growth + 频繁项集）</h3>
+<p>在进入 BitSet 筛选之前，先利用<strong>频繁项集路径</strong>做一次“快捷命中”检查：基于 3.2.1 中 FP-Growth 挖掘得到的「<strong>组合 → DocList（+位置）</strong>」索引，判断本次查询涉及的 term/gram 组合是否已经出现在频繁项集表中。</p>
+<ul>
+  <li><strong>若查询组合命中频繁项集：</strong> 直接通过对应的 DocList（+位置）得到候选文档与位置锚点，可选再做轻量位置约束或 TV 精确比对；<strong>不再对这部分组合重复执行 BitSet + TermVector 二次校验</strong>，避免在已知“高频且稳定”的模式上走整套过滤流程。</li>
+  <li><strong>若查询组合未命中频繁项集：</strong> 回退到 4.2 的 BitSet 快速筛选流程，对各查询块按 64/32 逻辑窗口提取特征、访问三级 BitSet 得到候选 term id。</li>
+</ul>
+<p>这样，在查询预处理阶段形成两条路径：对<strong>曾经被 FP-Growth 挖掘为高频的组合</strong>优先走频繁项集倒排路径；其余组合仍按 BitSet → TermVectors 的标准流程处理。两条路径通过成本模型与命中情况（是否出现在频繁项集表中）自动选择。</p>
+
+<h3>4.2 候选 Term 快速筛选（BitSet）</h3>
+<p><strong>对每个查询块 Qᵢ 执行：</strong> 提取特征（首字节 B、双字节哈希 H2、三字节哈希 H3），访问三级 BitSet 取交集，得到该块对应的候选块内 term id 集合；多块时再对多块的候选取交（或按查询语义取并/顺序约束）。<strong>多块/多词时：优先处理具有区分度的块或词</strong>——先对候选数少、区分度高的块执行 BitSet 与后续步骤，得到较小候选集或锚点后，再对其余块/词做取交或顺序约束，可降低整体 I/O 与合并成本。</p>
+<p>此步得到的候选 term id 集合作为 4.3、4.4 的输入，经二次过滤与精确比对后得到真实命中的 term id。</p>
+<div class="ascii-art">  对每个 Qᵢ：
+  ┌────────────────────────────────────┐
+  │ 提取 Qᵢ 特征：                      │
+  │ • 首字节 B = Qᵢ[0]                  │
+  │ • 双字节哈希 H2 = hash(Qᵢ[0-1])    │
+  │ • 三字节哈希 H3 = hash(Qᵢ[0-2])    │
+  └────────────────────────────────────┘
+                  ▼
+  ┌────────────────────────────────────┐
+  │ 访问三级 BitSet（块内）：            │
+  │ candᵢ = L1[B] & L2[H2] & L3[H3]    │
+  └────────────────────────────────────┘
+                  ▼
+  ┌────────────────────────────────────┐
+  │ 得到可能包含 Qᵢ 的块内 Term ID 集合 │
+  │ candidateBitsetᵢ                    │
+  └────────────────────────────────────┘
+
+  多块时：finalCandidates = cand₁ ∩ cand₂ ∩ ... ∩ candₙ（或按查询语义合并）</div>
+<div class="review-comment"><strong>［审阅·多块取交］</strong> 多查询块时对多个 BitSet 取交，块数多时 CPU 上多次 AND 仍有成本；且<strong>交完后候选数可能仍然很大</strong>（例如每块候选都很多），导致后续步骤压力大。可考虑：多块时先对候选数做上界估计（如各块 cardinality 乘积上界），过大时提前限流或走「多块分批 + 早停」策略。GPU 下多块 BitSet 取交可并行做多个 AND，再合并候选 id 列表。</div>
+
+<h3>4.3 二次过滤</h3>
+<p>在得到候选（或待匹配文档/term 范围）之后、读 64B term 做精确比对之前，可做一次过滤以排除不可能命中的部分。<strong>TermVectors 实现</strong>：按 DocID 取得该文档的 term 迭代器，用 <code>seekCeil(查询块前缀)</code> 定位到首个 ≥ 查询块的 term，再向后流式遍历，仅对前缀匹配的 term 读取位置/偏移并做精确比对，前缀不匹配即停止；无需段内 min-max 等元数据。<strong>扩展方案</strong>：可在跳跃表/段级利用 min-max、首字节集、Bloom、q-gram 等做过滤。</p>
+<div class="ascii-art">  输入：finalCandidates（BitSet 给出的候选块内 term id）
+                  ▼
+  ┌────────────────────────────────────┐
+  │ 按段/块检查（可选）：                │
+  │ • 段内 [min,max] 是否包含查询 Q？   │
+  │ • 查询首字节是否在段首字节集中？     │
+  │ • Bloom / q-gram 是否存在？         │
+  └────────────────────────────────────┘
+                  ▼
+  排除不可能命中的段后，得到仍待精确比对的 candidateTermIds（⊆ finalCandidates）</div>
+
+<h3>4.4 精确匹配（读 Term、逐字节比对）</h3>
+<p><strong>输入：</strong> 上一步得到的候选块内 term id 集合（未在二次过滤中被排除的）。</p>
+<p><strong>处理：</strong> <strong>TermVectors 实现</strong>：按 DocID 读取该文档的 TermVector，用 <code>seekCeil()</code> 跳到首个可能匹配的 term，从该位置流式遍历；对每个 term 读出 64 字节与查询块 Qᵢ 逐字节比较，完全匹配的保留，前缀不匹配即停止。<strong>扩展方案</strong>：根据候选数量选择块内跳跃表定位 + 只读命中 64B，或整块顺序扫描。</p>
+<div class="ascii-art">  ┌────────────────────────────┐
+  │ 遍历候选中的每个 termId   │
+  └────────────────────────────┘
+                  ▼
+  ┌────────────────────────────────────┐
+  │ 第 1 步：定位 term                  │
+  │ • TermVectors：DocID → seekCeil → 流式遍历 │
+  │ • 扩展方案：块内跳跃表定位或整块扫  │
+  └────────────────────────────────────┘
+                  ▼
+  ┌────────────────────────────────────┐
+  │ 第 2 步：读取 Term 内容             │
+  │ • 根据偏移读取 64 字节              │
+  └────────────────────────────────────┘
+                  ▼
+  ┌────────────────────────────────────┐
+  │ 第 3 步：精确比对                   │
+  │ • 与查询块 Qᵢ 逐字节比较           │
+  │ • 完全匹配则保留                    │
+  └────────────────────────────────────┘
+                  ▼
+  ┌────────────────────────────┐
+  │ 【输出】matchedTermIds      │
+  │ （准确命中的块内 term id）  │
+  └────────────────────────────┘</div>
+<p><strong>示例：</strong> finalCandidates = {1001, 1002, 1005, 1007} → 经精确比对 → matchedTermIds = {1001, 1005}。</p>
+<div class="review-comment"><strong>［审阅·精确比对瓶颈］</strong> TermVectors 下按文档遍历 term，单文档 term 数可控；扩展方案中候选很多时 CPU 精确比对仍为瓶颈，可将「64B 精确比对」抽象为独立模块便于 GPU 等替换。</div>
+
+<h3>4.5.1 多词有序检索与基于偏移的过滤、跨 block 处理</h3>
+<p>当查询由<strong>多个词</strong>组成且要求<strong>先后顺序</strong>时（如词 A 必须在词 B 前面），可利用「偏移量直接挂在 term 上」的存储，先检索<strong>区分度高的词</strong>得到锚点 (docId, offset)，再根据顺序约束过滤其他词的 DocList，只保留 offset 在锚点前/后的出现，从而筛掉不满足顺序的 term、减少后续合并与精确比对量。<strong>在「单词各自命中很多、但多词按序一起命中很少」的场景下尤其有效</strong>：避免对两路（或多路）大 DocList 做全面取交，仅在高区分度词的小锚点集上按偏移约束校验其余词，I/O 与合并成本显著降低。</p>
+<p><strong>执行逻辑：</strong></p>
+<ol>
+  <li><strong>先检区分度高的词：</strong> 按 4.6.1 的稀疏策略，用高区分度 gram/term 做初筛，得到该 term 的命中列表 <strong>(docId, offset)</strong>（即锚点集合）。</li>
+  <li><strong>顺序约束：</strong> 对每个锚点 (docId, offset_anchor)，要求「必须在前面」的词其 (docId, offset) 需满足 offset &lt; offset_anchor；「必须在后面」的词需满足 offset &gt; offset_anchor。据此在其余词的 DocList 中，只保留该 docId 下落在对应偏移范围内的 (docId, offset)，过滤掉不满足顺序的 posting。</li>
+  <li><strong>合并：</strong> 对满足顺序约束的 (docId, offset) 按 docId 合并、去重，得到候选文档集，再可选做 64B 精确比对或直接作为命中。</li>
+</ol>
+<p><strong>跨 block 处理：</strong> 多个查询词可能对应不同的 term，而不同 term 分布在不同的<strong> term 块</strong>（Block 0, 1, 2, …）。顺序约束是按<strong>文档内偏移</strong> (offset) 判定的，与 term 所在块无关。因此：</p>
+<ul>
+  <li>对每个查询词，通过 <strong>term 内容 → (blockId, termIdInBlock)</strong> 的映射（如 FST 或块级索引）解析出该 term 所在块及块内 id；</li>
+  <li>分别从<strong>各 term 所在块</strong>读取该 term 的 DocList（(docId, offset) 列表）；</li>
+  <li>在内存中将多路 (docId, offset) 按 docId 分组，在同一 docId 内按 offset 判序：若要求词 A 在词 B 前，则只保留 offset_A &lt; offset_B 的 (docId, offset_A, offset_B) 组合；若有多词，则逐对或按区间约束过滤。</li>
+</ul>
+<p>即：<strong>跨 block 仅表示不同词的 DocList 存储在不同物理块，读取时按 term 解析出 blockId + termIdInBlock，分别读各块内该 term 的 DocList，再在内存中按 (docId, offset) 做顺序约束的合并与过滤</strong>，无需在存储层做跨块特殊合并。</p>
+<div class="box">
+  <div class="box-title">小结</div>
+  <p>多词有序检索：先检高区分度词得 (docId, offset) 锚点 → 其余词按 offset 在锚点前/后过滤 → 跨 block 时按 term→(blockId,termIdInBlock) 读各块 DocList，在内存中按 docId+offset 判序。结合 4.6.1 的覆盖/稀疏，可显著减少候选与 I/O。</p>
+</div>
+
+<h3>4.6 生成命中的 doc 集合（DocCollector / BitSet）</h3>
+<p>将各命中 term 的 DocList（docId 列表）<strong>合并、去重</strong>，得到本次查询命中的文档集合。该集合在实现上可表示为 Lucene 的 <strong>DocCollector</strong> 收集结果，底层用 <strong>BitSet</strong> 表示「哪些 doc 被命中」：docId 为下标，置 1 表示命中。后续可再交给 Lucene 做打分、排序、分页等。</p>
+<p><strong>语义：</strong> 该集合与「真正包含查询子串的文档」一致，零漏检、无误报。</p>
+<div class="review-comment"><strong>［审阅·合并去重］</strong> 命中 term 很多时，多条 docId 列表的合并、去重若用简单「逐个 term 的 BitSet OR」会多次遍历大 BitSet。<strong>改进</strong>：① 优先用 RoaringBitmap 等做多路 union，或先收集所有 docId 再排序去重（若总 doc 数可接受）；② 若 doc 总数很大，保持 BitSet 表示时可用「分片 BitSet」或按段合并再汇总。③ <strong>GPU</strong>：多条 docId 列表在显存中时，可用 GPU 做并行 union（BitSet 按块做 OR）或 merge sort 去重，再将结果回传；接口上「合并去重」可抽象为 mergeDocLists(docIdLists[]) → BitSet，便于 CPU/GPU 双实现。</div>
+<div class="ascii-art">  各 term 的 docId 列表 ──► 合并、去重
+                  ▼
+  ┌────────────────────────────────────┐
+  │ 命中文档集合 = DocCollector 结果   │
+  │ 底层：BitSet，bit[docId]=1 表示命中 │
+  └────────────────────────────────────┘
+                  ▼
+  输出：命中的 doc 集合（BitSet 或迭代器），供 Lucene 上层使用</div>
+
+<h3>4.6.1 优化：可变长 n-gram 与覆盖/稀疏（Covering + Sparse）</h3>
+<p>在固定 <strong>32B 存储 + 64B 逻辑窗口</strong> 与三级 BitSet（单/双/三字节特征）基础上，可引入<strong>可变长 n-gram</strong> 与 <strong>覆盖（Covering）</strong>、<strong>稀疏（Sparser）</strong> 策略，在保证召回的前提下减少候选量、提升区分度。</p>
+<div class="box">
+  <div class="box-title">核心思路</div>
+  <p>不再只使用固定长度的三元组（或固定 64B 块），而是<strong>根据查询词的特点，动态地选择区分度更高的、长度可变的 n-gram</strong> 来建立索引和执行查询。</p>
+  <ul>
+    <li><strong>覆盖（Covering）：</strong> 指索引的 n-gram 要能「覆盖」整个查询词，确保不遗漏。即：从查询中抽取的 gram 集合在拼接或滑动意义上能覆盖查询的任意连续子串（或至少覆盖查询的起止与关键位置），从而候选文档必须包含这些 gram 才可能命中，且不会因 gram 选取不当而漏检。</li>
+    <li><strong>稀疏（Sparser）：</strong> 指选择那些在语料库中<strong>出现次数较少、区分度更高</strong>的 gram。高区分度 gram 的 posting list 更短，取交后候选集更小，I/O 与精确比对成本更低；同时可减少高频 gram 导致的「倒排表膨胀」与误候选。</li>
+  </ul>
+</div>
+<p><strong>查询执行策略（示例）：</strong> 以查询「123 456」为例：若 <strong>456</strong> 在语料中区分度高（稀疏），则可<strong>仅用 456</strong> 走 BitSet 或 posting list 得到候选文档集合；再在该候选集上，对<strong>完整查询 123 456</strong> 在 term list（或 64B term 字典）上做<strong>精确比对</strong>，即用「123」等剩余部分在候选文档的 term 列表中做精确匹配，从而既缩小了初筛的 I/O（只查 456），又通过精确比对保证最终结果包含整段 123 456、无误报。概括：<strong>用高区分度 gram 做初筛 → 候选集上对完整查询做 term 精确比对</strong>。</p>
+<div class="tip">
+  <strong>典型收益场景：</strong> 当<strong>单看 123 命中也多、单看 456 命中也多，但「123 456」按顺序一起出现时命中很少</strong>时，本方法特别有效。若对两词直接取交或对两路 DocList 做合并，需要读取与处理两路大列表，最终真实命中却很少；改为先用高区分度词（如 456）得少量锚点 (docId, offset)，再仅在锚点对应的 doc 上、按偏移约束检查 123，可避免对两路大列表的全面取交与合并，I/O 与计算量大幅下降。</div>
+<p><strong>与当前方案的关系：</strong></p>
+<ul>
+  <li><strong>索引侧：</strong> 在现有 <strong>32B 存储 + 64B 逻辑窗口</strong> 产出的 term 流上，可增加「可变长 n-gram」抽取与统计：对每个逻辑 64B 窗口内的子串按多种长度（如 4B、8B、16B、32B）或按字节熵/频次动态决定 gram 长度，仅将<strong>出现频次低于阈值</strong>的 gram（稀疏 gram）写入辅助索引或用于 BitSet 外的过滤层；主索引存储仍为 32B/段，逻辑 64B 与现有 DocList/BitSet 兼容。</li>
+  <li><strong>查询侧：</strong> 从查询中选取<strong>区分度高的 gram</strong>（如上例中的 456）<strong>单独参与初筛</strong>（BitSet 或 posting list 取交），得到候选集后，再在候选集的<strong> term list 上对完整查询（含 123、456 整段）做精确比对</strong>，只保留真正包含整段查询的文档。不必用查询中的全部 gram 都去取交，低区分度部分（如 123）仅用于精确比对阶段。</li>
+</ul>
+<p><strong>实现要点：</strong> 覆盖可通过「最小覆盖集」或「起止 gram + 中间采样」等启发式满足；稀疏度依赖语料统计（如 gram 的 df 或 cf），可在建索引时预计算并写入元数据，查询时按 gram 查表选择<strong>仅用高区分度 gram 做初筛</strong>，完整查询在候选的 term list 上做精确比对。与 3.3.2 段级 q-gram、Bloom 等结合，可进一步在段级做稀疏 gram 过滤。</p>
+
+<h3>4.7 封装为 Lucene Query</h3>
+<p>上述 4.1～4.6 的检索逻辑需要在 Lucene 中作为<strong>可被 IndexSearcher 执行的 Query</strong> 暴露，这样应用层才能统一使用 <code>IndexSearcher.search(Query, Collector)</code> 进行二进制模糊检索，并与其它 Query（如文本 Query）组合或过滤。</p>
+<p><strong>实现方式：</strong> 在包 <code>cn.lxdb.aicode</code> 下提供自定义的 <strong>Query 子类</strong>（如 <code>BinaryFuzzyQuery</code>），持有「二进制查询内容」（如 <code>byte[]</code> 或 <code>BytesRef</code>）。该 Query 实现 Lucene 的 <code>Query</code> → <code>createWeight(IndexSearcher)</code> → <code>Weight</code> → <code>scorer(LeafReaderContext)</code> → <code>Scorer</code> 链路；在 <strong>Scorer</strong> 的迭代过程中执行 4.1～4.6 全流程（切块 → BitSet → 二次过滤 → 精确比对 → DocList → 合并去重）。将命中的 docId 通过 <strong>LeafCollector</strong> 收集，底层可用 BitSet 表示，与 Lucene 的 DocCollector 约定一致。</p>
+<p><strong>API 示例：</strong> <code>BinaryFuzzyQuery(byte[] query)</code>，构造后通过 <code>IndexSearcher.search(BinaryFuzzyQuery, Collector)</code> 执行检索。</p>
+<div class="ascii-art">  图：与 Lucene Query 的对接
+
+  应用层：IndexSearcher.search(BinaryFuzzyQuery(byte[]), Collector)
+                  │
+                  ▼
+  ┌─────────────────────────────────────────────────────────────────────────────────────────┐
+  │ BinaryFuzzyQuery (cn.lxdb.aicode)                                                        │
+  │ • 持有二进制查询 byte[]                                                                   │
+  │ • createWeight(searcher) → BinaryFuzzyWeight                                             │
+  └─────────────────────────────────────────────────────────────────────────────────────────┘
+                  ▼
+  ┌─────────────────────────────────────────────────────────────────────────────────────────┐
+  │ Weight.scorer(LeafReaderContext) → Scorer                                                │
+  │ 执行 4.1 → 4.2 → 4.3 → 4.4 → 4.5 → 4.6（切块 → BitSet → 二次过滤 → 精确比对 → DocList）   │
+  │ 迭代命中的 docId，通过 LeafCollector.collect(docId) 交给上层 Collector                    │
+  └─────────────────────────────────────────────────────────────────────────────────────────┘
+                  ▼
+  Collector 汇总各段的命中 → 最终命中文档集合（如 TopDocs、BitSet 等）</div>
+<p><strong>要点：</strong></p>
+<ul>
+  <li><strong>Query：</strong> 仅承载「查询语义」与二进制数据，可重写 <code>toString</code>、<code>equals</code>/<code>hashCode</code> 便于缓存与调试。</li>
+  <li><strong>Weight：</strong> 持有 IndexSearcher 与 Query，创建 Scorer 时传入 <code>LeafReaderContext</code>，以便按段访问该段的 BitSet、Term 块、DocList 块。</li>
+  <li><strong>Scorer：</strong> 在单个段上执行 4.1～4.6，得到该段上的命中 docId 流，并调用 <code>LeafCollector.collect(docId)</code>；若支持打分可实现 <code>score()</code>。</li>
+  <li><strong>Collector：</strong> 使用 Lucene 标准 Collector（如 <code>SimpleCollector</code>、<code>TopScoreDocCollector</code>），无需自定义；命中文档集合由 Collector 内部以 BitSet 或列表等形式维护，与现有 Lucene 用法一致。</li>
+</ul>
+<p>这样，二进制模糊检索与文本检索在调用方式上统一为「构造 Query → search(Query, Collector)」，便于与 BooleanQuery 等组合、与 Filter 配合，以及复用 Lucene 的排序、分页、高亮等能力。</p>
+
+<hr>
+
+<!-- ========== 五、terms(field) 与读取侧实现设计 ========== -->
+<h2 id="terms-reader">五、terms(field) 与读取侧实现设计</h2>
+<p>本节描述读取侧实现：<strong>通过 <code>LeafReader.getTermVectors(docId)</code> 获取文档的 term 向量</strong>，并对 <code>_bin</code> 字段令 <code>Fields.terms(fieldName)</code> <strong>返回本方案的定制 Terms 实现</strong>。该定制实现基于 TermVectors 数据（或对 TV 的封装），对外呈现标准 <code>Terms</code> 接口（<code>iterator()</code> → TermsEnum、seekCeil、位置/偏移等），以便段合并、IndexSearcher、Query 等复用现有链路。扩展方案下若采用分块结构，可对应返回基于块的 Terms 实现。</p>
+<p><strong>目标接口行为：</strong></p>
+<pre><code>// 按文档取 term 向量
+Fields vectors = leafReader.getTermVectors(docId);
+
+// 对 _bin 字段，terms(fieldName) 返回定制实现的 Terms
+Terms terms = fields.terms(fieldName);   // 定制实现，基于 TV 或封装 TV 数据</code></pre>
+
+<h3>5.1 数据来源与映射关系</h3>
+<p><strong>当前实现（TermVectors）：</strong> 数据来源为 <code>LeafReader.getTermVectors(docId)</code> 返回的该文档的 <code>Fields</code>，再通过 <code>fields.terms(fieldName)</code> 取得该字段的 <code>Terms</code>。本方案对 <code>_bin</code> 字段提供<strong>定制 Terms 实现</strong>：在构建 <code>Fields</code> 或填充 <code>fieldMap</code> 时，对 <code>_bin</code> 不直接使用 Lucene 默认 Terms，而是返回基于 TermVectors 数据的定制类（如封装 TV 的 Terms/TermsEnum），从而 <code>Terms terms = fields.terms(fieldName)</code> 得到的是本方案的定制实现，支持 seekCeil、位置/偏移、迭代等。扩展方案下若采用分块结构，Reader 侧需提供基于块的 Terms（见第三节）。</p>
+<table>
+  <thead><tr><th>数据来源</th><th>Reader 侧提供</th></tr></thead>
+  <tbody>
+    <tr><td>TermVectors（当前）</td><td><code>LeafReader.getTermVectors(docId)</code> → Fields；<code>fields.terms(fieldName)</code> 返回<strong>定制 Terms 实现</strong>（基于 TV），提供 TermsEnum、seekCeil、位置/偏移</td></tr>
+    <tr><td>分块结构（扩展方案）</td><td>给定 (blockId, termIdInBlock) 读 64B、DocList；terms(field) 返回基于块的 Terms 实现</td></tr>
+  </tbody>
+</table>
+
+<h3>5.2 实现层次</h3>
+<p><strong>① 谁返回 Terms：</strong> 在构建段的 <code>Fields</code>（或 <code>fieldMap</code>）时，对 <code>_bin</code> 字段<strong>不返回默认 Terms</strong>，而是返回本方案的<strong>定制 Terms 实现</strong>。该实现内部可基于 <code>LeafReader.getTermVectors(docId)</code> 得到的 TV 数据构建或封装：当上层调用 <code>Terms terms = fields.terms(fieldName)</code> 时，得到的是该定制类，其 <code>iterator()</code>、TermsEnum 的 <code>seekCeil()</code>、位置/偏移等行为与 1.3 所述 TermVectors 能力一致，并与 Lucene 接口约定兼容。</p>
+<p><strong>② 定制 Terms 实现（基于 TermVectors）：</strong></p>
+<ul>
+  <li>实现 Lucene 的 <code>Terms</code> 接口，内部依赖 <code>LeafReader.getTermVectors(docId)</code> 得到的该文档 TV 数据（或按 docId 懒加载）。</li>
+  <li><code>iterator()</code> 返回本方案的 <strong>TermsEnum</strong>，按字典序遍历该文档 _bin 字段下的 term；支持 <code>seekCeil(BytesRef)</code> 直接跳到首个 ≥ 指定前缀的 term，实现 1.3 所述跳跃式读取。</li>
+  <li>位置/偏移：从 TV 的 term 对应 position、startOffset/endOffset 提供，供多词有序、精确比对等使用。</li>
+</ul>
+<p><strong>③ TermsEnum 实现：</strong></p>
+<ul>
+  <li>当前实现：基于单文档的 TV Terms 迭代，<code>next()</code>、<code>term()</code>、<code>seekCeil()</code> 等委托或封装 Lucene TV 的 TermsEnum；流式遍历时前缀不匹配即停止，无需读完该文档全部 term。</li>
+  <li>扩展方案：若采用分块结构，可按块、块内 term id 顺序迭代，<code>term()</code> 从块内 Term 字典或跳跃表读 64B，<code>postings()</code> 从 DocList 块读并封装为 PostingsEnum。</li>
+</ul>
+<p><strong>④ PostingsEnum（扩展方案或按需）：</strong></p>
+<ul>
+  <li>TermVectors 下单文档检索通常直接使用 TV 的 position/offset，无需跨文档 PostingsEnum。若需与 Lucene 合并器、Scorer 等对接，定制 Terms 实现可提供 PostingsEnum（单 docId 即当前文档）。</li>
+  <li>扩展方案：从 DocList 块解码 docId/position 列表，封装为 Lucene PostingsEnum。</li>
+</ul>
+
+<h3>5.3 流程图：从 getTermVectors 与 terms(field) 到 TermsEnum</h3>
+<div class="ascii-art">  LeafReader.getTermVectors(docId) → Fields
+  fields.terms(fieldName) 对 _bin 返回「定制 Terms 实现」
+        │
+        ▼
+  ┌─────────────────────────────────────────────────────────────────────────────────────────┐
+  │ 定制 Terms 实现（基于 TermVectors 或扩展方案块结构）                                      │
+  │ • 基于 TV：封装该文档 TV 的 Terms，或从 TV 构建满足 Terms 接口的视图                      │
+  │ • iterator() → 定制 TermsEnum（支持 seekCeil、位置/偏移）                                 │
+  └─────────────────────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+  ┌─────────────────────────────────────────────────────────────────────────────────────────┐
+  │ 定制 TermsEnum：TV 下委托/封装 TV 的迭代，seekCeil + 流式遍历；扩展方案下按块/term id 迭代 │
+  │ • term() → BytesRef（64B）；位置/偏移从 TV 或 DocList 提供                                │
+  └─────────────────────────────────────────────────────────────────────────────────────────┘</div>
+
+<h3>5.4 与 Fields / fieldMap 的衔接</h3>
+<p>保证 <code>Fields.terms(fieldName)</code> 对 <code>_bin</code> 字段返回本方案<strong>定制 Terms 实现</strong>的方式：在构建段的 <code>Fields</code>（或填充 <code>fieldMap</code>）时，对 <code>_bin</code> 字段名不填入默认 Terms，而是填入基于 <code>LeafReader.getTermVectors(docId)</code> 数据构建的定制 Terms 实例。这样上层调用 <code>Terms terms = fields.terms(fieldName)</code> 时得到的是该定制实现，与 Lucene 的 <code>Terms</code>/<code>TermsEnum</code> 接口约定一致，段合并与 IndexSearcher 等可正常复用。</p>
+
+<hr>
+
+<!-- ========== 六、思考与补充 ========== -->
+<h2 id="thoughts">六、思考与补充</h2>
+<p>前文二～五节完成了四类组件扩展的主线设计；本节从设计合理性与需显式约定的点做收束，便于实现与评审时统一认识。</p>
+<div class="box">
+  <div class="box-title">设计合理性</div>
+  <ul>
+    <li><strong>滑动窗口与重叠：</strong> <strong>BitSet</strong> 按 64B 窗口、步长 32B（交叉），在“召回完整性”与“候选量”之间折中；重叠 50% 能覆盖任意 ≥1 字节的跨边界模式，数学上可证明零漏检（在 64B 范围内）。<strong>存储</strong>按 32B 一段、无重叠，体积约为重叠方案的一半；精确比对时读 2 个连续 vector 拼成 64B。</li>
+    <li><strong>三级 BitSet：</strong> 从单字节到三字节逐步收敛，在 256 桶下能显著减少后续精确比对与 DocList 读取量；三字节以上可考虑但不一定收益明显，需权衡内存与过滤率。</li>
+    <li><strong>分块合并 DocList：</strong> 用“块内连续 + 局部偏移表”替代“每 Term 独立指针”，在顺序扫描场景下能大幅减少随机 I/O，与“密集命中整块读”的策略一致。</li>
+    <li><strong>TermVectors / 扩展方案：</strong> 当前实现用 TermVectors，按 DocID + seekCeil + 流式遍历；扩展方案中 Term 按 ID 有序定长（64B），块内跳跃表等价于按 ID 的索引。</li>
+  </ul>
+</div>
+<div class="box">
+  <div class="box-title">需要显式约定的点</div>
+  <ul>
+    <li><strong>短查询：</strong> 查询长度 &lt; 64 字节时，作为单个“不足 64 字节”的块参与匹配；索引侧需支持“变长 Term”或“短块与 64 字节 Term 的前缀匹配”规则，否则需在方案中明确“仅支持 ≥64 字节查询”或“短查询用填充/多候选策略”。</li>
+    <li><strong>召回与精度：</strong> “文档命中”定义为：至少有一个文档的某个<strong>逻辑 64B 块</strong>（可由 2 个 32B vector 拼接）与某个查询块完全一致；多块查询时为“所有查询块在文档中按顺序、连续出现”的文档集合（即 AND + 顺序约束），零漏检、无误报。</li>
+    <li><strong>双字节/三字节哈希：</strong> 哈希函数（如 <code>b0 ^ (b1&lt;&lt;k)</code> 或 <code>(b0+b1+b2) % 256</code>）需固定且文档化，保证建索引与查询一致；256 桶可能带来冲突，仅用于过滤候选，最终仍依赖精确匹配。</li>
+    <li><strong>偏移量存放与基于位置的匹配：</strong> 偏移量放在 DocList（按 term 分 docId 区/position 区）与「挂在 term 上」（每条出现即 (docId, offset)）各有利弊；<strong>基于位置的筛选、位置范围、多块顺序/间隔约束</strong>下，后者更有优势。</li>
+  </ul>
+</div>
+<div class="review-comment"><strong>［审阅·短查询］</strong> 短查询（&lt;64B）若采用「前缀匹配」或「多候选」，与 64B 定长、精确比对的假设不一致，实现和测试复杂度上升；若仅支持 ≥64B，需在 API 与文档中明确，避免误用。</div>
+
+<!-- ========== 七、改进建议 ========== -->
+<h2 id="improvements">七、改进建议</h2>
+<p>在六、思考与补充的基础上，以下从可配置项与工程化角度给出改进建议，供实现与迭代时参考。</p>
+<table>
+  <thead><tr><th>方面</th><th>建议</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>短查询与变长块</td>
+      <td>索引阶段对“不足 64 字节的尾块”单独建 Term 集合（或做长度标记）；查询时若最后一块 &lt; 64 字节，采用“前缀匹配”或“尾块专用索引”避免漏检。</td>
+    </tr>
+    <tr>
+      <td>三级过滤参数化</td>
+      <td>将 Level2/Level3 的桶数做成可配置（如 256/512/1024），便于在内存与过滤率之间做调优；可增加“最小候选数阈值”低于则跳过 BitSet 直接走 Term 扫描。</td>
+    </tr>
+    <tr>
+      <td>Block 大小自适应</td>
+      <td>Block Size 除固定 10240 外，可支持按“块内 DocList 总字节数”上限切块，避免单个 Block 过大导致整块读取成本过高。</td>
+    </tr>
+    <tr>
+      <td>DocList 编码</td>
+      <td>DocList 采用 VInt/Delta 编码压缩，并可选 RoaringBitmap 等结构存储 docId，在保证有序的前提下减少 I/O 与内存。</td>
+    </tr>
+    <tr>
+      <td>Term 定位（扩展方案）</td>
+      <td>扩展方案中若 Term 数量极大，可考虑 B+ 树或分层索引；TermVectors 实现依赖 Lucene TV 的 seekCeil + 遍历，无需自建跳跃表。</td>
+    </tr>
+    <tr>
+      <td>并发与缓存</td>
+      <td>BitSet 层只读可多线程共享；DocList 按 Block 做 LRU 缓存。TermVectors 实现下按 DocID 读 TV；扩展方案可对 Term 字典做热点缓存。</td>
+    </tr>
+    <tr>
+      <td><strong>可变长 n-gram 与覆盖/稀疏</strong></td>
+      <td>见<strong>四、4.6.1</strong>：根据查询特点动态选用<strong>长度可变、区分度更高</strong>的 n-gram；<strong>覆盖</strong>保证索引 gram 覆盖整段查询不遗漏，<strong>稀疏</strong>优先选用语料中出现少的 gram 以缩小候选、减 I/O。可与现有 <strong>32B 存储 + 64B 逻辑窗口/BitSet</strong> 并存，作辅助索引或查询时 gram 选取策略。</td>
+    </tr>
+    <tr>
+      <td><strong>多词有序 + 偏移过滤 + 跨 block</strong></td>
+      <td>见<strong>三、3.4</strong>与<strong>四、4.5.1</strong>：偏移量 4 字节直接挂在 term 上，按 (docId, offset) 排序；多词有序时先检高区分度词得锚点 (docId, offset)，其余词按 offset 在锚点前/后过滤；跨 block 时通过 term→(blockId, termIdInBlock) 读各块 DocList，在内存中按 docId+offset 判序。需维护 term→block 解析（如 FST）。</td>
+    </tr>
+  </tbody>
+</table>
+<div class="review-comment"><strong>［审阅·改进与 GPU 预留］</strong> ① 建议在「改进建议」中增加一条：<strong>「命中 term 很多时的专用路径」</strong>：当候选/命中数超过阈值时，统一走「整块读 Term + 整区读 DocList + 批量合并」，并可将精确比对与合并去重抽象为可插拔执行器（CPU SIMD / GPU kernel）。② 块大小、阈值、BitSet 桶数等建议做成配置项并在文档中列出，便于与 GPU 批大小对齐（如 blockSize=2048 对应 GPU 一批 2048 个 64B 比对）。</div>
+
+<!-- ========== 八、拆分与分块策略 ========== -->
+<h2 id="split-chunk">八、拆分与分块策略</h2>
+<p>本节对前文涉及的<strong>拆分与分块</strong>概念做集中梳理：第二、三、四节中的「窗口、块、块内 term id、查询块」等在此统一为概念分层与写入/查询两侧的拆分规则，便于与九、整体架构设计对照。</p>
+
+<h3>8.1 概念分层</h3>
+<table>
+  <thead><tr><th>层级</th><th>含义</th><th>典型大小/规则</th></tr></thead>
+  <tbody>
+    <tr><td>文档 (Document)</td><td>一条可检索的二进制对象（如一个文件、一个 BLOB）</td><td>业务定义</td></tr>
+    <tr><td>存储（TermVector）</td><td>32B 一段，无重叠；需 64B 时读 2 个连续 vector</td><td>1 存储单元 = 32B</td></tr>
+    <tr><td>逻辑窗口（BitSet）</td><td>从文档字节流上切出的重叠 64B 片段（BitSet 用）</td><td>窗口=64B，步长=32B</td></tr>
+    <tr><td>Term</td><td>逻辑 64B 单元（存储为 32B 段；精确比对时由 2 个 32B vector 拼成 64B）；Lucene 侧已排序、去重</td><td>存储 1 单元 = 32B；逻辑 1 Term = 64B</td></tr>
+    <tr><td>Block（索引块）</td><td>Term 的聚合单元，用于 DocList 物理存储与 I/O</td><td>10,240 Terms/Block</td></tr>
+    <tr><td>Segment</td><td>可选：一批文档的索引子集，便于增量/分片</td><td>按文档数或体积切分</td></tr>
+  </tbody>
+</table>
+
+<h3>8.2 文档侧拆分（写入）</h3>
+<p>与二、三节一致：文档字节流 → 存储 32B/段 + BitSet 逻辑 64/32 → 块内编号与 Term/DocList 存储。</p>
+<div class="ascii-art">  文档侧拆分（写入）流程
+  文档 byte[] ──► 存储 32B/段 + BitSet 逻辑 64B/32B ──► (docId, 32B 或逻辑 64B) 流 ──► Lucene 排序、去重
+        │                                                                  │
+        └──────────────────────────────────────────────────────────────────► TermVectorsConsumer（当前）或扩展 TermVectors：分块、BitSet、Term 字典（行存储无 DocList）</div>
+<ol>
+  <li>对每个文档的字节流：<strong>存储</strong>按 32B 一段产出 V₁, V₂, …；<strong>BitSet</strong> 按 64B 窗口、步长 32B 产出逻辑窗口序列 W₁, W₂, …（每窗口由 2 个 32B 段组成）。</li>
+  <li>存储每段对应 (docId, 32B termContent)；BitSet 每逻辑窗口对应候选位。精确比对时读 2 个连续 32B 拼成 64B 与查询块比较。</li>
+  <li>Lucene 已对 term 排序、去重；当前实现由 TermVectorsConsumer 写 TV；扩展方案在 term 迭代器上按序分块、分配块内 Term ID，再按 Term ID 聚合得到每个 Term 的 DocList（docId 列表）。</li>
+  <li>Term 存储：按 Term ID 顺序写入 Term Dictionary（定长 64B）；DocList 按 Block（每 10240 个 Term 一块）分块，块内 DocList 拼接 + 块头偏移表。</li>
+</ol>
+
+<h3>8.3 查询侧拆分</h3>
+<p>与第四节查询预处理一致：查询 byte[] → 查询块 Q₁…Qₙ → BitSet 与精确匹配。</p>
+<div class="ascii-art">  查询侧拆分（检索）流程
+  查询 byte[] ──► 按 64 字节切块 Q₁…Qₙ ──► 每 Qᵢ 提取 B/H2/H3 ──► BitSet 取交 → 候选 term id
+        │                                                                  │
+        └──────────────────────────────────────────────────────────────────► 二次过滤（TV seekCeil/扩展方案段过滤）→ 读 Term 精确比对 → 读 DocList → Collector</div>
+<ol>
+  <li>查询串按 64 字节、步长 64（不重叠）切分为 Q₁, Q₂, …, Qₙ；末块不足 64 字节则保留实际长度。</li>
+  <li>每个 Qᵢ 参与三级 BitSet 过滤与后续精确匹配；多块时要求“按顺序连续命中”的文档才计入结果。</li>
+</ol>
+
+<h3>8.4 块大小选择建议</h3>
+<ul>
+  <li><strong>逻辑窗口 64B / 步长 32B（BitSet）：</strong> 重叠 50%，保证任意 ≥1 字节子串至少被一个逻辑窗口完整包含（在 64B 范围内）。存储按 32B 无重叠。</li>
+  <li><strong>Block = 10240 Terms：</strong> 平衡“单次顺序读”与“随机访问粒度”；可增加“按 Block 总字节数上限”的二次切分，避免超大 Block。</li>
+  <li><strong>Segment：</strong> 按文档数（如每 10 万 doc）或按索引体积切分，便于并行建索引、滚动更新与分布式分片。</li>
+</ul>
+
+<!-- ========== 九、整体架构设计 ========== -->
+<h2 id="architecture">九、整体架构设计</h2>
+<p>整体架构围绕<strong>四类组件</strong>（分词器、存储/写入、Query、读取/Terms）组织：写入链由分词器产出 term、TermVectors 或扩展方案写入；检索链由 Query 执行 BitSet→精确比对→DocList，读取侧通过 <code>LeafReader.getTermVectors(docId)</code> 获取 TV，<code>Fields.terms(fieldName)</code> 返回定制 Terms 实现。下面给出分层图与构建流水线。</p>
+
+<h3>9.1 分层架构图（逻辑）</h3>
+<div class="ascii-art">┌─────────────────────────────────────────────────────────────────┐
+│                    查询接口层 (Query API)                          │
+│  输入: 二进制查询串  输出: 文档 ID 列表 / 迭代器                     │
+└─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    查询执行层 (Query Execution)                    │
+│  预处理 → 候选筛选(BitSet) → 精确匹配(Term) → DocList 合并         │
+└─────────────────────────────────────────────────────────────────┘
+                                    │
+                    ┌───────────────┼───────────────┐
+                    ▼               ▼               ▼
+┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+│  BitSet 索引层    │ │  Term 字典层      │ │  DocList 存储层   │
+│  (内存, 三级过滤) │ │  (TermVectors / 或 跳跃表+字典)│ │  (分块合并+偏移表)│
+└──────────────────┘ └──────────────────┘ └──────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    存储抽象层 (Storage Abstraction)               │
+│  文件 I/O、内存映射、缓存策略、Block 元数据                         │
+└─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    物理存储 (磁盘 / 对象存储)                      │
+└─────────────────────────────────────────────────────────────────┘</div>
+
+<h3>9.2 索引构建流水线</h3>
+<div class="ascii-art">  索引构建流水线（与二、三、十一对应）
+  ① 文档输入 ──► ② 窗口切分(分词器) ──► ③ Term 化(带偏移) ──► ④ TermVectors 写入（或扩展：BitSet + Term 字典+跳跃表 + DocList）
+       │                  │                           │                        │                        │
+       └──────────────────┴───────────────────────────┴────────────────────────┴────────────────────────┴──► 第三节结构</div>
+<ol>
+  <li><strong>文档输入：</strong> 文档 ID + 二进制流。</li>
+  <li><strong>窗口切分：</strong> 存储 32B/段；BitSet 按 64B/32B 逻辑窗口（分词器扩展）→ (docId, 32B 存储 / 逻辑 64B) 流。</li>
+  <li><strong>Term 化与编号：</strong> 利用 Lucene 已有的排序、去重结果，在 term 迭代器上分块、分配块内 Term ID；生成 (termId → docId[]) 的倒排数据。</li>
+  <li><strong>BitSet 构建：</strong> 遍历每个 Term，根据其 64B 内容更新 L1/L2/L3 的 256 个 BitSet。</li>
+  <li><strong>Term 存储：</strong> 当前为 TermVectors 按文档写入（term + 位置/偏移）；扩展方案为按 Term ID 写 64B 定长记录并构建块内跳跃表。</li>
+  <li><strong>DocList 分块写入：</strong> 按 Block 聚合 DocList，块内拼接 + 偏移表 + Block 元数据写入。</li>
+</ol>
+
+<h3>9.3 模块职责摘要</h3>
+<table>
+  <thead><tr><th>模块</th><th>职责</th></tr></thead>
+  <tbody>
+    <tr><td>cn.lxdb.aicode.BinarySlidingWindowAnalyzer / SlidingWindowTokenizer</td><td>存储 32B/段；BitSet 按 64B/32B 逻辑窗口切分（文档与查询共用）</td></tr>
+    <tr><td>Term 存储 / TermDictionary</td><td>TermVectors：按文档写 term+偏移；扩展方案：Term 排序、ID 分配、字典与块内跳跃表读写</td></tr>
+    <tr><td>BitSetFilter</td><td>三级 BitSet 的构建与查询时候选集计算</td></tr>
+    <tr><td>DocListStore</td><td>Block 布局、偏移表、按 Term/Block 读取 DocList</td></tr>
+    <tr><td>QueryExecutor</td><td>串联预处理→筛选→精确匹配→DocList 合并与排序</td></tr>
+    <tr><td>StorageLayer</td><td>抽象文件/块读写、缓存、mmap 等</td></tr>
+  </tbody>
+</table>
+
+<!-- ========== 十、与 Lucene 的解耦设计 ========== -->
+<h2 id="decouple">十、与 Lucene 的解耦设计</h2>
+
+<h3>10.1 解耦目标</h3>
+<p>本方案在“可独立于 Lucene 实现核心逻辑”与“可与 Lucene 集成复用现有能力”之间做分层：</p>
+<div class="ascii-art">  解耦层次示意
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ 本方案核心：32B 存储 + 64/32 BitSet、块内编号、BitSet、Term 字典、DocList 分块  │  ← 可不依赖 Lucene 实现与单测
+  └─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼ 适配层（十一：Writer/Reader 接入点）
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ Lucene 基础设施：Directory、段合并、Fields、Terms、Query、Collector │  ← 复用，尽量少改内核
+  └─────────────────────────────────────────────────────────────────┘</div>
+<ul>
+  <li>核心逻辑（二进制窗口、Term 化、TermVectors 或分块 DocList）<strong>不依赖 Lucene 的文本分词、Field、Schema</strong>，可独立实现与测试。</li>
+  <li>与现有 Lucene 生态集成时，通过“适配层”（十一中的 Writer/Reader 接入点）复用 Lucene 的目录、锁、段合并等基础设施，而不改 Lucene 内核。</li>
+</ul>
+
+<h3>10.2 抽象边界</h3>
+<table>
+  <thead><tr><th>层次</th><th>与 Lucene 关系</th><th>建议</th></tr></thead>
+  <tbody>
+    <tr><td>数据模型</td><td>Lucene 以 Field/Token 为核心</td><td>本方案以 (docId, 64B window) 和 (termId, docList) 为核心，不引入 Field 概念；用“二进制文档”抽象替代 Document/Field。</td></tr>
+    <tr><td>索引格式</td><td>Lucene 有 .frq/.prx/.tim 等</td><td>当前采用 TermVectors（.tvx/.tvd 等）；扩展方案可为自定义 Term 字典 + 跳跃表 + DocList 块 + BitSet。</td></tr>
+    <tr><td>目录与 I/O</td><td>Lucene Directory/IndexInput/Output</td><td>定义自己的 BinaryIndexDirectory 接口（读/写 Term 块、DocList 块、元数据）；可提供基于 FSDirectory 或 NIO 的实现，也可提供 Lucene Directory 的适配器。</td></tr>
+    <tr><td>段与合并</td><td>Lucene Segment、IndexWriter 合并</td><td>可选：引入“Segment”为一批文档的独立子索引（含自己的 BitSet/Term/DocList），合并时做多路归并 Term 与 DocList；不依赖 SegmentReader 内部格式。</td></tr>
+  </tbody>
+</table>
+
+<h3>10.3 接口设计（便于替换 Lucene）</h3>
+<pre><code>// 包：cn.lxdb.aicode
+
+// 1) 存储抽象：不依赖 Lucene Directory
+public interface BinaryIndexStorage {
+    ByteBuffer getTermBlock(long startTermId, int count);
+    DocListSlice getDocListSlice(long termId);
+    void loadBlock(long blockId, ByteBuffer dest);
+    BlockMeta getBlockMeta(long blockId);
+}
+
+// 2) BitSet 索引：自维护，仅需持久化/加载契约
+public interface BitSetFilterIndex {
+    BitSet filterCandidates(byte[] queryBlock);  // 单块查询
+    void addTerm(int termId, byte[] termContent);
+    void persist(DataOutput out);
+    void load(DataInput in);
+}
+
+// 3) 查询入口：与 Lucene Query 无关
+public interface BinaryFuzzyQuery {
+    DocIdIterator search(byte[] queryBytes, boolean approximate);
+}
+</code></pre>
+<p>上述接口均置于 <code>cn.lxdb.aicode</code>，且不引用 <code>org.apache.lucene.*</code>，可在无 Lucene 环境下实现与单测。</p>
+<div class="review-comment"><strong>［审阅·解耦与 GPU］</strong> 为后续 GPU 化，建议在抽象层增加「执行器」概念：例如 <code>BinaryMatchExecutor</code>（精确比对）、<code>DocListMergeExecutor</code>（合并去重），由 <code>BinaryFuzzyQuery</code> 或 Scorer 持有；默认 CPU 实现，可替换为 GPU 实现（内部负责显存分配、kernel 调度、结果回传）。<code>getTermBlock(blockId, ByteBuffer dest)</code> 等接口已满足「整块连续读取」，便于 GPU 端按块拉取；若 GPU 需按「候选 id 列表」拉取不连续 64B，可增加 <code>getTermBytes(long[] termIds, ByteBuffer dest)</code> 或由调用方先 gather 再上传。</div>
+
+<h3>10.4 与 Lucene 的集成方式（可选）</h3>
+<ul>
+  <li><strong>方式 A：独立索引</strong> 二进制检索使用单独目录与文件，与 Lucene 文本索引并列；应用层对同一文档维护 docId 映射，先查二进制再查 Lucene 或反之。</li>
+  <li><strong>方式 B：Lucene 作为存储与段管理</strong> 仅使用 Lucene 的 Directory、锁、Segment 文件名与合并调度；<code>cn.lxdb.aicode.BinaryIndexStorage</code> 的实现内部用 Directory 读写上述自定义文件，不写入 .tim/.doc 等。</li>
+  <li><strong>方式 C：混合检索</strong> 在 Lucene 的 Document 上增加一个 stored 的“二进制摘要”字段，二进制检索在独立索引中执行，得到 docId 列表后再用 Lucene 的 IndexSearcher 做过滤或打分。</li>
+</ul>
+
+<div class="tip">
+  <strong>小结：</strong> 通过“自定义数据模型 + 自定义索引格式 + 存储抽象 + 无 Lucene 依赖的接口”，实现与 Lucene 的解耦；在需要时仅通过“目录/文件”或“docId 映射”与 Lucene 协同，避免对 Lucene 内核的侵入式修改。
+</div>
+
+<!-- ========== 十一、Lucene 存储集成（Writer/Reader） ========== -->
+<h2 id="lucene-inverted">十一、Lucene 存储集成（Writer/Reader）</h2>
+<p>本节汇总写入与读取在 Lucene 中的具体接入方式，与第一章「四类组件」对应：Writer 侧对 <code>_bin</code> 启用 TermVectors 或扩展方案委托；Reader 侧通过 <code>LeafReader.getTermVectors(docId)</code> 获取 term 向量，<code>Fields.terms(fieldName)</code> 对 <code>_bin</code> 返回<strong>本方案的定制 Terms 实现</strong>，从而在写入与读取链路上与 Lucene 对接，复用段合并、Fields/Terms 等现有能力。</p>
+
+<h3>11.1 TermVectorsConsumer：<code>_bin</code> 字段与 TermVectors/正排写入</h3>
+<div class="box">
+  <div class="box-title">设计思路</div>
+  <ul>
+    <li><strong>触发条件：</strong> 以字段名是否以 <code>_bin</code> 结尾区分“二进制字段”。仅对 <code>_bin</code> 字段走自定义的 Term 编号 + Term 分块（BitSet、Term 字典等）；其余字段保持 Lucene 默认写入逻辑。</li>
+    <li><strong>接入点：</strong> <strong>TermVectors 实现</strong>：在索引时对 <code>_bin</code> 字段启用 TermVectors（<code>FieldType.setStoreTermVectors(true)</code> 等），由 Lucene 写入 .tvx/.tvd；<strong>32B 段</strong>产出的 (offset, term) 及 BitSet 逻辑 64/32 通过 TokenStream 的 position/offset 写入。 <strong>扩展方案</strong>：在自定义 Writer 内对 <code>_bin</code> 分支，将分块、BitSet、Term 字典、跳跃表、DocList 等提炼到外部委托。</li>
+  </ul>
+</div>
+<p><strong>伪代码示意（Writer 内最小改动）：</strong></p>
+<pre><code>// 索引写入流程（TermVectors 由 Lucene TermVectorsConsumer 写入；扩展方案在自定义 write 中）
+boolean isBinField = field != null &amp;&amp; field.endsWith("_bin");
+
+if (isBinField) {
+    // TermVectors 实现：由 Lucene 写 TV；扩展方案可委托 BinaryTermsWriterDelegate（BitSet/Block/跳跃表）
+    binaryTermsWriterDelegate.writeBinField(field, terms, state);
+    return;
+}
+
+// Lucene 默认倒排合并逻辑（原有代码保持不变）
+TermsEnum termsEnum = terms.iterator();
+while (true) {
+    BytesRef term = termsEnum.next();
+    if (term == null) break;
+    // ... 原有 write 逻辑 ...
+}</code></pre>
+<table>
+  <thead><tr><th>在 Writer 内保留</th><th>提炼到外部实现</th></tr></thead>
+  <tbody>
+    <tr><td>仅 <code>field.endsWith("_bin")</code> 判断与分支</td><td>Term 顺序编号（0,1,…,M）及与 DocList 的对应关系</td></tr>
+    <tr><td>对非 <code>_bin</code> 字段的原有 <code>TermsEnum</code> 循环</td><td>Term 字典与 DocList 的分块合并存储（Block 布局、局部偏移表）</td></tr>
+    <tr><td>—</td><td>三级 BitSet 的构建与持久化</td></tr>
+    <tr><td>—</td><td>TermVectors 由 Lucene 写入；扩展方案：块内跳跃表索引的构建与写入</td></tr>
+    <tr><td>—</td><td>Block 元数据及全局索引的写入</td></tr>
+  </tbody>
+</table>
+<div class="note">
+  <strong>注意：</strong> 外部委托（<code>cn.lxdb.aicode.BinaryTermsWriterDelegate</code>）的输入应尽量沿用 Lucene 已有类型（如 <code>Terms</code>、<code>TermsEnum</code>、<code>DataOutput</code>/Directory），这样 Writer 内只需传入当前 segment 的上下文（如 segment 名、Directory），无需在 Lucene 核心里引入本方案特有的数据结构，便于升级与回滚。
+</div>
+
+<h3>11.2 读取侧：LeafReader.getTermVectors 与 terms(field) 的定制实现</h3>
+<div class="box">
+  <div class="box-title">设计目标</div>
+  <p><strong>当前实现：</strong> 读取时通过 <code>LeafReader.getTermVectors(docId)</code> 获取该文档的 term 向量（<code>Fields</code>）；对 <code>_bin</code> 字段，<code>Fields.terms(fieldName)</code> 不返回 Lucene 默认 Terms，而是返回<strong>本方案的定制 Terms 实现</strong>。该定制实现基于上述 TermVectors 数据（或按 docId 懒加载 TV 后封装），对外提供标准 <code>Terms</code> 接口：<code>iterator()</code> 返回支持 <code>seekCeil()</code>、位置/偏移的 TermsEnum，与 1.3 所述 TV 跳跃式读取一致，供 Query、合并器等使用。<strong>扩展方案</strong>：若采用分块结构，则 <code>terms(field)</code> 对 _bin 返回基于块的 Terms 实现（如 BinaryTermsAdapter），从 Term 字典 + DocList 块读取。</p>
+</div>
+<p><strong>需要兼容的接口行为：</strong></p>
+<pre><code>// 按文档取 term 向量
+Fields vectors = leafReader.getTermVectors(docId);
+
+// fields.terms(fieldName) 对 _bin 返回定制 Terms 实现
+Terms terms = fields.terms(fieldName);   // 定制实现，基于 TV 或封装 TV</code></pre>
+<p><strong>实现要点：</strong></p>
+<ol>
+  <li><strong>Field 列表：</strong> 构建 <code>Fields</code> 或 <code>fieldMap</code> 时注册 <code>_bin</code> 字段，使 <code>iterator()</code> 包含该字段。</li>
+  <li><strong>定制 Terms：</strong> 对 <code>_bin</code>，<code>terms(fieldName)</code> 返回的 <code>Terms</code> 为本方案<strong>定制实现</strong>，内部基于 <code>LeafReader.getTermVectors(docId)</code> 得到的数据构建或封装，提供 <code>iterator()</code> → TermsEnum、<code>seekCeil()</code>、位置/偏移等，与 Lucene <code>Terms</code>/<code>TermsEnum</code> 约定一致。</li>
+  <li><strong>扩展方案：</strong> 若采用分块/Term 字典/DocList，则对 <code>terms(_bin)</code> 返回基于块的 Terms（如 BinaryTermsAdapter），从块内跳跃表 + DocList 读取。</li>
+</ol>
+<table>
+  <thead><tr><th>接口</th><th>实现方式</th></tr></thead>
+  <tbody>
+    <tr><td><code>LeafReader.getTermVectors(docId)</code></td><td>获取该文档的 Fields（TV）；从中取 <code>_bin</code> 对应 Terms 数据</td></tr>
+    <tr><td><code>Fields.terms(fieldName)</code></td><td>对 _bin 返回<strong>定制 Terms 实现</strong>（基于 TV 或封装 TV），提供 TermsEnum、seekCeil、位置/偏移</td></tr>
+    <tr><td>定制 TermsEnum</td><td>委托或封装 TV 的 TermsEnum；支持 seekCeil、流式遍历，前缀不匹配即停止</td></tr>
+  </tbody>
+</table>
+<div class="ascii-art">  四类组件对应关系（回顾）
+  ┌──────────────┬────────────────────────────────────────────────────────────────────────────┐
+  │ 分词器       │ 二、存储 32B/段 + BitSet 64/32 TokenStream                          │
+  │ Writer       │ 1.3 / 十一 11.1 → TermVectors 或扩展分块写入                                │
+  │ Query        │ 四、BinaryFuzzyQuery / Scorer / Collector                                  │
+  │ Reader       │ 五、十一 11.2 → LeafReader.getTermVectors + terms(field) 返回定制 Terms     │
+  └──────────────┴────────────────────────────────────────────────────────────────────────────┘</div>
+<div class="tip">
+  <strong>小结：</strong> Writer 侧对 <code>_bin</code> 启用 TermVectors 并写入 <strong>32B 段</strong> (offset, term)。Reader 侧通过 <code>LeafReader.getTermVectors(docId)</code> 获取 term 向量，<code>Fields.terms(fieldName)</code> 对 <code>_bin</code> 返回<strong>本方案的定制 Terms 实现</strong>（基于 TV 数据），从而提供 seekCeil、位置/偏移等能力，与 Lucene 接口约定一致。扩展方案下可返回基于分块/Term 字典的 Terms 实现。
+</div>
+
+<hr>
+<p class="meta" style="margin-top:2rem;">— 设计文档结束 —</p>
+
+</body>
+</html>
