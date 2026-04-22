@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LXDB 集成说明（二）：DerivedData 与 SelectionResult</title>
+  <style>
+    :root {
+      --bg: #0f1424;
+      --panel: #151c31;
+      --line: #2b3558;
+      --text: #e9efff;
+      --sub: #aebbe3;
+      --pri: #86a8ff;
+      --ok: #5ee6a5;
+      --warn: #f4c96a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 10% 0%, #1a2852 0%, #0f1424 42%, #090d18 100%);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      line-height: 1.7;
+    }
+    .wrap {
+      width: min(1120px, 92vw);
+      margin: 24px auto 36px;
+      display: grid;
+      gap: 14px;
+    }
+    .card {
+      background: linear-gradient(160deg, #151c31 0%, #10172a 100%);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px 20px;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+    }
+    h1, h2, h3 { margin: 0 0 10px; line-height: 1.35; }
+    h1 { font-size: clamp(30px, 4.2vw, 44px); }
+    h2 { font-size: clamp(22px, 3vw, 30px); color: #c9d9ff; }
+    h3 { font-size: 18px; color: #c8d7ff; margin-top: 10px; }
+    p { margin: 8px 0; color: var(--sub); }
+    ul { margin: 8px 0 0 22px; padding: 0; }
+    li { margin: 8px 0; color: #d9e3ff; }
+    .k { color: var(--pri); font-weight: 700; }
+    .ok { color: var(--ok); font-weight: 700; }
+    .warn { color: var(--warn); font-weight: 700; }
+    .mono {
+      font-family: Consolas, "Courier New", monospace;
+      background: #0d1326;
+      border: 1px solid #344273;
+      border-radius: 8px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      color: #d8e2ff;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .flow {
+      border: 1px dashed #5165a9;
+      border-radius: 10px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.02);
+      color: #dbe5ff;
+      word-break: break-word;
+    }
+    .foot {
+      font-size: 12px;
+      color: #90a4d8;
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+      margin-top: 10px;
+    }
+    @media (max-width: 900px) {
+      .grid2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <h1>LXDB 集成说明（二）</h1>
+      <p>主题：基于 <span class="k">LineFileProcessingResult.selectionResult</span> 与 <span class="k">LineFileProcessingResult.derivedData</span> 的双索引构建。</p>
+      <p class="ok">目标语义：高频词用于压缩索引，非高频词用于 skip index。</p>
+      <div class="foot">文件：docs/intr2.html · 日期：2026-04-22</div>
+    </section>
+
+    <section class="card">
+      <h2>1) 你当前的数据契约（已对齐）</h2>
+      <ul>
+        <li><span class="k">selectionResult</span>：互斥高价值词组（SelectedGroup）与统计信息，代表“主索引核心候选”。</li>
+        <li><span class="k">derivedData.hotTerms</span>：高频单词项及其 docId 列表，且已去除 selectionResult 中出现的词项。</li>
+        <li><span class="k">derivedData.cutRes</span>：原始行视图去除已选词项后的残余词项集合，可作为 skip index 的输入。</li>
+      </ul>
+      <p class="warn">关键点：`buildDerivedData` 的语义是“先统计高频，再剔除 selection 中词项”，不是“先剔除再统计”。</p>
+    </section>
+
+    <section class="card">
+      <h2>2) LXDB 侧索引职责拆分</h2>
+      <div class="grid2">
+        <div>
+          <h3>A. 高频压缩索引（主路径）</h3>
+          <ul>
+            <li>输入：<span class="k">selectionResult.groups</span> + <span class="k">derivedData.hotTerms</span></li>
+            <li>用途：覆盖高频/高收益模式，提升压缩比与查询命中效率。</li>
+            <li>策略：优先写入 SelectedGroup，再补充 hotTerms 的单项倒排。</li>
+          </ul>
+        </div>
+        <div>
+          <h3>B. Skip Index（补充路径）</h3>
+          <ul>
+            <li>输入：<span class="k">derivedData.cutRes</span></li>
+            <li>用途：承接非高频残余词项，降低漏召与极端 case 查询退化。</li>
+            <li>策略：可按 docId 分块建立 skip pointers，支持快速跳跃。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3) 调用与落库流程（推荐）</h2>
+      <div class="flow">
+        rows
+        -> ExclusiveFpRowsProcessingApi.processRows(...)
+        -> LineFileProcessingResult
+        -> [A] selectionResult + derivedData.hotTerms => 高频压缩索引
+        -> [B] derivedData.cutRes => skip index
+      </div>
+      <div class="mono">LineFileProcessingResult out =
+    ExclusiveFpRowsProcessingApi.processRows(rows, minSupport, minItemsetSize, hotThreshold);
+
+ExclusiveSelectionResult sel = out.getSelectionResult();
+LineFileProcessingResult.DerivedData dd = out.getDerivedData();
+
+// A: 主索引（高频）
+buildCompressedIndex(sel.getGroups(), dd.getHotTerms());
+
+// B: 补充索引（残余）
+buildSkipIndex(dd.getCutRes());</div>
+    </section>
+
+    <section class="card">
+      <h2>4) 三条实现约束（避免后续踩坑）</h2>
+      <ul>
+        <li><span class="k">去重一致性：</span>`hotTerms` 与 `cutRes` 已剔除 selected 词项，LXDB 二次处理不要重复剔除导致信息损失。</li>
+        <li><span class="k">阈值语义：</span>`hotTermThresholdExclusive` 是严格大于（`count > threshold`），不是大于等于。</li>
+        <li><span class="k">分层稳定性：</span>主索引只关心高频与收益，skip index 只关心补偿覆盖，不要混合排序规则。</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>5) 为什么这个拆法适合 LXDB</h2>
+      <ul>
+        <li>高频路径与残余路径解耦，便于分别调参与独立优化。</li>
+        <li>主索引压缩收益高，skip index 负责兜底，查询稳定性更好。</li>
+        <li>接口边界清晰：`selectionResult` / `hotTerms` / `cutRes` 分别表达不同职责。</li>
+      </ul>
+      <p class="ok">结论：你的设计是对的，且与当前实现语义完全一致，可直接作为 LXDB 索引分层方案落地。</p>
+    </section>
+  </main>
+</body>
+</html>

@@ -24,6 +24,10 @@ public final class LineRecordDatasetLoader {
     }
 
     public static LoadedDataset loadSingleFile(Path file, int ngramStart, int ngramEnd) throws IOException {
+        return loadSingleFileWithStats(file, ngramStart, ngramEnd).getLoadedDataset();
+    }
+
+    public static LoadOutcome loadSingleFileWithStats(Path file, int ngramStart, int ngramEnd) throws IOException {
         if (!Files.isRegularFile(file)) {
             throw new IOException("Input file not found: " + file);
         }
@@ -33,6 +37,10 @@ public final class LineRecordDatasetLoader {
     }
 
     public static LoadedDataset load(Path dataDir, int ngramStart, int ngramEnd) throws IOException {
+        return loadWithStats(dataDir, ngramStart, ngramEnd).getLoadedDataset();
+    }
+
+    public static LoadOutcome loadWithStats(Path dataDir, int ngramStart, int ngramEnd) throws IOException {
         if (!Files.isDirectory(dataDir)) {
             throw new IOException("Data directory not found: " + dataDir);
         }
@@ -40,7 +48,7 @@ public final class LineRecordDatasetLoader {
         return loadFromFiles(files, ngramStart, ngramEnd);
     }
 
-    private static LoadedDataset loadFromFiles(List<Path> files, int ngramStart, int ngramEnd) throws IOException {
+    private static LoadOutcome loadFromFiles(List<Path> files, int ngramStart, int ngramEnd) throws IOException {
         List<DocTerms> rows = new ArrayList<DocTerms>();
         int docId = 0;
         long totalLines = 0L;
@@ -54,6 +62,7 @@ public final class LineRecordDatasetLoader {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     fileLine++;
+                    // 每个文件最多处理 32000 行，多余行直接计入 droppedByCap。
                     if (fileLine > MAX_LINES_PER_FILE) {
                         droppedByCap++;
                         continue;
@@ -64,6 +73,7 @@ public final class LineRecordDatasetLoader {
                     if (bytes.length == 0) {
                         emptyLines++;
                     }
+                    // 每行最多 64 字节，超过即截断，不做多字节字符回退。
                     if (bytes.length > MAX_BYTES_PER_LINE) {
                         byte[] truncated = new byte[MAX_BYTES_PER_LINE];
                         System.arraycopy(bytes, 0, truncated, 0, MAX_BYTES_PER_LINE);
@@ -71,13 +81,14 @@ public final class LineRecordDatasetLoader {
                         truncatedLines++;
                     }
 
+                    // docId 在加载时连续分配，作为行级唯一标识。
                     rows.add(new DocTerms(docId++, ByteNgramTokenizer.tokenize(bytes, ngramStart, ngramEnd)));
                 }
             }
         }
 
         Stats stats = new Stats(files.size(), totalLines, rows.size(), emptyLines, truncatedLines, droppedByCap);
-        return new LoadedDataset(rows, files, stats);
+        return new LoadOutcome(new LoadedDataset(rows), stats);
     }
 
     private static List<Path> collectFiles(Path dataDir) throws IOException {
@@ -103,21 +114,30 @@ public final class LineRecordDatasetLoader {
 
     public static final class LoadedDataset {
         private final List<DocTerms> rows;
-        private final List<Path> files;
-        private final Stats stats;
 
-        private LoadedDataset(List<DocTerms> rows, List<Path> files, Stats stats) {
+        private LoadedDataset(List<DocTerms> rows) {
             this.rows = rows;
-            this.files = files;
-            this.stats = stats;
         }
 
         public List<DocTerms> getRows() {
             return rows;
         }
+    }
 
-        public List<Path> getFiles() {
-            return files;
+    /**
+     * 加载结果封装：将业务行数据与统计信息解耦返回。
+     */
+    public static final class LoadOutcome {
+        private final LoadedDataset loadedDataset;
+        private final Stats stats;
+
+        private LoadOutcome(LoadedDataset loadedDataset, Stats stats) {
+            this.loadedDataset = loadedDataset;
+            this.stats = stats;
+        }
+
+        public LoadedDataset getLoadedDataset() {
+            return loadedDataset;
         }
 
         public Stats getStats() {

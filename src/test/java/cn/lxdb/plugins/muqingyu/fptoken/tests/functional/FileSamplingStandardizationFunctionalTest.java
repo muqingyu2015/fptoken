@@ -52,8 +52,8 @@ class FileSamplingStandardizationFunctionalTest {
 
     private static void assertSingleFileStats(
             Path file, long expectLines, long expectDroppedByCap, long minTruncatedLines) throws Exception {
-        LineRecordDatasetLoader.LoadedDataset loaded = LineRecordDatasetLoader.loadSingleFile(file, 2, 4);
-        LineRecordDatasetLoader.Stats stats = loaded.getStats();
+        LineRecordDatasetLoader.LoadOutcome outcome = LineRecordDatasetLoader.loadSingleFileWithStats(file, 2, 4);
+        LineRecordDatasetLoader.Stats stats = outcome.getStats();
         assertEquals(1, stats.getFileCount());
         assertEquals(expectLines, stats.getTotalLines());
         assertEquals(expectDroppedByCap, stats.getDroppedByCap());
