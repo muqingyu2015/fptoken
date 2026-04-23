@@ -26,16 +26,16 @@ class SamplingVsFullQualityIntegrationTest {
         byte[] c = "H2".getBytes(StandardCharsets.UTF_8);
         List<DocTerms> rows = buildRows(800, a, b, c);
 
-        boolean oldSampling = true;
         double oldRatio = ExclusiveFrequentItemsetSelector.getSampleRatio();
         int oldMinSample = ExclusiveFrequentItemsetSelector.getMinSampleCount();
         double oldScale = ExclusiveFrequentItemsetSelector.getSamplingSupportScale();
         try {
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(false);
+            ExclusiveFrequentItemsetSelector.setSampleRatio(1.0d);
+            ExclusiveFrequentItemsetSelector.setMinSampleCount(1);
+            ExclusiveFrequentItemsetSelector.setSamplingSupportScale(1.0d);
             ExclusiveSelectionResult full = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
                     rows, 80, 2, 4, 120_000);
 
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(true);
             ExclusiveFrequentItemsetSelector.setSampleRatio(0.30d);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(50);
             ExclusiveFrequentItemsetSelector.setSamplingSupportScale(0.0d); // auto-scale
@@ -43,10 +43,10 @@ class SamplingVsFullQualityIntegrationTest {
             ExclusiveSelectionResult sampled = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
                     rows, 80, 2, 4, 120_000);
 
-            assertTrue(!full.getGroups().isEmpty(), "full path should produce groups");
+            assertTrue(!full.getGroups().isEmpty(), "ratio=1.0 baseline should produce groups");
             assertTrue(!sampled.getGroups().isEmpty(), "sampling path should produce groups");
             assertTrue(ByteArrayTestSupport.anyGroupHasExactlyTerms(full.getGroups(), new byte[][] {a, b, c}),
-                    "full path should contain core pattern [H0,H1,H2]");
+                    "ratio=1.0 baseline should contain core pattern [H0,H1,H2]");
             assertTrue(ByteArrayTestSupport.anyGroupHasExactlyTerms(sampled.getGroups(), new byte[][] {a, b, c}),
                     "sampling path should retain core pattern [H0,H1,H2]");
 
@@ -54,10 +54,9 @@ class SamplingVsFullQualityIntegrationTest {
             int sampledCovered = totalSupport(sampled.getGroups());
             double ratio = (double) sampledCovered / (double) Math.max(1, fullCovered);
             assertTrue(ratio >= 0.85d,
-                    "sampling total support should stay close to full path, ratio=" + ratio
+                    "sampling total support should stay close to ratio=1.0 baseline, ratio=" + ratio
                             + ", sampled=" + sampledCovered + ", full=" + fullCovered);
         } finally {
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(oldSampling);
             ExclusiveFrequentItemsetSelector.setSampleRatio(oldRatio);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(oldMinSample);
             ExclusiveFrequentItemsetSelector.setSamplingSupportScale(oldScale);

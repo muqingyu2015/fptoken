@@ -16,12 +16,62 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
  * 对外行记录处理 API：仅基于 rows 进行互斥频繁项集处理与派生数据生成。
+ *
+ * <p>参数约定：</p>
+ * <ul>
+ *   <li>{@code rows} 不可为 null；传入 null 会直接抛出 {@link NullPointerException}。</li>
+ *   <li>若 {@code rows} 为空，返回空结果结构（不抛异常）。</li>
+ *   <li>每个 {@link DocTerms} 不可为 null，且其 {@code docId} 应为非负整数（由底层选择器校验）。</li>
+ *   <li>本 API 不会修改调用方传入的 rows；内部会先做防御性拷贝。</li>
+ * </ul>
+ *
+ * <p><b>避免误用</b>：若上游传入的是“原始行字节”（每条只有 1 个 term），请使用带 n-gram 参数的入口
+ * （如 {@link #processRowsWithNgram(List, int, int, int, int, int)}）或在
+ * {@link ProcessingOptions} 中显式设置 n-gram 区间；否则会按默认 n-gram 配置执行切词。</p>
  */
 public final class ExclusiveFpRowsProcessingApi {
+    /**
+     * 接口易用版入口：使用项目默认参数处理 rows。
+     *
+     * <p>默认参数来自 {@link EngineTuningConfig}：
+     * minSupport/minItemsetSize/hotTermThreshold/ngram/skip-hash 区间统一走代码内默认值。
+     * 适用于“先跑通流程、再逐步调参”的调用方式。</p>
+     *
+     * <p><b>限制说明</b>：{@code rows} 不可为 null；空列表会返回空结果。</p>
+     */
+    public static LineFileProcessingResult processRows(List<DocTerms> rows) {
+        return processRows(rows, ProcessingOptions.defaults());
+    }
+
+    /**
+     * 接口易用版入口：通过 {@link ProcessingOptions} 统一传参，减少重载选择成本。
+     *
+     * <p>该入口会对 options 做完整校验（支持度、项集长度、n-gram 区间、skip-hash 区间）。</p>
+     *
+     * <p><b>限制说明</b>：{@code rows}/{@code options} 均不可为 null。</p>
+     */
+    public static LineFileProcessingResult processRows(
+            List<DocTerms> rows,
+            ProcessingOptions options
+    ) {
+        Objects.requireNonNull(rows, "rows");
+        ProcessingOptions resolved = Objects.requireNonNull(options, "options");
+        validateProcessingOptions(resolved);
+        return processRowsInternal(rows, resolved);
+    }
+
+    /**
+     * 返回一份默认配置快照，调用方可按需覆盖后再传入 {@link #processRows(List, ProcessingOptions)}。
+     */
+    public static ProcessingOptions defaultOptions() {
+        return ProcessingOptions.defaults();
+    }
+
 
     private ExclusiveFpRowsProcessingApi() {
     }
@@ -72,7 +122,7 @@ public final class ExclusiveFpRowsProcessingApi {
      * <ul>
      *   <li>方法内部会设置采样参数（代码配置），无需依赖外部 properties 文件。</li>
      *   <li>若 rows 为空，会返回空结果结构；调用方可直接按空集合处理。</li>
-     *   <li>若希望完全禁用采样，请在外层先调用 {@link ExclusiveFrequentItemsetSelector#setSamplingEnabled(boolean)} 统一配置。</li>
+     *   <li>若 rows 中存在 null 元素或负 docId，会在后续选择器阶段抛出参数异常。</li>
      * </ul>
      */
     public static LineFileProcessingResult processRows(
@@ -81,13 +131,12 @@ public final class ExclusiveFpRowsProcessingApi {
             int minItemsetSize,
             int hotTermThresholdExclusive
     ) {
-        return processRowsWithNgramAndSkipHash(
+        return processRows(
                 rows,
-                EngineTuningConfig.DEFAULT_NGRAM_START,
-                EngineTuningConfig.DEFAULT_NGRAM_END,
-                minSupport, minItemsetSize, hotTermThresholdExclusive,
-                EngineTuningConfig.DEFAULT_SKIP_HASH_MIN_GRAM,
-                EngineTuningConfig.DEFAULT_SKIP_HASH_MAX_GRAM
+                ProcessingOptions.defaults()
+                        .withMinSupport(minSupport)
+                        .withMinItemsetSize(minItemsetSize)
+                        .withHotTermThresholdExclusive(hotTermThresholdExclusive)
         );
     }
 
@@ -105,11 +154,13 @@ public final class ExclusiveFpRowsProcessingApi {
             int minItemsetSize,
             int hotTermThresholdExclusive
     ) {
-        return processRowsWithNgramAndSkipHash(
-                rows, ngramStart, ngramEnd,
-                minSupport, minItemsetSize, hotTermThresholdExclusive,
-                EngineTuningConfig.DEFAULT_SKIP_HASH_MIN_GRAM,
-                EngineTuningConfig.DEFAULT_SKIP_HASH_MAX_GRAM
+        return processRows(
+                rows,
+                ProcessingOptions.defaults()
+                        .withNgramRange(ngramStart, ngramEnd)
+                        .withMinSupport(minSupport)
+                        .withMinItemsetSize(minItemsetSize)
+                        .withHotTermThresholdExclusive(hotTermThresholdExclusive)
         );
     }
 
@@ -127,17 +178,20 @@ public final class ExclusiveFpRowsProcessingApi {
             int skipHashMinGram,
             int skipHashMaxGram
     ) {
-        return processRowsWithNgramAndSkipHash(
+        return processRows(
                 rows,
-                EngineTuningConfig.DEFAULT_NGRAM_START,
-                EngineTuningConfig.DEFAULT_NGRAM_END,
-                minSupport, minItemsetSize, hotTermThresholdExclusive,
-                skipHashMinGram, skipHashMaxGram
+                ProcessingOptions.defaults()
+                        .withMinSupport(minSupport)
+                        .withMinItemsetSize(minItemsetSize)
+                        .withHotTermThresholdExclusive(hotTermThresholdExclusive)
+                        .withSkipHashGramRange(skipHashMinGram, skipHashMaxGram)
         );
     }
 
     /**
      * 行级处理总入口（同时可配置分词 n-gram 区间与 skip-index 哈希层区间）。
+     *
+     * <p>该方法保留为兼容重载，内部统一委托到 {@link ProcessingOptions} 路径。</p>
      */
     public static LineFileProcessingResult processRowsWithNgramAndSkipHash(
             List<DocTerms> rows,
@@ -149,37 +203,90 @@ public final class ExclusiveFpRowsProcessingApi {
             int skipHashMinGram,
             int skipHashMaxGram
     ) {
-        validateNgramRange(ngramStart, ngramEnd);
-        // 代码内配置抽样参数（不依赖 properties 文件）
-        ExclusiveFrequentItemsetSelector.setSamplingEnabled(EngineTuningConfig.DEFAULT_SAMPLING_ENABLED);
-        ExclusiveFrequentItemsetSelector.setSampleRatio(EngineTuningConfig.DEFAULT_SAMPLE_RATIO);
-        ExclusiveFrequentItemsetSelector.setMinSampleCount(EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT);
-        ExclusiveFrequentItemsetSelector.setSamplingSupportScale(EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE);
+        return processRows(
+                rows,
+                ProcessingOptions.defaults()
+                        .withNgramRange(ngramStart, ngramEnd)
+                        .withMinSupport(minSupport)
+                        .withMinItemsetSize(minItemsetSize)
+                        .withHotTermThresholdExclusive(hotTermThresholdExclusive)
+                        .withSkipHashGramRange(skipHashMinGram, skipHashMaxGram)
+        );
+    }
+
+    private static LineFileProcessingResult processRowsInternal(
+            List<DocTerms> rows,
+            ProcessingOptions options
+    ) {
+        applyDefaultSamplingConfig();
 
         // 处理层不要修改调用方传入的 rows，这里先做一份防御性拷贝。
         List<DocTerms> loadedRows = copyRows(rows);
-        List<DocTerms> tokenizedRows = tokenizeRowsForMining(loadedRows, ngramStart, ngramEnd);
-        ExclusiveSelectionResult result = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                tokenizedRows,
+        List<DocTerms> tokenizedRows = tokenizeRowsForMining(
+                loadedRows,
+                options.getNgramStart(),
+                options.getNgramEnd()
+        );
+        ExclusiveSelectionResult result = selectWithDefaultSelectorTuning(
+                tokenizedRows, options.getMinSupport(), options.getMinItemsetSize());
+        LineFileProcessingResult.DerivedData derived =
+                buildDerivedData(tokenizedRows, result, options.getHotTermThresholdExclusive());
+        // 返回结构中会聚合出最终三元结果（新命名）：
+        // highFreqMutexGroupPostings + highFreqSingleTermPostings + lowHitForwardRows。
+        return new LineFileProcessingResult(
+                loadedRows, result, derived,
+                options.getSkipHashMinGram(),
+                options.getSkipHashMaxGram()
+        );
+    }
+
+    private static void validateProcessingOptions(ProcessingOptions options) {
+        if (options.getMinSupport() <= 0) {
+            throw new IllegalArgumentException("minSupport must be > 0");
+        }
+        if (options.getMinItemsetSize() <= 0) {
+            throw new IllegalArgumentException("minItemsetSize must be > 0");
+        }
+        validateNgramRange(options.getNgramStart(), options.getNgramEnd());
+        validateSkipHashGramRange(options.getSkipHashMinGram(), options.getSkipHashMaxGram());
+    }
+
+    private static void validateSkipHashGramRange(int skipHashMinGram, int skipHashMaxGram) {
+        if (skipHashMinGram < 2) {
+            throw new IllegalArgumentException("skipHashMinGram must be >= 2");
+        }
+        if (skipHashMaxGram < skipHashMinGram) {
+            throw new IllegalArgumentException("skipHashMaxGram must be >= skipHashMinGram");
+        }
+    }
+
+    private static void applyDefaultSamplingConfig() {
+        // 代码内配置抽样参数（不依赖 properties 文件）
+        ExclusiveFrequentItemsetSelector.setSampleRatio(EngineTuningConfig.DEFAULT_SAMPLE_RATIO);
+        ExclusiveFrequentItemsetSelector.setMinSampleCount(EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT);
+        ExclusiveFrequentItemsetSelector.setSamplingSupportScale(EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE);
+    }
+
+    private static ExclusiveSelectionResult selectWithDefaultSelectorTuning(
+            List<DocTerms> rows,
+            int minSupport,
+            int minItemsetSize
+    ) {
+        return ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
+                rows,
                 minSupport,
                 minItemsetSize,
                 EngineTuningConfig.DEFAULT_MAX_ITEMSET_SIZE,
                 EngineTuningConfig.DEFAULT_MAX_CANDIDATE_COUNT);
-        LineFileProcessingResult.DerivedData derived =
-                buildDerivedData(tokenizedRows, result, hotTermThresholdExclusive);
-        // 返回结构中会聚合出最终三元结果（新命名）：
-        // highFreqMutexGroupPostings + highFreqSingleTermPostings + lowHitForwardRows。
-        return new LineFileProcessingResult(
-                loadedRows, result, derived, skipHashMinGram, skipHashMaxGram);
     }
 
     public static LineFileProcessingResult.DerivedData buildDerivedData(
-            List<DocTerms> loadedRows,
+            List<DocTerms> miningRows,
             ExclusiveSelectionResult result,
             int hotTermThresholdExclusive
     ) {
         // cutRes 基于输入行做浅结构复制，后续只移除词项，不改变 docId。
-        List<DocTerms> cutRes = copyRows(loadedRows);
+        List<DocTerms> cutRes = copyRows(miningRows);
         // hotTerms 在“原始 cutRes”上统计，语义是“先统计，再剔除 selected 词项”。
         List<LineFileProcessingResult.HotTermDocList> hotTerms = buildHotTerms(cutRes, hotTermThresholdExclusive);
         // selectedTerms 代表本轮已经被最终挑中的互斥项，必须从两个派生视图同步去掉。
@@ -237,18 +344,19 @@ public final class ExclusiveFpRowsProcessingApi {
         for (DocTerms row : rows) {
             int docId = row.getDocId();
             for (byte[] term : row.getTermsUnsafe()) {
-                ByteArrayKey key = new ByteArrayKey(term);
-                LinkedHashSet<Integer> docs = termToDocs.get(key);
+                int hash = ByteArrayUtils.hash(term);
+                ByteArrayKey lookupKey = ByteArrayKey.forLookup(term, hash);
+                LinkedHashSet<Integer> docs = termToDocs.get(lookupKey);
                 if (docs == null) {
                     docs = new LinkedHashSet<Integer>();
-                    termToDocs.put(key, docs);
+                    termToDocs.put(new ByteArrayKey(term), docs);
                 }
                 docs.add(docId);
             }
         }
 
         List<LineFileProcessingResult.HotTermDocList> out =
-                new ArrayList<LineFileProcessingResult.HotTermDocList>();
+                new ArrayList<LineFileProcessingResult.HotTermDocList>(termToDocs.size());
         for (Map.Entry<ByteArrayKey, LinkedHashSet<Integer>> entry : termToDocs.entrySet()) {
             List<Integer> docIds = new ArrayList<Integer>(entry.getValue());
             // 阈值语义是严格大于（count > threshold）。
@@ -277,7 +385,11 @@ public final class ExclusiveFpRowsProcessingApi {
         Set<ByteArrayKey> out = new LinkedHashSet<ByteArrayKey>();
         for (SelectedGroup g : result.getGroups()) {
             for (byte[] term : g.getTerms()) {
-                out.add(new ByteArrayKey(term));
+                int hash = ByteArrayUtils.hash(term);
+                ByteArrayKey lookupKey = ByteArrayKey.forLookup(term, hash);
+                if (!out.contains(lookupKey)) {
+                    out.add(new ByteArrayKey(term));
+                }
             }
         }
         return out;
@@ -293,9 +405,12 @@ public final class ExclusiveFpRowsProcessingApi {
         }
         List<DocTerms> out = new ArrayList<DocTerms>(cutRes.size());
         for (DocTerms row : cutRes) {
-            List<byte[]> filtered = new ArrayList<byte[]>();
-            for (byte[] term : row.getTermsUnsafe()) {
-                if (!selectedTerms.contains(new ByteArrayKey(term))) {
+            List<byte[]> rowTerms = row.getTermsUnsafe();
+            List<byte[]> filtered = new ArrayList<byte[]>(rowTerms.size());
+            for (byte[] term : rowTerms) {
+                int hash = ByteArrayUtils.hash(term);
+                ByteArrayKey lookupKey = ByteArrayKey.forLookup(term, hash);
+                if (!selectedTerms.contains(lookupKey)) {
                     filtered.add(term);
                 }
             }
@@ -315,10 +430,168 @@ public final class ExclusiveFpRowsProcessingApi {
         List<LineFileProcessingResult.HotTermDocList> out =
                 new ArrayList<LineFileProcessingResult.HotTermDocList>(hotTerms.size());
         for (LineFileProcessingResult.HotTermDocList item : hotTerms) {
-            if (!selectedTerms.contains(new ByteArrayKey(item.getTerm()))) {
+            byte[] term = item.getTerm();
+            int hash = ByteArrayUtils.hash(term);
+            ByteArrayKey lookupKey = ByteArrayKey.forLookup(term, hash);
+            if (!selectedTerms.contains(lookupKey)) {
                 out.add(item);
             }
         }
         return out;
+    }
+
+    /**
+     * 中间步骤测试入口：用于对 copy/tokenize/derive 各步骤做独立断言。
+     *
+     * <p>仅做方法透传，不改变任何业务语义。</p>
+     */
+    public static final class IntermediateSteps {
+        private IntermediateSteps() {
+        }
+
+        public static List<DocTerms> copyRows(List<DocTerms> rows) {
+            return ExclusiveFpRowsProcessingApi.copyRows(rows);
+        }
+
+        public static List<DocTerms> tokenizeRowsForMining(
+                List<DocTerms> rows,
+                int ngramStart,
+                int ngramEnd
+        ) {
+            return ExclusiveFpRowsProcessingApi.tokenizeRowsForMining(rows, ngramStart, ngramEnd);
+        }
+
+        public static List<LineFileProcessingResult.HotTermDocList> buildHotTerms(
+                List<DocTerms> rows,
+                int hotTermThresholdExclusive
+        ) {
+            return ExclusiveFpRowsProcessingApi.buildHotTerms(rows, hotTermThresholdExclusive);
+        }
+
+        public static Set<ByteArrayKey> collectSelectedTerms(ExclusiveSelectionResult result) {
+            return ExclusiveFpRowsProcessingApi.collectSelectedTerms(result);
+        }
+
+        public static List<DocTerms> removeSelectedTermsFromCutRes(
+                List<DocTerms> cutRes,
+                Set<ByteArrayKey> selectedTerms
+        ) {
+            return ExclusiveFpRowsProcessingApi.removeSelectedTermsFromCutRes(cutRes, selectedTerms);
+        }
+
+        public static List<LineFileProcessingResult.HotTermDocList> removeSelectedTermsFromHotTerms(
+                List<LineFileProcessingResult.HotTermDocList> hotTerms,
+                Set<ByteArrayKey> selectedTerms
+        ) {
+            return ExclusiveFpRowsProcessingApi.removeSelectedTermsFromHotTerms(hotTerms, selectedTerms);
+        }
+
+        public static void validateProcessingOptions(ProcessingOptions options) {
+            ExclusiveFpRowsProcessingApi.validateProcessingOptions(options);
+        }
+    }
+
+    /**
+     * 统一处理参数对象：
+     * 既支持“全默认”，也支持链式覆盖，减少重载心智负担。
+     *
+     * <p>本对象是不可变对象；每个 withXxx() 都会返回新的配置实例。</p>
+     */
+    public static final class ProcessingOptions {
+        private final int minSupport;
+        private final int minItemsetSize;
+        private final int hotTermThresholdExclusive;
+        private final int ngramStart;
+        private final int ngramEnd;
+        private final int skipHashMinGram;
+        private final int skipHashMaxGram;
+
+        private ProcessingOptions(
+                int minSupport,
+                int minItemsetSize,
+                int hotTermThresholdExclusive,
+                int ngramStart,
+                int ngramEnd,
+                int skipHashMinGram,
+                int skipHashMaxGram
+        ) {
+            this.minSupport = minSupport;
+            this.minItemsetSize = minItemsetSize;
+            this.hotTermThresholdExclusive = hotTermThresholdExclusive;
+            this.ngramStart = ngramStart;
+            this.ngramEnd = ngramEnd;
+            this.skipHashMinGram = skipHashMinGram;
+            this.skipHashMaxGram = skipHashMaxGram;
+        }
+
+        public static ProcessingOptions defaults() {
+            return new ProcessingOptions(
+                    EngineTuningConfig.DEFAULT_RUNNER_MIN_SUPPORT,
+                    EngineTuningConfig.DEFAULT_RUNNER_MIN_ITEMSET_SIZE,
+                    EngineTuningConfig.DEFAULT_HOT_TERM_THRESHOLD_EXCLUSIVE,
+                    EngineTuningConfig.DEFAULT_NGRAM_START,
+                    EngineTuningConfig.DEFAULT_NGRAM_END,
+                    EngineTuningConfig.DEFAULT_SKIP_HASH_MIN_GRAM,
+                    EngineTuningConfig.DEFAULT_SKIP_HASH_MAX_GRAM
+            );
+        }
+
+        public ProcessingOptions withMinSupport(int value) {
+            return new ProcessingOptions(
+                    value, minItemsetSize, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram);
+        }
+
+        public ProcessingOptions withMinItemsetSize(int value) {
+            return new ProcessingOptions(
+                    minSupport, value, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram);
+        }
+
+        public ProcessingOptions withHotTermThresholdExclusive(int value) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, value,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram);
+        }
+
+        public ProcessingOptions withNgramRange(int start, int end) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, hotTermThresholdExclusive,
+                    start, end, skipHashMinGram, skipHashMaxGram);
+        }
+
+        public ProcessingOptions withSkipHashGramRange(int minGram, int maxGram) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, minGram, maxGram);
+        }
+
+        public int getMinSupport() {
+            return minSupport;
+        }
+
+        public int getMinItemsetSize() {
+            return minItemsetSize;
+        }
+
+        public int getHotTermThresholdExclusive() {
+            return hotTermThresholdExclusive;
+        }
+
+        public int getNgramStart() {
+            return ngramStart;
+        }
+
+        public int getNgramEnd() {
+            return ngramEnd;
+        }
+
+        public int getSkipHashMinGram() {
+            return skipHashMinGram;
+        }
+
+        public int getSkipHashMaxGram() {
+            return skipHashMaxGram;
+        }
     }
 }

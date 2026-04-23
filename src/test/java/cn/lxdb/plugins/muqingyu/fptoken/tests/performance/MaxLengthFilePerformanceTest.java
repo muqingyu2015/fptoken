@@ -39,7 +39,7 @@ class MaxLengthFilePerformanceTest {
         List<DocTerms> rows = holder[0].getRows();
         assertEquals(lineCount, rows.size());
 
-        long mineMs = runSelector(rows, true, 0.30d, 120, 0.0d, 260, 2);
+        long mineMs = runSelector(rows, 0.30d, 120, 0.0d, 260, 2);
         long loadBudgetMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case1.loadBudgetMs", 5000L);
         long mineBudgetMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case1.mineBudgetMs", 12000L);
         assertTrue(loadMs <= loadBudgetMs, () -> "loadMs=" + loadMs + ", budget=" + loadBudgetMs);
@@ -56,16 +56,16 @@ class MaxLengthFilePerformanceTest {
         List<DocTerms> rows = LineRecordDatasetLoader.loadSingleFile(file, 2, 4).getRows();
         assertEquals(lineCount, rows.size());
 
-        long sampledMs = runSelector(rows, true, 0.35d, 100, 0.0d, 220, 2);
-        long fullMs = runSelector(rows, false, 0.0d, 50, 0.0d, 220, 2);
+        long sampledMs = runSelector(rows, 0.35d, 100, 0.0d, 220, 2);
+        long baselineMs = runSelector(rows, 1.0d, 1, 1.0d, 220, 2);
 
         long sampledBudgetMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case2.sampledBudgetMs", 12000L);
-        long fullBudgetMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case2.fullBudgetMs", 15000L);
+        long baselineBudgetMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case2.fullBudgetMs", 15000L);
         long slackMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case2.slackMs", 4000L);
         assertTrue(sampledMs <= sampledBudgetMs, () -> "sampledMs=" + sampledMs + ", budget=" + sampledBudgetMs);
-        assertTrue(fullMs <= fullBudgetMs, () -> "fullMs=" + fullMs + ", budget=" + fullBudgetMs);
-        assertTrue(sampledMs <= fullMs + slackMs,
-                () -> "sampled=" + sampledMs + ", full=" + fullMs + ", slack=" + slackMs);
+        assertTrue(baselineMs <= baselineBudgetMs, () -> "baselineMs=" + baselineMs + ", budget=" + baselineBudgetMs);
+        assertTrue(sampledMs <= baselineMs + slackMs,
+                () -> "sampled=" + sampledMs + ", baseline=" + baselineMs + ", slack=" + slackMs);
     }
 
     @Test
@@ -81,7 +81,7 @@ class MaxLengthFilePerformanceTest {
         assertTrue(outcome.getStats().getDroppedByCap() > 0);
 
         long sampledMs = runSelector(
-                outcome.getLoadedDataset().getRows(), true, 0.30d, 180, 0.0d, 360, 2);
+                outcome.getLoadedDataset().getRows(), 0.30d, 180, 0.0d, 360, 2);
         long budgetMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case3.mineBudgetMs", 30000L);
         assertTrue(sampledMs <= budgetMs, () -> "sampledMs=" + sampledMs + ", budget=" + budgetMs);
     }
@@ -101,7 +101,7 @@ class MaxLengthFilePerformanceTest {
 
         long loadTotalMs = 0L;
         long sampledTotalMs = 0L;
-        long fullTotalMs = 0L;
+        long baselineTotalMs = 0L;
         for (MatrixCase matrixCase : cases) {
             Path file = dir.resolve(matrixCase.name + ".txt");
             writeLengthControlledFile(file, matrixCase.lineCount, matrixCase.baseLen, matrixCase.overflowExtra, 32);
@@ -122,23 +122,24 @@ class MaxLengthFilePerformanceTest {
             }
 
             long sampledMs = runSelector(
-                    outcome.getLoadedDataset().getRows(), true, 0.30d, 160, 0.0d, 320, 2);
-            long fullMs = runSelector(
-                    outcome.getLoadedDataset().getRows(), false, 0.0d, 50, 0.0d, 320, 2);
+                    outcome.getLoadedDataset().getRows(), 0.30d, 160, 0.0d, 320, 2);
+            long baselineMs = runSelector(
+                    outcome.getLoadedDataset().getRows(), 1.0d, 1, 1.0d, 320, 2);
             sampledTotalMs += sampledMs;
-            fullTotalMs += fullMs;
+            baselineTotalMs += baselineMs;
         }
 
         long loadBudgetMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case4.loadBudgetMs", 40000L);
         long sampledBudgetMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case4.sampledBudgetMs", 70000L);
-        long fullBudgetMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case4.fullBudgetMs", 90000L);
+        long baselineBudgetMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case4.fullBudgetMs", 90000L);
         long slackMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case4.slackMs", 12000L);
         assertTrue(loadTotalMs <= loadBudgetMs, "loadTotalMs=" + loadTotalMs + ", budget=" + loadBudgetMs);
         assertTrue(sampledTotalMs <= sampledBudgetMs,
                 "sampledTotalMs=" + sampledTotalMs + ", budget=" + sampledBudgetMs);
-        assertTrue(fullTotalMs <= fullBudgetMs, "fullTotalMs=" + fullTotalMs + ", budget=" + fullBudgetMs);
-        assertTrue(sampledTotalMs <= fullTotalMs + slackMs,
-                "sampledTotalMs=" + sampledTotalMs + ", fullTotalMs=" + fullTotalMs + ", slack=" + slackMs);
+        assertTrue(baselineTotalMs <= baselineBudgetMs,
+                "baselineTotalMs=" + baselineTotalMs + ", budget=" + baselineBudgetMs);
+        assertTrue(sampledTotalMs <= baselineTotalMs + slackMs,
+                "sampledTotalMs=" + sampledTotalMs + ", baselineTotalMs=" + baselineTotalMs + ", slack=" + slackMs);
     }
 
     @Test
@@ -160,7 +161,7 @@ class MaxLengthFilePerformanceTest {
 
         long loadTotalMs = 0L;
         long sampledTotalMs = 0L;
-        long fullTotalMs = 0L;
+        long baselineTotalMs = 0L;
         for (FeatureCase featureCase : cases) {
             Path file = dir.resolve(featureCase.name + ".txt");
             writeProfiledFile(
@@ -188,28 +189,28 @@ class MaxLengthFilePerformanceTest {
             }
 
             long sampledMs = runSelector(
-                    outcome.getLoadedDataset().getRows(), true, 0.30d, 180, 0.0d, 320, 2);
-            long fullMs = runSelector(
-                    outcome.getLoadedDataset().getRows(), false, 0.0d, 50, 0.0d, 320, 2);
+                    outcome.getLoadedDataset().getRows(), 0.30d, 180, 0.0d, 320, 2);
+            long baselineMs = runSelector(
+                    outcome.getLoadedDataset().getRows(), 1.0d, 1, 1.0d, 320, 2);
             sampledTotalMs += sampledMs;
-            fullTotalMs += fullMs;
+            baselineTotalMs += baselineMs;
         }
 
         long loadBudgetMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case5.loadBudgetMs", 90000L);
         long sampledBudgetMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case5.sampledBudgetMs", 160000L);
-        long fullBudgetMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case5.fullBudgetMs", 220000L);
+        long baselineBudgetMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case5.fullBudgetMs", 220000L);
         long slackMs = PerfTestSupport.longProp("fptoken.perf.maxlen.case5.slackMs", 30000L);
         assertTrue(loadTotalMs <= loadBudgetMs, "loadTotalMs=" + loadTotalMs + ", budget=" + loadBudgetMs);
         assertTrue(sampledTotalMs <= sampledBudgetMs,
                 "sampledTotalMs=" + sampledTotalMs + ", budget=" + sampledBudgetMs);
-        assertTrue(fullTotalMs <= fullBudgetMs, "fullTotalMs=" + fullTotalMs + ", budget=" + fullBudgetMs);
-        assertTrue(sampledTotalMs <= fullTotalMs + slackMs,
-                "sampledTotalMs=" + sampledTotalMs + ", fullTotalMs=" + fullTotalMs + ", slack=" + slackMs);
+        assertTrue(baselineTotalMs <= baselineBudgetMs,
+                "baselineTotalMs=" + baselineTotalMs + ", budget=" + baselineBudgetMs);
+        assertTrue(sampledTotalMs <= baselineTotalMs + slackMs,
+                "sampledTotalMs=" + sampledTotalMs + ", baselineTotalMs=" + baselineTotalMs + ", slack=" + slackMs);
     }
 
     private static long runSelector(
             List<DocTerms> rows,
-            boolean samplingEnabled,
             double sampleRatio,
             int minSampleCount,
             double supportScale,
@@ -220,7 +221,6 @@ class MaxLengthFilePerformanceTest {
         int oldMin = ExclusiveFrequentItemsetSelector.getMinSampleCount();
         double oldScale = ExclusiveFrequentItemsetSelector.getSamplingSupportScale();
         try {
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(samplingEnabled);
             ExclusiveFrequentItemsetSelector.setSampleRatio(sampleRatio);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(minSampleCount);
             ExclusiveFrequentItemsetSelector.setSamplingSupportScale(supportScale);
@@ -233,7 +233,6 @@ class MaxLengthFilePerformanceTest {
             assertTrue(holder[0].getCandidateCount() >= 0);
             return elapsedMs;
         } finally {
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(true);
             ExclusiveFrequentItemsetSelector.setSampleRatio(oldRatio);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(oldMin);
             ExclusiveFrequentItemsetSelector.setSamplingSupportScale(oldScale);

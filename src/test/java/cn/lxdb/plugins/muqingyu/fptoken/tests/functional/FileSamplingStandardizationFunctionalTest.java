@@ -63,22 +63,20 @@ class FileSamplingStandardizationFunctionalTest {
 
     private static void assertSamplingMatrixPerFile(Path file) throws Exception {
         LineRecordDatasetLoader.LoadedDataset loaded = LineRecordDatasetLoader.loadSingleFile(file, 2, 4);
-        ExclusiveSelectionResult baseline = runWithConfig(loaded, false, 0.0d, 50, 0.0d);
+        ExclusiveSelectionResult baseline = runWithConfig(loaded, 1.0d, 1, 1.0d);
 
-        ExclusiveSelectionResult bypassByRatioZero = runWithConfig(loaded, true, 0.0d, 50, 10.0d);
-        assertEquals(ByteArrayTestSupport.groupsFingerprint(baseline.getGroups()),
-                ByteArrayTestSupport.groupsFingerprint(bypassByRatioZero.getGroups()));
+        ExclusiveSelectionResult ratioZeroFallback = runWithConfig(loaded, 0.0d, 50, 10.0d);
+        assertSamplingResultHealthy(ratioZeroFallback);
 
-        ExclusiveSelectionResult sampledAutoScale = runWithConfig(loaded, true, 0.30d, 80, 0.0d);
+        ExclusiveSelectionResult sampledAutoScale = runWithConfig(loaded, 0.30d, 80, 0.0d);
         assertSamplingResultHealthy(sampledAutoScale);
 
-        ExclusiveSelectionResult sampledFixedScale = runWithConfig(loaded, true, 0.45d, 120, 0.8d);
+        ExclusiveSelectionResult sampledFixedScale = runWithConfig(loaded, 0.45d, 120, 0.8d);
         assertSamplingResultHealthy(sampledFixedScale);
     }
 
     private static ExclusiveSelectionResult runWithConfig(
             LineRecordDatasetLoader.LoadedDataset loaded,
-            boolean samplingEnabled,
             double ratio,
             int minSampleCount,
             double supportScale
@@ -87,7 +85,6 @@ class FileSamplingStandardizationFunctionalTest {
         int oldMin = ExclusiveFrequentItemsetSelector.getMinSampleCount();
         double oldScale = ExclusiveFrequentItemsetSelector.getSamplingSupportScale();
         try {
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(samplingEnabled);
             ExclusiveFrequentItemsetSelector.setSampleRatio(ratio);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(minSampleCount);
             ExclusiveFrequentItemsetSelector.setSamplingSupportScale(supportScale);
@@ -95,7 +92,6 @@ class FileSamplingStandardizationFunctionalTest {
             return ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
                     loaded.getRows(), 40, 2, 4, 120_000);
         } finally {
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(true);
             ExclusiveFrequentItemsetSelector.setSampleRatio(oldRatio);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(oldMin);
             ExclusiveFrequentItemsetSelector.setSamplingSupportScale(oldScale);

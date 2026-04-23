@@ -37,7 +37,7 @@ class LxdbDualIndexBuildFunctionalTest {
             Path file = dir.resolve(scenario.name);
             writeProfiledFile(file, scenario.lineCount, 64, scenario.overflowExtra, scenario.profile, 23);
 
-            List<DocTerms> rows = LineRecordDatasetLoader.loadSingleFile(file, 2, 4).getRows();
+            List<DocTerms> rows = LineRecordDatasetLoader.loadSingleFileRaw(file).getRows();
             LineFileProcessingResult processing = ExclusiveFpRowsProcessingApi.processRows(rows, 80, 2, 16);
             LineFileProcessingResult.FinalIndexData finalIndexData = processing.getFinalIndexData();
 

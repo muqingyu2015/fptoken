@@ -19,14 +19,15 @@ public final class ByteNgramTokenizer {
      * @return n-gram 列表；当输入为空或参数非法时返回空
      */
     public static List<byte[]> tokenize(byte[] lineBytes, int ngramStart, int ngramEnd) {
-        List<byte[]> out = new ArrayList<byte[]>();
         if (lineBytes == null || lineBytes.length == 0) {
-            return out;
+            return new ArrayList<byte[]>(0);
         }
         if (ngramStart <= 0 || ngramEnd < ngramStart) {
-            return out;
+            return new ArrayList<byte[]>(0);
         }
 
+        int estimatedSize = estimateTokenCount(lineBytes.length, ngramStart, ngramEnd);
+        List<byte[]> out = new ArrayList<byte[]>(estimatedSize);
         for (int n = ngramStart; n <= ngramEnd; n++) {
             if (n > lineBytes.length) {
                 break;
@@ -36,5 +37,16 @@ public final class ByteNgramTokenizer {
             }
         }
         return out;
+    }
+
+    private static int estimateTokenCount(int lineLength, int ngramStart, int ngramEnd) {
+        int total = 0;
+        for (int n = ngramStart; n <= ngramEnd; n++) {
+            if (n > lineLength) {
+                break;
+            }
+            total += (lineLength - n + 1);
+        }
+        return total;
     }
 }

@@ -90,12 +90,24 @@ class EngineeringFactorsCoverageTest {
         for (int i = 0; i < 256; i++) {
             rows.add(ByteArrayTestSupport.doc(i, new byte[] {(byte) i}));
         }
-
-        ExclusiveSelectionResult result =
-                ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(rows, 1, 1, 1, 2000);
-        assertEquals(256, result.getFrequentTermCount());
-        assertTrue(ByteArrayTestSupport.anyGroupContainsTerm(result.getGroups(), new byte[] {0x00}));
-        assertTrue(ByteArrayTestSupport.anyGroupContainsTerm(result.getGroups(), new byte[] {(byte) 0xFF}));
+        double oldRatio = ExclusiveFrequentItemsetSelector.getSampleRatio();
+        int oldMin = ExclusiveFrequentItemsetSelector.getMinSampleCount();
+        double oldScale = ExclusiveFrequentItemsetSelector.getSamplingSupportScale();
+        try {
+            // 固定抽样单路径下，ratio=1.0 相当于“全量样本”基线。
+            ExclusiveFrequentItemsetSelector.setSampleRatio(1.0d);
+            ExclusiveFrequentItemsetSelector.setMinSampleCount(1);
+            ExclusiveFrequentItemsetSelector.setSamplingSupportScale(1.0d);
+            ExclusiveSelectionResult result =
+                    ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(rows, 1, 1, 1, 2000);
+            assertEquals(256, result.getFrequentTermCount());
+            assertTrue(ByteArrayTestSupport.anyGroupContainsTerm(result.getGroups(), new byte[] {0x00}));
+            assertTrue(ByteArrayTestSupport.anyGroupContainsTerm(result.getGroups(), new byte[] {(byte) 0xFF}));
+        } finally {
+            ExclusiveFrequentItemsetSelector.setSampleRatio(oldRatio);
+            ExclusiveFrequentItemsetSelector.setMinSampleCount(oldMin);
+            ExclusiveFrequentItemsetSelector.setSamplingSupportScale(oldScale);
+        }
     }
 
     @Test

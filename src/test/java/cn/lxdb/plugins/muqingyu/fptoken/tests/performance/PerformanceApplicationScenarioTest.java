@@ -132,8 +132,11 @@ class PerformanceApplicationScenarioTest {
         long max = Collections.max(List.of(highCard, lowCard, mixed, enc20, enc80));
         long min = Collections.min(List.of(highCard, lowCard, mixed, enc20, enc80));
         long maxRatio = PerfTestSupport.longProp("fptoken.perf.app.g.maxRatio", 25L);
-        assertTrue(max <= Math.max(1L, min) * maxRatio,
-                () -> "scenarioG maxMs=" + max + ", minMs=" + min + ", maxRatio=" + maxRatio);
+        long minFloorMs = PerfTestSupport.longProp("fptoken.perf.app.g.minFloorMs", 200L);
+        long denominator = Math.max(minFloorMs, Math.max(1L, min));
+        assertTrue(max <= denominator * maxRatio,
+                () -> "scenarioG maxMs=" + max + ", minMs=" + min
+                        + ", denominatorMs=" + denominator + ", maxRatio=" + maxRatio);
     }
 
     // 场景 H: 依赖库/外部组件

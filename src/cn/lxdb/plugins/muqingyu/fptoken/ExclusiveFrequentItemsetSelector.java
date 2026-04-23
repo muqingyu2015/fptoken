@@ -49,6 +49,13 @@ import java.util.Random;
  *   <li>{@code minItemsetSize}:压缩与短语质量通常从 <b>2</b> 起(跳过单 item 项集);若只要更长模板可提到 3。</li>
  * </ul>
  *
+ * <p><b>避免误用</b>：</p>
+ * <ul>
+ *   <li>采样配置（如 {@code setSampleRatio}）是本类静态全局状态，不是“每次调用隔离”。</li>
+ *   <li>若多线程/多租户场景需要不同采样参数，请在调用层做串行化或隔离实例封装。</li>
+ *   <li>{@code rows} 中 {@code docId} 必须可作为位图下标使用（建议非负且可控范围内）。</li>
+ * </ul>
+ *
  * @author muqingyu
  */
 public final class ExclusiveFrequentItemsetSelector {
@@ -176,19 +183,19 @@ public final class ExclusiveFrequentItemsetSelector {
     private static double sampleRatio = EngineTuningConfig.DEFAULT_SAMPLE_RATIO;
     private static int minSampleCount = EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT;
     private static double samplingSupportScale = EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE;
-    /** 采样开关：设为 false 则回退为全量挖掘（用于对比测试）。 */
-    private static boolean samplingEnabled = EngineTuningConfig.DEFAULT_SAMPLING_ENABLED;
     /**
-     * 设置采样开关（用于对比测试）。
-     * @param enabled true 启用采样（默认），false 全量挖掘
+     * 兼容保留：当前实现固定走采样路径，本方法不再切换执行分支。
+     *
+     * @param enabled 历史参数（忽略）
      */
     public static void setSamplingEnabled(boolean enabled) {
-        samplingEnabled = enabled;
+        // no-op: sampling-only pipeline.
     }
 
     /**
      * 设置采样比率。
      * @param ratio 0.0~1.0，默认 {@link EngineTuningConfig#DEFAULT_SAMPLE_RATIO}
+     *              小于 0 按 0 处理，大于 1 按 1 处理（内部自动 clamp）。
      */
     public static void setSampleRatio(double ratio) {
         sampleRatio = Math.max(0.0, Math.min(1.0, ratio));
@@ -205,6 +212,7 @@ public final class ExclusiveFrequentItemsetSelector {
     /**
      * 设置采样支持度缩放因子。
      * @param scale 0.0=自动按采样比例缩放（默认），1.0=不缩放
+     *              其他值表示显式缩放系数（例如 0.5 表示支持度减半）。
      */
     public static void setSamplingSupportScale(double scale) {
         samplingSupportScale = scale;
@@ -235,6 +243,52 @@ public final class ExclusiveFrequentItemsetSelector {
         return samplingSupportScale;
     }
 
+    /**
+     * 按抽样比例计算采样阶段使用的最小支持度。
+     *
+     * <p>规则：
+     * <ul>
+     *   <li>当 {@code supportScale <= 0} 时，自动按 {@code sampledDocCount / fullDocCount} 等比例缩放。</li>
+     *   <li>当 {@code supportScale > 0} 时，使用调用方给定的显式缩放系数。</li>
+     *   <li>结果最小为 1。</li>
+     * </ul>
+     */
+    public static int computeSampledMinSupport(
+            int fullMinSupport,
+            int fullDocCount,
+            int sampledDocCount,
+            double supportScale
+    ) {
+        if (fullMinSupport <= 0) {
+            throw new IllegalArgumentException("fullMinSupport must be > 0");
+        }
+        if (fullDocCount <= 0) {
+            throw new IllegalArgumentException("fullDocCount must be > 0");
+        }
+        if (sampledDocCount <= 0 || sampledDocCount > fullDocCount) {
+            throw new IllegalArgumentException("sampledDocCount must be in [1, fullDocCount]");
+        }
+        double autoRatio = (double) sampledDocCount / (double) fullDocCount;
+        double effectiveScale = supportScale <= 0.0d ? autoRatio : supportScale;
+        return Math.max(1, (int) Math.round(fullMinSupport * effectiveScale));
+    }
+
+    /**
+     * 计算本次抽样目标样本量。
+     *
+     * <p>规则：按 {@code ceil(docCount * sampleRatio)} 先算比例样本，再与 {@code minSampleCount} 取较大值，
+     * 最后不超过 {@code docCount}。</p>
+     */
+    public static int computeTargetSampleSize(int docCount, double sampleRatio, int minSampleCount) {
+        if (docCount <= 0) {
+            throw new IllegalArgumentException("docCount must be > 0");
+        }
+        double clampedRatio = Math.max(0.0d, Math.min(1.0d, sampleRatio));
+        int safeMinSampleCount = Math.max(1, minSampleCount);
+        int byRatio = (int) Math.ceil(docCount * clampedRatio);
+        return Math.min(docCount, Math.max(safeMinSampleCount, byRatio));
+    }
+
     public static ExclusiveSelectionResult selectExclusiveBestItemsetsWithStats(
             List<DocTerms> rows,
             int minSupport,
@@ -246,7 +300,8 @@ public final class ExclusiveFrequentItemsetSelector {
             return emptyResult(maxCandidateCount);
         }
 
-        SelectorConfig config = new SelectorConfig(
+        // 参数统一走 SelectorConfig 校验，确保异常语义与历史一致。
+        new SelectorConfig(
                 minSupport,
                 minItemsetSize,
                 maxItemsetSize,
@@ -255,7 +310,7 @@ public final class ExclusiveFrequentItemsetSelector {
 
         int[] allDocIds = collectDistinctDocIds(rows);
         int docCount = allDocIds.length;
-        int sampleSize = Math.max(minSampleCount, (int) Math.ceil(docCount * sampleRatio));
+        int sampleSize = computeTargetSampleSize(docCount, sampleRatio, minSampleCount);
 
         // Phase 1: 在全量数据上建索引
         // 使用 buildWithSupportBounds 过滤低频词，显著降低词汇量和内存
@@ -268,34 +323,21 @@ public final class ExclusiveFrequentItemsetSelector {
         }
         List<BitSet> fullTidsets = fullIndex.getTidsetsByTermIdUnsafe();
 
-        // 小样本集上采样收益很低且方差更高，直接走全量更稳。
-        if (!samplingEnabled || sampleRatio <= 0.0d || minSupport <= 1 || docCount < 200 || sampleSize >= docCount) {
-            // === 全量路径：直接在全量索引上挖掘 ===
-            MiningPlan miningPlan = buildMiningPlan(config, docCount, termVocabulary.size());
-            FrequentItemsetMiningResult miningStats = mineCandidates(fullTidsets, miningPlan);
-            return processAfterMining(termVocabulary, miningStats, config, maxCandidateCount);
-        }
-
-        // === 采样路径 ===
+        // === 采样路径（固定执行）===
         // 1) 随机选择采样文档的 docId
         int[] sampledDocIds = sampleDocIds(allDocIds, sampleSize);
         // 2) 创建采样掩码，从全量 tidsets 中位过滤出采样文档
-        BitSet sampleMask = new BitSet(docCount);
-        for (int sid : sampledDocIds) {
-            sampleMask.set(sid);
-        }
+        BitSet sampleMask = buildSampleMask(sampledDocIds, docCount);
         // 3) 对每个 term 的 tidset 做位过滤（clone + and），产生采样 tidsets
-        List<BitSet> sampledTidsets = new ArrayList<>(fullTidsets.size());
-        for (BitSet full : fullTidsets) {
-            BitSet s = (BitSet) full.clone();
-            s.and(sampleMask);
-            sampledTidsets.add(s);
-        }
+        List<BitSet> sampledTidsets = buildSampledTidsets(fullTidsets, sampleMask);
         // 4) minSupport 按采样比例缩放：采样集小，用更低阈值确保能挖到模式
         //    回算阶段会再用全量 minSupport 过滤，所以缩放不会引入虚假组合
-        double observedSampleRatio = (double) sampleSize / (double) docCount;
-        double effectiveScale = (samplingSupportScale <= 0.0d) ? observedSampleRatio : samplingSupportScale;
-        int sampledMinSupport = Math.max(1, (int) Math.round(minSupport * effectiveScale));
+        int sampledMinSupport = computeSampledMinSupport(
+                minSupport,
+                docCount,
+                sampleSize,
+                samplingSupportScale
+        );
         // 5) 在采样 tidsets 上挖掘
         SelectorConfig sampledConfig = new SelectorConfig(
                 sampledMinSupport, minItemsetSize, maxItemsetSize, maxCandidateCount);
@@ -319,69 +361,6 @@ public final class ExclusiveFrequentItemsetSelector {
         return buildResult(selectedGroups, miningStats, maxCandidateCount);
     }
 
-    /** 采样完成后处理候选：回算 doclist + 互斥挑选。 */
-    private static ExclusiveSelectionResult processAfterMining(
-            List<byte[]> termVocabulary,
-            FrequentItemsetMiningResult miningStats,
-            SelectorConfig config,
-            int maxCandidateCount
-    ) {
-        List<CandidateItemset> minedCandidates = miningStats.getCandidates();
-        if (minedCandidates.isEmpty()) {
-            return buildResult(Collections.<SelectedGroup>emptyList(), miningStats, maxCandidateCount);
-        }
-        List<CandidateItemset> selectedCandidates = pickExclusiveCandidates(
-                minedCandidates,
-                termVocabulary.size(),
-                adaptiveMinNetGain()
-        );
-        List<SelectedGroup> selectedGroups = toSelectedGroups(selectedCandidates, termVocabulary);
-        return buildResult(selectedGroups, miningStats, maxCandidateCount);
-    }
-
-    /** 从 rows 中提取采样 docId 对应的文档子集，重建 DocTerms（保持 docId 不变）。 */
-    private static List<DocTerms> extractSampledRows(List<DocTerms> rows, int[] sampledDocIds) {
-        // 由于 DocTerms 不可变，无法直接拷贝，只能根据 docId 重新查找并重建
-        // sampledDocIds 已排序，可以二分查找或使用 HashSet
-        java.util.Set<Integer> sampledSet = new java.util.HashSet<>();
-        for (int sid : sampledDocIds) sampledSet.add(sid);
-        List<DocTerms> out = new ArrayList<>(sampledDocIds.length);
-        for (DocTerms row : rows) {
-            if (sampledSet.contains(row.getDocId())) {
-                // 构造一个新的 DocTerms 副本
-                // 注意：DocTerms 的构造器会校验参数，直接使用原始数据
-                out.add(row);
-            }
-        }
-        return out;
-    }
-
-    /**
-     * 建立采样索引 termId → 全量索引 termId 的映射。
-     * 使用 HashMap 加速查找（O(n) vs O(n^2) 线性扫描）。
-     * @return 数组，下标为采样 termId，值为全量 termId（-1 表示未找到）
-     */
-    private static int[] buildTermIdMap(List<byte[]> sampledVocab, List<byte[]> fullVocab) {
-        int[] map = new int[sampledVocab.size()];
-        java.util.Arrays.fill(map, -1);
-        // 构建全量词表的反向索引：词字节 → termId
-        java.util.Map<cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey, Integer> fullMap =
-            new java.util.HashMap<>(fullVocab.size());
-        for (int j = 0; j < fullVocab.size(); j++) {
-            fullMap.put(new cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey(fullVocab.get(j)), j);
-        }
-        // 用采样词查反向索引
-        for (int i = 0; i < sampledVocab.size(); i++) {
-            cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey key =
-                new cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey(sampledVocab.get(i));
-            Integer fullId = fullMap.get(key);
-            if (fullId != null) {
-                map[i] = fullId.intValue();
-            }
-        }
-        return map;
-    }
-
     /** 随机选择文档子集的 docId。 */
     private static int[] sampleDocIds(int[] allDocIds, int sampleSize) {
         int docCount = allDocIds.length;
@@ -398,6 +377,24 @@ public final class ExclusiveFrequentItemsetSelector {
         System.arraycopy(all, 0, out, 0, sampleSize);
         java.util.Arrays.sort(out);
         return out;
+    }
+
+    private static BitSet buildSampleMask(int[] sampledDocIds, int docCount) {
+        BitSet sampleMask = new BitSet(docCount);
+        for (int sid : sampledDocIds) {
+            sampleMask.set(sid);
+        }
+        return sampleMask;
+    }
+
+    private static List<BitSet> buildSampledTidsets(List<BitSet> fullTidsets, BitSet sampleMask) {
+        List<BitSet> sampledTidsets = new ArrayList<>(fullTidsets.size());
+        for (BitSet full : fullTidsets) {
+            BitSet sampled = (BitSet) full.clone();
+            sampled.and(sampleMask);
+            sampledTidsets.add(sampled);
+        }
+        return sampledTidsets;
     }
 
     private static int[] collectDistinctDocIds(List<DocTerms> rows) {
@@ -446,40 +443,6 @@ public final class ExclusiveFrequentItemsetSelector {
         return out;
     }
 
-    /**
-     * 带 termId 映射的回算版本：采样 termId → 全量 termId → 在全量 tidsets 上做交集。
-     */
-    private static List<CandidateItemset> recomputeOnFullData(
-            List<CandidateItemset> candidates,
-            List<BitSet> fullTidsets,
-            int[] sampleToFullMap,
-            int minSupport
-    ) {
-        List<CandidateItemset> out = new ArrayList<>(candidates.size());
-        BitSet scratch = new BitSet(64);
-        for (CandidateItemset candidate : candidates) {
-            int[] sampleTermIds = candidate.getTermIdsUnsafe();
-            scratch.clear();
-            int firstFullId = sampleToFullMap[sampleTermIds[0]];
-            if (firstFullId < 0) continue;
-            scratch.or(fullTidsets.get(firstFullId));
-            boolean valid = true;
-            for (int i = 1; i < sampleTermIds.length && valid; i++) {
-                int fullId = sampleToFullMap[sampleTermIds[i]];
-                if (fullId < 0) { valid = false; break; }
-                scratch.and(fullTidsets.get(fullId));
-                if (scratch.cardinality() < minSupport) { valid = false; break; }
-            }
-            if (valid) {
-                int fullSupport = scratch.cardinality();
-                if (fullSupport >= minSupport) {
-                    BitSet docBits = (BitSet) scratch.clone();
-                    out.add(CandidateItemset.trusted(sampleTermIds, docBits, fullSupport));
-                }
-            }
-        }
-        return out;
-    }
 
     /**
      * 可读性更友好的别名入口:语义与

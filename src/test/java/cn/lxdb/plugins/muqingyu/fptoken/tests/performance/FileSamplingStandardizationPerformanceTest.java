@@ -33,29 +33,29 @@ class FileSamplingStandardizationPerformanceTest {
         FileDatasetTestSupport.writeRecordFile(p3, 12000, "P3", 48, 17, 0);
 
         long budgetMs = PerfTestSupport.longProp("fptoken.perf.file.sample.maxMs", 12000L);
-        long autoScaleMs = runOnFile(p1, true, 0.30d, 80, 0.0d)
-                + runOnFile(p2, true, 0.30d, 80, 0.0d)
-                + runOnFile(p3, true, 0.30d, 80, 0.0d);
-        long fixedScaleMs = runOnFile(p1, true, 0.45d, 120, 0.9d)
-                + runOnFile(p2, true, 0.45d, 120, 0.9d)
-                + runOnFile(p3, true, 0.45d, 120, 0.9d);
-        long fullPathMs = runOnFile(p1, false, 0.0d, 50, 0.0d)
-                + runOnFile(p2, false, 0.0d, 50, 0.0d)
-                + runOnFile(p3, false, 0.0d, 50, 0.0d);
+        long autoScaleMs = runOnFile(p1, 0.30d, 80, 0.0d)
+                + runOnFile(p2, 0.30d, 80, 0.0d)
+                + runOnFile(p3, 0.30d, 80, 0.0d);
+        long fixedScaleMs = runOnFile(p1, 0.45d, 120, 0.9d)
+                + runOnFile(p2, 0.45d, 120, 0.9d)
+                + runOnFile(p3, 0.45d, 120, 0.9d);
+        long baselineAllSampledMs = runOnFile(p1, 1.0d, 1, 1.0d)
+                + runOnFile(p2, 1.0d, 1, 1.0d)
+                + runOnFile(p3, 1.0d, 1, 1.0d);
 
         assertTrue(autoScaleMs < budgetMs, () -> "autoScaleMs=" + autoScaleMs + ", budgetMs=" + budgetMs);
         assertTrue(fixedScaleMs < budgetMs, () -> "fixedScaleMs=" + fixedScaleMs + ", budgetMs=" + budgetMs);
-        assertTrue(fullPathMs < budgetMs, () -> "fullPathMs=" + fullPathMs + ", budgetMs=" + budgetMs);
+        assertTrue(baselineAllSampledMs < budgetMs,
+                () -> "baselineAllSampledMs=" + baselineAllSampledMs + ", budgetMs=" + budgetMs);
 
         long extraSlackMs = PerfTestSupport.longProp("fptoken.perf.file.sample.slackMs", 3000L);
-        assertTrue(autoScaleMs <= fullPathMs + extraSlackMs,
-                () -> "expected sampled path not much slower than full path; sampled="
-                        + autoScaleMs + ", full=" + fullPathMs + ", slack=" + extraSlackMs);
+        assertTrue(autoScaleMs <= baselineAllSampledMs + extraSlackMs,
+                () -> "expected sampled path not much slower than baseline; sampled="
+                        + autoScaleMs + ", baseline=" + baselineAllSampledMs + ", slack=" + extraSlackMs);
     }
 
     private static long runOnFile(
             Path file,
-            boolean samplingEnabled,
             double ratio,
             int minSampleCount,
             double supportScale
@@ -65,7 +65,6 @@ class FileSamplingStandardizationPerformanceTest {
         int oldMin = ExclusiveFrequentItemsetSelector.getMinSampleCount();
         double oldScale = ExclusiveFrequentItemsetSelector.getSamplingSupportScale();
         try {
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(samplingEnabled);
             ExclusiveFrequentItemsetSelector.setSampleRatio(ratio);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(minSampleCount);
             ExclusiveFrequentItemsetSelector.setSamplingSupportScale(supportScale);
@@ -78,7 +77,6 @@ class FileSamplingStandardizationPerformanceTest {
             assertTrue(holder[0].getCandidateCount() >= 0);
             return elapsedMs;
         } finally {
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(true);
             ExclusiveFrequentItemsetSelector.setSampleRatio(oldRatio);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(oldMin);
             ExclusiveFrequentItemsetSelector.setSamplingSupportScale(oldScale);

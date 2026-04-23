@@ -12,7 +12,9 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * 行文件入口的完整输出：原始加载结果、挖掘结果以及二次加工结果。
+ * 行记录处理链路的完整输出：输入快照、挖掘结果以及索引派生结果。
+ *
+ * <p>虽然常见调用来自“文件加载 -> 处理”流程，但本模型同样适用于直接传入 rows 的 API 场景。</p>
  */
 public final class LineFileProcessingResult {
 
@@ -20,6 +22,7 @@ public final class LineFileProcessingResult {
     private final ExclusiveSelectionResult selectionResult;
     private final DerivedData derivedData;
     private final FinalIndexData finalIndexData;
+    private final ProcessingStats processingStats;
 
     public LineFileProcessingResult(
             List<DocTerms> loadedRows,
@@ -51,6 +54,7 @@ public final class LineFileProcessingResult {
                 skipHashMinGram,
                 skipHashMaxGram
         );
+        this.processingStats = ProcessingStats.from(this.loadedRows, this.selectionResult, this.finalIndexData);
     }
 
     public List<DocTerms> getLoadedRows() {
@@ -80,6 +84,15 @@ public final class LineFileProcessingResult {
     }
 
     /**
+     * 统一统计视图：把输入规模、挖掘统计、派生层规模与索引规模聚合到一个对象里。
+     *
+     * <p>用于减少调用方在多个结果对象之间来回取数；旧字段访问方式仍保留兼容。</p>
+     */
+    public ProcessingStats getProcessingStats() {
+        return processingStats;
+    }
+
+    /**
      * 便捷访问：等价于 getFinalIndexData().getGroups()。
      */
     public List<SelectedGroup> getGroups() {
@@ -98,6 +111,30 @@ public final class LineFileProcessingResult {
      */
     public List<DocTerms> getCutRes() {
         return finalIndexData.getCutRes();
+    }
+
+    /**
+     * 可读性更强的顶层访问器：高频互斥组合倒排。
+     * <p>语义等价于 {@link #getGroups()}。</p>
+     */
+    public List<SelectedGroup> getHighFreqMutexGroupPostings() {
+        return finalIndexData.getHighFreqMutexGroupPostings();
+    }
+
+    /**
+     * 可读性更强的顶层访问器：高频单词项倒排。
+     * <p>语义等价于 {@link #getHotTerms()}。</p>
+     */
+    public List<HotTermDocList> getHighFreqSingleTermPostings() {
+        return finalIndexData.getHighFreqSingleTermPostings();
+    }
+
+    /**
+     * 可读性更强的顶层访问器：低命中残差正排行。
+     * <p>语义等价于 {@link #getCutRes()}。</p>
+     */
+    public List<DocTerms> getLowHitForwardRows() {
+        return finalIndexData.getLowHitForwardRows();
     }
 
     /**
@@ -171,6 +208,156 @@ public final class LineFileProcessingResult {
     }
 
     /**
+     * 处理链路统一统计快照（只读）。
+     *
+     * <p>把原本分散在 {@link ExclusiveSelectionResult} 与 {@link FinalIndexData}
+     * 的常用计数整合到一个入口，避免调用方在多个数据结构间跳转。</p>
+     */
+    public static final class ProcessingStats {
+        private final int inputRowCount;
+        private final int selectedGroupCount;
+        private final int highFreqSingleTermCount;
+        private final int lowHitForwardRowCount;
+        private final int highFreqMutexGroupTermsToIndexCount;
+        private final int highFreqSingleTermToIndexCount;
+        private final int lowHitTermToIndexesCount;
+        private final int frequentTermCount;
+        private final int candidateCount;
+        private final int intersectionCount;
+        private final int maxCandidateCount;
+        private final boolean truncatedByCandidateLimit;
+        private final int hotTermThresholdExclusive;
+        private final int skipHashMinGram;
+        private final int skipHashMaxGram;
+        private final int oneByteIndexMaxDocId;
+
+        private ProcessingStats(
+                int inputRowCount,
+                int selectedGroupCount,
+                int highFreqSingleTermCount,
+                int lowHitForwardRowCount,
+                int highFreqMutexGroupTermsToIndexCount,
+                int highFreqSingleTermToIndexCount,
+                int lowHitTermToIndexesCount,
+                int frequentTermCount,
+                int candidateCount,
+                int intersectionCount,
+                int maxCandidateCount,
+                boolean truncatedByCandidateLimit,
+                int hotTermThresholdExclusive,
+                int skipHashMinGram,
+                int skipHashMaxGram,
+                int oneByteIndexMaxDocId
+        ) {
+            this.inputRowCount = inputRowCount;
+            this.selectedGroupCount = selectedGroupCount;
+            this.highFreqSingleTermCount = highFreqSingleTermCount;
+            this.lowHitForwardRowCount = lowHitForwardRowCount;
+            this.highFreqMutexGroupTermsToIndexCount = highFreqMutexGroupTermsToIndexCount;
+            this.highFreqSingleTermToIndexCount = highFreqSingleTermToIndexCount;
+            this.lowHitTermToIndexesCount = lowHitTermToIndexesCount;
+            this.frequentTermCount = frequentTermCount;
+            this.candidateCount = candidateCount;
+            this.intersectionCount = intersectionCount;
+            this.maxCandidateCount = maxCandidateCount;
+            this.truncatedByCandidateLimit = truncatedByCandidateLimit;
+            this.hotTermThresholdExclusive = hotTermThresholdExclusive;
+            this.skipHashMinGram = skipHashMinGram;
+            this.skipHashMaxGram = skipHashMaxGram;
+            this.oneByteIndexMaxDocId = oneByteIndexMaxDocId;
+        }
+
+        private static ProcessingStats from(
+                List<DocTerms> loadedRows,
+                ExclusiveSelectionResult selectionResult,
+                FinalIndexData finalIndexData
+        ) {
+            return new ProcessingStats(
+                    loadedRows.size(),
+                    finalIndexData.getHighFreqMutexGroupPostings().size(),
+                    finalIndexData.getHighFreqSingleTermPostings().size(),
+                    finalIndexData.getLowHitForwardRows().size(),
+                    finalIndexData.getHighFreqMutexGroupTermsToIndex().size(),
+                    finalIndexData.getHighFreqSingleTermToIndex().size(),
+                    finalIndexData.getLowHitTermToIndexes().size(),
+                    selectionResult.getFrequentTermCount(),
+                    selectionResult.getCandidateCount(),
+                    selectionResult.getIntersectionCount(),
+                    selectionResult.getMaxCandidateCount(),
+                    selectionResult.isTruncatedByCandidateLimit(),
+                    finalIndexData.getHotTermThresholdExclusive(),
+                    finalIndexData.getSkipHashMinGram(),
+                    finalIndexData.getSkipHashMaxGram(),
+                    finalIndexData.getOneByteDocidBitsetIndex().getMaxDocId()
+            );
+        }
+
+        public int getInputRowCount() {
+            return inputRowCount;
+        }
+
+        public int getSelectedGroupCount() {
+            return selectedGroupCount;
+        }
+
+        public int getHighFreqSingleTermCount() {
+            return highFreqSingleTermCount;
+        }
+
+        public int getLowHitForwardRowCount() {
+            return lowHitForwardRowCount;
+        }
+
+        public int getHighFreqMutexGroupTermsToIndexCount() {
+            return highFreqMutexGroupTermsToIndexCount;
+        }
+
+        public int getHighFreqSingleTermToIndexCount() {
+            return highFreqSingleTermToIndexCount;
+        }
+
+        public int getLowHitTermToIndexesCount() {
+            return lowHitTermToIndexesCount;
+        }
+
+        public int getFrequentTermCount() {
+            return frequentTermCount;
+        }
+
+        public int getCandidateCount() {
+            return candidateCount;
+        }
+
+        public int getIntersectionCount() {
+            return intersectionCount;
+        }
+
+        public int getMaxCandidateCount() {
+            return maxCandidateCount;
+        }
+
+        public boolean isTruncatedByCandidateLimit() {
+            return truncatedByCandidateLimit;
+        }
+
+        public int getHotTermThresholdExclusive() {
+            return hotTermThresholdExclusive;
+        }
+
+        public int getSkipHashMinGram() {
+            return skipHashMinGram;
+        }
+
+        public int getSkipHashMaxGram() {
+            return skipHashMaxGram;
+        }
+
+        public int getOneByteIndexMaxDocId() {
+            return oneByteIndexMaxDocId;
+        }
+    }
+
+    /**
      * 最终索引数据模型：把业务真正需要的三部分放在一个对象里返回。
      *
      * <p>语义约束（按你的落库模型定义）：</p>
@@ -208,7 +395,7 @@ public final class LineFileProcessingResult {
                 int skipHashMinGram,
                 int skipHashMaxGram
         ) {
-            validateSkipHashGramRange(skipHashMinGram, skipHashMaxGram);
+            LineFileIndexBuilders.validateSkipHashGramRange(skipHashMinGram, skipHashMaxGram);
             this.loadedRows = Collections.unmodifiableList(new ArrayList<DocTerms>(
                     Objects.requireNonNull(loadedRows, "loadedRows")));
             this.highFreqMutexGroupPostings = Collections.unmodifiableList(new ArrayList<SelectedGroup>(
@@ -218,20 +405,20 @@ public final class LineFileProcessingResult {
             this.lowHitForwardRows = Collections.unmodifiableList(new ArrayList<DocTerms>(
                     Objects.requireNonNull(cutRes, "cutRes")));
             this.highFreqMutexGroupTermsToIndex = Collections.unmodifiableList(
-                    buildHighFreqMutexGroupTermsToIndex(this.highFreqMutexGroupPostings));
+                    LineFileIndexBuilders.buildHighFreqMutexGroupTermsToIndex(this.highFreqMutexGroupPostings));
             this.highFreqSingleTermToIndex = Collections.unmodifiableList(
-                    buildHighFreqSingleTermToIndex(this.highFreqSingleTermPostings));
+                    LineFileIndexBuilders.buildHighFreqSingleTermToIndex(this.highFreqSingleTermPostings));
             this.lowHitTermToIndexes = Collections.unmodifiableList(
-                    buildLowHitTermToIndexes(this.lowHitForwardRows));
+                    LineFileIndexBuilders.buildLowHitTermToIndexes(this.lowHitForwardRows));
             this.skipHashMinGram = skipHashMinGram;
             this.skipHashMaxGram = skipHashMaxGram;
-            this.highFreqMutexGroupSkipBitsetIndex = buildTermBlockSkipBitsetIndex(
+            this.highFreqMutexGroupSkipBitsetIndex = LineFileIndexBuilders.buildTermBlockSkipBitsetIndex(
                     this.highFreqMutexGroupTermsToIndex, skipHashMinGram, skipHashMaxGram);
-            this.highFreqSingleTermSkipBitsetIndex = buildTermBlockSkipBitsetIndex(
+            this.highFreqSingleTermSkipBitsetIndex = LineFileIndexBuilders.buildTermBlockSkipBitsetIndex(
                     this.highFreqSingleTermToIndex, skipHashMinGram, skipHashMaxGram);
-            this.lowHitTermSkipBitsetIndex = buildTermBlockSkipBitsetIndex(
+            this.lowHitTermSkipBitsetIndex = LineFileIndexBuilders.buildTermBlockSkipBitsetIndex(
                     this.lowHitTermToIndexes, skipHashMinGram, skipHashMaxGram);
-            this.oneByteDocidBitsetIndex = buildOneByteDocidBitsetIndex(this.loadedRows);
+            this.oneByteDocidBitsetIndex = LineFileIndexBuilders.buildOneByteDocidBitsetIndex(this.loadedRows);
             this.hotTermThresholdExclusive = hotTermThresholdExclusive;
         }
 
@@ -362,144 +549,44 @@ public final class LineFileProcessingResult {
             return getLowHitForwardRows();
         }
 
-        private static List<TermsPostingIndexRef> buildHighFreqMutexGroupTermsToIndex(
-                List<SelectedGroup> groups
-        ) {
-            List<TermsPostingIndexRef> out = new ArrayList<TermsPostingIndexRef>(groups.size());
-            for (int i = 0; i < groups.size(); i++) {
-                out.add(new TermsPostingIndexRef(groups.get(i).getTerms(), i));
-            }
-            return out;
-        }
-
-        private static List<TermsPostingIndexRef> buildHighFreqSingleTermToIndex(
-                List<HotTermDocList> hotTerms
-        ) {
-            List<TermsPostingIndexRef> out = new ArrayList<TermsPostingIndexRef>(hotTerms.size());
-            for (int i = 0; i < hotTerms.size(); i++) {
-                List<byte[]> singleTerm = new ArrayList<byte[]>(1);
-                singleTerm.add(hotTerms.get(i).getTerm());
-                out.add(new TermsPostingIndexRef(singleTerm, i));
-            }
-            return out;
-        }
-
-        private static List<TermsPostingIndexRef> buildLowHitTermToIndexes(
-                List<DocTerms> lowHitForwardRows
-        ) {
-            List<TermsPostingIndexRef> out = new ArrayList<TermsPostingIndexRef>();
-            for (int rowIndex = 0; rowIndex < lowHitForwardRows.size(); rowIndex++) {
-                DocTerms row = lowHitForwardRows.get(rowIndex);
-                int docId = row.getDocId();
-                for (byte[] term : row.getTermsUnsafe()) {
-                    List<byte[]> singleTerm = new ArrayList<byte[]>(1);
-                    singleTerm.add(term);
-                    out.add(new TermsPostingIndexRef(singleTerm, docId));
-                }
-            }
-            return out;
-        }
-
-        private static TermBlockSkipBitsetIndex buildTermBlockSkipBitsetIndex(
-                List<TermsPostingIndexRef> refs,
-                int skipHashMinGram,
-                int skipHashMaxGram
-        ) {
-            List<byte[]> logicalTerms = new ArrayList<byte[]>();
-            List<Integer> termPostingIndexes = new ArrayList<Integer>();
-            int maxPostingIndex = -1;
-            int maxTermLen = 0;
-
-            for (TermsPostingIndexRef ref : refs) {
-                int postingIndex = ref.getPostingIndex();
-                if (postingIndex > maxPostingIndex) {
-                    maxPostingIndex = postingIndex;
-                }
-                for (byte[] term : ref.getTerms()) {
-                    logicalTerms.add(term);
-                    termPostingIndexes.add(postingIndex);
-                    if (term.length > maxTermLen) {
-                        maxTermLen = term.length;
-                    }
-                }
+        /**
+         * 中间步骤测试入口：用于独立验证每个派生阶段的构建结果。
+         *
+         * <p>仅透传内部构建方法，不改变生产逻辑。</p>
+         */
+        public static final class IntermediateSteps {
+            private IntermediateSteps() {
             }
 
-            List<HashLevelBitsets> hashLevels = new ArrayList<HashLevelBitsets>();
-            for (int gramLength = skipHashMinGram; gramLength <= skipHashMaxGram; gramLength++) {
-                if (maxTermLen >= gramLength) {
-                    hashLevels.add(buildHashLevelBitsets(gramLength, logicalTerms, termPostingIndexes, maxPostingIndex));
-                }
-            }
-            return new TermBlockSkipBitsetIndex(maxPostingIndex, hashLevels);
-        }
-
-        private static HashLevelBitsets buildHashLevelBitsets(
-                int gramLength,
-                List<byte[]> logicalTerms,
-                List<Integer> termPostingIndexes,
-                int maxPostingIndex
-        ) {
-            List<BitSet> buckets = new ArrayList<BitSet>(256);
-            int bitsetLength = Math.max(0, maxPostingIndex + 1);
-            for (int i = 0; i < 256; i++) {
-                buckets.add(new BitSet(bitsetLength));
+            public static List<TermsPostingIndexRef> buildHighFreqMutexGroupTermsToIndex(
+                    List<SelectedGroup> groups
+            ) {
+                return LineFileIndexBuilders.buildHighFreqMutexGroupTermsToIndex(groups);
             }
 
-            for (int termId = 0; termId < logicalTerms.size(); termId++) {
-                byte[] term = logicalTerms.get(termId);
-                if (term.length < gramLength) {
-                    continue;
-                }
-                int postingIndex = termPostingIndexes.get(termId);
-                for (int start = 0; start <= term.length - gramLength; start++) {
-                    int bucket = hashWindowToBucket(term, start, gramLength);
-                    buckets.get(bucket).set(postingIndex);
-                }
-            }
-            return new HashLevelBitsets(gramLength, buckets);
-        }
-
-        private static int hashWindowToBucket(byte[] arr, int start, int len) {
-            int h = 1;
-            for (int i = 0; i < len; i++) {
-                h = 31 * h + (arr[start + i] & 0xFF);
-            }
-            return h & 0xFF;
-        }
-
-        private static void validateSkipHashGramRange(int skipHashMinGram, int skipHashMaxGram) {
-            if (skipHashMinGram < 2) {
-                throw new IllegalArgumentException("skipHashMinGram must be >= 2");
-            }
-            if (skipHashMaxGram < skipHashMinGram) {
-                throw new IllegalArgumentException("skipHashMaxGram must be >= skipHashMinGram");
-            }
-        }
-
-        private static OneByteDocidBitsetIndex buildOneByteDocidBitsetIndex(List<DocTerms> loadedRows) {
-            int maxDocId = -1;
-            for (DocTerms row : loadedRows) {
-                if (row.getDocId() > maxDocId) {
-                    maxDocId = row.getDocId();
-                }
+            public static List<TermsPostingIndexRef> buildHighFreqSingleTermToIndex(
+                    List<HotTermDocList> hotTerms
+            ) {
+                return LineFileIndexBuilders.buildHighFreqSingleTermToIndex(hotTerms);
             }
 
-            int bitsetLength = Math.max(0, maxDocId + 1);
-            List<BitSet> buckets = new ArrayList<BitSet>(256);
-            for (int i = 0; i < 256; i++) {
-                buckets.add(new BitSet(bitsetLength));
+            public static List<TermsPostingIndexRef> buildLowHitTermToIndexes(
+                    List<DocTerms> lowHitForwardRows
+            ) {
+                return LineFileIndexBuilders.buildLowHitTermToIndexes(lowHitForwardRows);
             }
 
-            for (DocTerms row : loadedRows) {
-                int docId = row.getDocId();
-                for (byte[] bytes : row.getTermsUnsafe()) {
-                    for (int i = 0; i < bytes.length; i++) {
-                        int unsignedByte = bytes[i] & 0xFF;
-                        buckets.get(unsignedByte).set(docId);
-                    }
-                }
+            public static TermBlockSkipBitsetIndex buildTermBlockSkipBitsetIndex(
+                    List<TermsPostingIndexRef> refs,
+                    int skipHashMinGram,
+                    int skipHashMaxGram
+            ) {
+                return LineFileIndexBuilders.buildTermBlockSkipBitsetIndex(refs, skipHashMinGram, skipHashMaxGram);
             }
-            return new OneByteDocidBitsetIndex(maxDocId, buckets);
+
+            public static OneByteDocidBitsetIndex buildOneByteDocidBitsetIndex(List<DocTerms> loadedRows) {
+                return LineFileIndexBuilders.buildOneByteDocidBitsetIndex(loadedRows);
+            }
         }
     }
 
@@ -513,8 +600,20 @@ public final class LineFileProcessingResult {
         private final List<byte[]> terms;
         private final int postingIndex;
 
+        public TermsPostingIndexRef(byte[] term, int postingIndex) {
+            this.terms = Collections.singletonList(
+                    ByteArrayUtils.copy(Objects.requireNonNull(term, "term")));
+            this.postingIndex = postingIndex;
+        }
+
         public TermsPostingIndexRef(List<byte[]> terms, int postingIndex) {
             Objects.requireNonNull(terms, "terms");
+            if (terms.size() == 1) {
+                this.terms = Collections.singletonList(
+                        ByteArrayUtils.copy(Objects.requireNonNull(terms.get(0), "term")));
+                this.postingIndex = postingIndex;
+                return;
+            }
             List<byte[]> copied = new ArrayList<byte[]>(terms.size());
             for (byte[] term : terms) {
                 copied.add(ByteArrayUtils.copy(Objects.requireNonNull(term, "term")));
@@ -533,6 +632,11 @@ public final class LineFileProcessingResult {
 
         public int getPostingIndex() {
             return postingIndex;
+        }
+
+        /** 仅供 runner.result 包内构建路径使用；外部仍应通过 {@link #getTerms()} 获取防御性副本。 */
+        List<byte[]> getTermsUnsafe() {
+            return terms;
         }
     }
 

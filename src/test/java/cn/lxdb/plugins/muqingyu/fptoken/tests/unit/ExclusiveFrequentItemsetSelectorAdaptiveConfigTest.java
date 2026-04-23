@@ -3,6 +3,7 @@ package cn.lxdb.plugins.muqingyu.fptoken.tests.unit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import java.lang.reflect.Method;
 import org.junit.jupiter.api.Test;
 
@@ -23,7 +24,7 @@ class ExclusiveFrequentItemsetSelectorAdaptiveConfigTest {
         Method m = ExclusiveFrequentItemsetSelector.class.getDeclaredMethod("adaptiveMaxFrequentTermCount", int.class);
         m.setAccessible(true);
         assertEquals(500, ((Integer) m.invoke(null, 100)).intValue());
-        assertEquals(1500, ((Integer) m.invoke(null, 1500)).intValue());
+        assertEquals(EngineTuningConfig.DEFAULT_MAX_FREQUENT_TERM_COUNT, ((Integer) m.invoke(null, 1500)).intValue());
         assertEquals(2000, ((Integer) m.invoke(null, 3000)).intValue());
         assertEquals(3000, ((Integer) m.invoke(null, 9000)).intValue());
     }

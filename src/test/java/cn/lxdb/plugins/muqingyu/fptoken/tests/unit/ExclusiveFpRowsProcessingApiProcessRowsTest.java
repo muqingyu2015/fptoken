@@ -2,10 +2,12 @@ package cn.lxdb.plugins.muqingyu.fptoken.tests.unit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.lxdb.plugins.muqingyu.fptoken.api.ExclusiveFpRowsProcessingApi;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
@@ -24,6 +26,70 @@ import org.junit.jupiter.api.Test;
  * {@link ExclusiveFpRowsProcessingApi#processRows(List, int, int, int)} 接口级契约测试。
  */
 class ExclusiveFpRowsProcessingApiProcessRowsTest {
+
+    @Test
+    void processRows_defaultsOverload_shouldMatchLegacyDefaultParameterCall() {
+        List<DocTerms> rows = new ArrayList<DocTerms>();
+        rows.add(new DocTerms(0, Arrays.asList(bytes("ABCD"))));
+        rows.add(new DocTerms(1, Arrays.asList(bytes("ABCE"))));
+        rows.add(new DocTerms(2, Arrays.asList(bytes("ABCF"))));
+
+        LineFileProcessingResult defaultsResult = ExclusiveFpRowsProcessingApi.processRows(rows);
+        LineFileProcessingResult legacyResult = ExclusiveFpRowsProcessingApi.processRows(
+                rows,
+                EngineTuningConfig.DEFAULT_RUNNER_MIN_SUPPORT,
+                EngineTuningConfig.DEFAULT_RUNNER_MIN_ITEMSET_SIZE,
+                EngineTuningConfig.DEFAULT_HOT_TERM_THRESHOLD_EXCLUSIVE
+        );
+
+        assertEquals(groupsFingerprint(defaultsResult.getFinalIndexData().getHighFreqMutexGroupPostings()),
+                groupsFingerprint(legacyResult.getFinalIndexData().getHighFreqMutexGroupPostings()));
+        assertEquals(hotTermsFingerprint(defaultsResult.getFinalIndexData().getHighFreqSingleTermPostings()),
+                hotTermsFingerprint(legacyResult.getFinalIndexData().getHighFreqSingleTermPostings()));
+        assertEquals(rowsFingerprint(defaultsResult.getFinalIndexData().getLowHitForwardRows()),
+                rowsFingerprint(legacyResult.getFinalIndexData().getLowHitForwardRows()));
+        assertEquals(defaultsResult.getFinalIndexData().getSkipHashMinGram(),
+                legacyResult.getFinalIndexData().getSkipHashMinGram());
+        assertEquals(defaultsResult.getFinalIndexData().getSkipHashMaxGram(),
+                legacyResult.getFinalIndexData().getSkipHashMaxGram());
+    }
+
+    @Test
+    void processRows_optionsOverload_shouldMatchEquivalentExplicitCall() {
+        List<DocTerms> rawRows = new ArrayList<DocTerms>();
+        rawRows.add(new DocTerms(0, Arrays.asList(bytes("ABCD"))));
+        rawRows.add(new DocTerms(1, Arrays.asList(bytes("ABCE"))));
+        rawRows.add(new DocTerms(2, Arrays.asList(bytes("ABDE"))));
+
+        ExclusiveFpRowsProcessingApi.ProcessingOptions options =
+                ExclusiveFpRowsProcessingApi.defaultOptions()
+                        .withMinSupport(1)
+                        .withMinItemsetSize(2)
+                        .withHotTermThresholdExclusive(0)
+                        .withNgramRange(3, 3)
+                        .withSkipHashGramRange(3, 3);
+
+        LineFileProcessingResult optionsResult = ExclusiveFpRowsProcessingApi.processRows(rawRows, options);
+        LineFileProcessingResult explicitResult = ExclusiveFpRowsProcessingApi.processRowsWithNgramAndSkipHash(
+                rawRows, 3, 3, 1, 2, 0, 3, 3);
+
+        assertEquals(groupsFingerprint(optionsResult.getFinalIndexData().getHighFreqMutexGroupPostings()),
+                groupsFingerprint(explicitResult.getFinalIndexData().getHighFreqMutexGroupPostings()));
+        assertEquals(hotTermsFingerprint(optionsResult.getFinalIndexData().getHighFreqSingleTermPostings()),
+                hotTermsFingerprint(explicitResult.getFinalIndexData().getHighFreqSingleTermPostings()));
+        assertEquals(rowsFingerprint(optionsResult.getFinalIndexData().getLowHitForwardRows()),
+                rowsFingerprint(explicitResult.getFinalIndexData().getLowHitForwardRows()));
+    }
+
+    @Test
+    void processRows_optionsOverload_shouldRejectNullOptions() {
+        List<DocTerms> rows = new ArrayList<DocTerms>();
+        rows.add(new DocTerms(0, Arrays.asList(bytes("AB"), bytes("BC"))));
+
+        assertNotNull(ExclusiveFpRowsProcessingApi.defaultOptions());
+        assertThrows(NullPointerException.class, () ->
+                ExclusiveFpRowsProcessingApi.processRows(rows, null));
+    }
 
     @Test
     void processRows_shouldReturnEmptyStructures_whenRowsEmpty() {
@@ -105,10 +171,45 @@ class ExclusiveFpRowsProcessingApiProcessRowsTest {
         // 顶层便捷访问器也应与 FinalIndexData 一致
         assertEquals(groupsFingerprint(result.getGroups()),
                 groupsFingerprint(finalData.getHighFreqMutexGroupPostings()));
+        assertEquals(groupsFingerprint(result.getHighFreqMutexGroupPostings()),
+                groupsFingerprint(finalData.getHighFreqMutexGroupPostings()));
         assertEquals(hotTermsFingerprint(result.getHotTerms()),
+                hotTermsFingerprint(finalData.getHighFreqSingleTermPostings()));
+        assertEquals(hotTermsFingerprint(result.getHighFreqSingleTermPostings()),
                 hotTermsFingerprint(finalData.getHighFreqSingleTermPostings()));
         assertEquals(rowsFingerprint(result.getCutRes()),
                 rowsFingerprint(finalData.getLowHitForwardRows()));
+        assertEquals(rowsFingerprint(result.getLowHitForwardRows()),
+                rowsFingerprint(finalData.getLowHitForwardRows()));
+    }
+
+    @Test
+    void processRows_processingStats_shouldAggregateScatteredCounters() {
+        List<DocTerms> rows = new ArrayList<DocTerms>();
+        rows.add(new DocTerms(10, Arrays.asList(bytes("ABCD"))));
+        rows.add(new DocTerms(11, Arrays.asList(bytes("ABCE"))));
+        rows.add(new DocTerms(12, Arrays.asList(bytes("ABDE"))));
+
+        LineFileProcessingResult result = ExclusiveFpRowsProcessingApi.processRows(rows, 1, 2, 0);
+        LineFileProcessingResult.FinalIndexData finalData = result.getFinalIndexData();
+        LineFileProcessingResult.ProcessingStats stats = result.getProcessingStats();
+
+        assertEquals(result.getLoadedRows().size(), stats.getInputRowCount());
+        assertEquals(finalData.getHighFreqMutexGroupPostings().size(), stats.getSelectedGroupCount());
+        assertEquals(finalData.getHighFreqSingleTermPostings().size(), stats.getHighFreqSingleTermCount());
+        assertEquals(finalData.getLowHitForwardRows().size(), stats.getLowHitForwardRowCount());
+        assertEquals(finalData.getHighFreqMutexGroupTermsToIndex().size(), stats.getHighFreqMutexGroupTermsToIndexCount());
+        assertEquals(finalData.getHighFreqSingleTermToIndex().size(), stats.getHighFreqSingleTermToIndexCount());
+        assertEquals(finalData.getLowHitTermToIndexes().size(), stats.getLowHitTermToIndexesCount());
+        assertEquals(result.getSelectionResult().getFrequentTermCount(), stats.getFrequentTermCount());
+        assertEquals(result.getSelectionResult().getCandidateCount(), stats.getCandidateCount());
+        assertEquals(result.getSelectionResult().getIntersectionCount(), stats.getIntersectionCount());
+        assertEquals(result.getSelectionResult().getMaxCandidateCount(), stats.getMaxCandidateCount());
+        assertEquals(result.getSelectionResult().isTruncatedByCandidateLimit(), stats.isTruncatedByCandidateLimit());
+        assertEquals(finalData.getHotTermThresholdExclusive(), stats.getHotTermThresholdExclusive());
+        assertEquals(finalData.getSkipHashMinGram(), stats.getSkipHashMinGram());
+        assertEquals(finalData.getSkipHashMaxGram(), stats.getSkipHashMaxGram());
+        assertEquals(finalData.getOneByteDocidBitsetIndex().getMaxDocId(), stats.getOneByteIndexMaxDocId());
     }
 
     @Test

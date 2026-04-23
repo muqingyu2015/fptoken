@@ -53,20 +53,15 @@ class LegacyAdhocRootTestsMigrationTest {
     }
 
     @Test
-    void debugPerfScenario_selectorFullPathWithoutSampling_returnsValidShape() {
+    void debugPerfScenario_selectorSamplingPath_returnsValidShape() {
         List<DocTerms> docs = generateDebugBuildDocs(2500);
         int minSupport = 120;
 
-        ExclusiveFrequentItemsetSelector.setSamplingEnabled(false);
-        try {
-            List<SelectedGroup> groups = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsets(docs, minSupport, 2);
-            assertFalse(groups == null);
-            for (SelectedGroup group : groups) {
-                assertTrue(group.getTerms().size() >= 2);
-                assertTrue(group.getSupport() >= minSupport);
-            }
-        } finally {
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(true);
+        List<SelectedGroup> groups = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsets(docs, minSupport, 2);
+        assertFalse(groups == null);
+        for (SelectedGroup group : groups) {
+            assertTrue(group.getTerms().size() >= 2);
+            assertTrue(group.getSupport() >= minSupport);
         }
     }
 

@@ -2,14 +2,12 @@ package cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.index;
 
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
-import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.OpenHashTable;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 词典与垂直 tidset 索引:将「文档 → 词」转为「词 → 文档位图」,供频繁项集挖掘做交集。
@@ -53,17 +51,10 @@ public final class TermTidsetIndex {
         OpenHashTable termIdMap = new OpenHashTable();
         List<byte[]> idToTerm = new ArrayList<>();
         List<BitSet> tidsetsByTermId = new ArrayList<>();
-        int docCount = rows.size();
 
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
-            DocTerms row = rows.get(rowIndex);
-            if (row == null) {
-                throw new IllegalArgumentException("rows[" + rowIndex + "] must not be null");
-            }
+            DocTerms row = requireValidRow(rows, rowIndex);
             int docId = row.getDocId();
-            if (docId < 0) {
-                throw new IllegalArgumentException("docId must be >= 0, got " + docId);
-            }
             for (byte[] rawTerm : row.getTermsUnsafe()) {
                 if (rawTerm == null || rawTerm.length == 0) {
                     continue;
@@ -98,9 +89,23 @@ public final class TermTidsetIndex {
             int minSupport,
             double maxDocCoverageRatio
     ) {
+        return buildWithSupportBounds(rows, minSupport, maxDocCoverageRatio, null);
+    }
+
+    /**
+     * 与 {@link #buildWithSupportBounds(List, int, double)} 语义一致，
+     * 但会把关键子步骤耗时写入 {@code timings}（若非 null）。
+     */
+    public static TermTidsetIndex buildWithSupportBounds(
+            List<DocTerms> rows,
+            int minSupport,
+            double maxDocCoverageRatio,
+            BuildWithSupportBoundsTimings timings
+    ) {
         if (rows == null) {
             throw new IllegalArgumentException("rows must not be null");
         }
+        long t0 = System.nanoTime();
         int docCount = rows.size();
         int safeMinSupport = Math.max(1, minSupport);
         double safeMaxCoverage = maxDocCoverageRatio <= 0d ? 1d : Math.min(1d, maxDocCoverageRatio);
@@ -108,90 +113,227 @@ public final class TermTidsetIndex {
 
         if (safeMinSupport <= 1 && maxSupport >= docCount) {
             // 没有过滤条件，退化为原始的 build()（单次扫描，立即分配 BitSet）
-            return build(rows);
+            TermTidsetIndex index = build(rows);
+            if (timings != null) {
+                timings.firstPassMillis = 0L;
+                timings.filterPrepareMillis = 0L;
+                timings.secondPassMillis = 0L;
+                timings.totalMillis = nanosToMillis(System.nanoTime() - t0);
+            }
+            return index;
         }
 
-        // === 第一次扫描：统计频率 ===
-        // 使用自定义哈希表统计频率（只计数，不分配 BitSet）
-        // 使用 int[2] 同时存储 hash + count，避免额外映射
-        // 这里复用 OpenHashTable 的逻辑，但 value 不是 termId，而是 count
-        // 简单起见，先统计频率再过滤
-        Map<ByteArrayKey, int[]> freqMap = new HashMap<>();
-        // 只对首次出现频率 >= safeMinSupport 的词记录 docId，减少内存占用
-        // 注意：由于不知道最终哪些词会通过过滤，先全部统计频率
-        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
-            DocTerms row = rows.get(rowIndex);
-            if (row == null) {
-                throw new IllegalArgumentException("rows[" + rowIndex + "] must not be null");
+        FrequencyScanResult scan = scanTermFrequencies(rows, timings);
+        if (scan.termTypeCount == 0) {
+            if (timings != null) {
+                timings.filterPrepareMillis = 0L;
+                timings.secondPassMillis = 0L;
+                timings.totalMillis = nanosToMillis(System.nanoTime() - t0);
             }
-            int docId = row.getDocId();
-            if (docId < 0) {
-                throw new IllegalArgumentException("docId must be >= 0, got " + docId);
-            }
-            for (byte[] rawTerm : row.getTermsUnsafe()) {
-                if (rawTerm == null || rawTerm.length == 0) {
-                    continue;
-                }
-                ByteArrayKey key = new ByteArrayKey(rawTerm);
-                int[] count = freqMap.get(key);
-                if (count == null) {
-                    count = new int[]{1};
-                    freqMap.put(key, count);
-                } else {
-                    count[0]++;
-                }
-            }
-        }
-
-        if (freqMap.isEmpty()) {
             return new TermTidsetIndex(
                     Collections.<byte[]>emptyList(),
                     Collections.<BitSet>emptyList());
         }
 
         // === 按频率过滤 + 分配 BitSet + 第二次扫描设位图 ===
-        List<byte[]> idToTerm = new ArrayList<>();
-        List<BitSet> tidsetsByTermId = new ArrayList<>();
-        Map<ByteArrayKey, Integer> termIdMap = new HashMap<>();
-
-        for (Map.Entry<ByteArrayKey, int[]> entry : freqMap.entrySet()) {
-            int support = entry.getValue()[0];
-            if (support >= safeMinSupport && support <= maxSupport) {
-                ByteArrayKey key = entry.getKey();
-                int termId = idToTerm.size();
-                termIdMap.put(key, Integer.valueOf(termId));
-                idToTerm.add(key.bytes());
-                tidsetsByTermId.add(new BitSet());
+        FilteredIndexPreparation prepared = prepareFilteredIndex(scan, safeMinSupport, maxSupport, timings);
+        if (prepared.idToTerm.isEmpty()) {
+            if (timings != null) {
+                timings.secondPassMillis = 0L;
+                timings.totalMillis = nanosToMillis(System.nanoTime() - t0);
             }
-        }
-        freqMap.clear();
-
-        if (idToTerm.isEmpty()) {
             return new TermTidsetIndex(
                     Collections.<byte[]>emptyList(),
                     Collections.<BitSet>emptyList());
         }
 
         // 第二次扫描：使用 forLookup 设位图
+        fillFilteredTidsets(rows, scan.rowTermIds, prepared, timings);
+        if (timings != null) {
+            timings.totalMillis = nanosToMillis(System.nanoTime() - t0);
+        }
+
+        return new TermTidsetIndex(
+                Collections.unmodifiableList(prepared.idToTerm),
+                Collections.unmodifiableList(prepared.tidsetsByTermId));
+    }
+
+    public static final class BuildWithSupportBoundsTimings {
+        private long firstPassMillis;
+        private long filterPrepareMillis;
+        private long secondPassMillis;
+        private long totalMillis;
+
+        public long getFirstPassMillis() {
+            return firstPassMillis;
+        }
+
+        public long getFilterPrepareMillis() {
+            return filterPrepareMillis;
+        }
+
+        public long getSecondPassMillis() {
+            return secondPassMillis;
+        }
+
+        public long getTotalMillis() {
+            return totalMillis;
+        }
+    }
+
+    private static long nanosToMillis(long nanos) {
+        return nanos / 1_000_000L;
+    }
+
+    private static DocTerms requireValidRow(List<DocTerms> rows, int rowIndex) {
+        DocTerms row = rows.get(rowIndex);
+        if (row == null) {
+            throw new IllegalArgumentException("rows[" + rowIndex + "] must not be null");
+        }
+        int docId = row.getDocId();
+        if (docId < 0) {
+            throw new IllegalArgumentException("docId must be >= 0, got " + docId);
+        }
+        return row;
+    }
+
+    private static FrequencyScanResult scanTermFrequencies(
+            List<DocTerms> rows,
+            BuildWithSupportBoundsTimings timings
+    ) {
+        long firstPassStart = System.nanoTime();
+        OpenHashTable freqTable = new OpenHashTable();
+        int[] supports = new int[16];
+        int termTypeCount = 0;
+        List<int[]> rowTermIds = new ArrayList<int[]>(rows.size());
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
-            DocTerms row = rows.get(rowIndex);
-            int docId = row.getDocId();
-            for (byte[] rawTerm : row.getTermsUnsafe()) {
+            DocTerms row = requireValidRow(rows, rowIndex);
+            List<byte[]> rowTerms = row.getTermsUnsafe();
+            int[] ids = new int[rowTerms.size()];
+            int used = 0;
+            for (byte[] rawTerm : rowTerms) {
                 if (rawTerm == null || rawTerm.length == 0) {
                     continue;
                 }
                 int hash = ByteArrayUtils.hash(rawTerm);
-                ByteArrayKey lookupKey = ByteArrayKey.forLookup(rawTerm, hash);
-                Integer termId = termIdMap.get(lookupKey);
-                if (termId != null) {
-                    tidsetsByTermId.get(termId.intValue()).set(docId);
+                int termId = freqTable.getOrPut(rawTerm, hash, true);
+                if (termId >= supports.length) {
+                    supports = growSupportsArray(supports, termId);
+                }
+                supports[termId]++;
+                ids[used++] = termId;
+                if (termId + 1 > termTypeCount) {
+                    termTypeCount = termId + 1;
+                }
+            }
+            if (used == ids.length) {
+                rowTermIds.add(ids);
+            } else {
+                int[] compact = new int[used];
+                System.arraycopy(ids, 0, compact, 0, used);
+                rowTermIds.add(compact);
+            }
+        }
+        if (timings != null) {
+            timings.firstPassMillis = nanosToMillis(System.nanoTime() - firstPassStart);
+        }
+        return new FrequencyScanResult(freqTable, supports, termTypeCount, rowTermIds);
+    }
+
+    private static int[] growSupportsArray(int[] current, int targetTermId) {
+        int newCap = current.length;
+        while (newCap <= targetTermId) {
+            newCap = Math.max(16, newCap * 2);
+        }
+        int[] grown = new int[newCap];
+        System.arraycopy(current, 0, grown, 0, current.length);
+        return grown;
+    }
+
+    private static FilteredIndexPreparation prepareFilteredIndex(
+            FrequencyScanResult scan,
+            int safeMinSupport,
+            int maxSupport,
+            BuildWithSupportBoundsTimings timings
+    ) {
+        long filterPrepareStart = System.nanoTime();
+        List<byte[]> idToTerm = new ArrayList<>();
+        List<BitSet> tidsetsByTermId = new ArrayList<>();
+        int[] originTermIdToFiltered = new int[scan.termTypeCount];
+        Arrays.fill(originTermIdToFiltered, -1);
+
+        for (int termId = 0; termId < scan.termTypeCount; termId++) {
+            int support = scan.supports[termId];
+            if (support >= safeMinSupport && support <= maxSupport) {
+                int filteredTermId = idToTerm.size();
+                originTermIdToFiltered[termId] = filteredTermId;
+                idToTerm.add(scan.freqTable.getKeyBytes(termId));
+                tidsetsByTermId.add(new BitSet());
+            }
+        }
+        if (timings != null) {
+            timings.filterPrepareMillis = nanosToMillis(System.nanoTime() - filterPrepareStart);
+        }
+        return new FilteredIndexPreparation(idToTerm, tidsetsByTermId, originTermIdToFiltered);
+    }
+
+    private static void fillFilteredTidsets(
+            List<DocTerms> rows,
+            List<int[]> rowTermIds,
+            FilteredIndexPreparation prepared,
+            BuildWithSupportBoundsTimings timings
+    ) {
+        long secondPassStart = System.nanoTime();
+        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
+            DocTerms row = rows.get(rowIndex);
+            int docId = row.getDocId();
+            int[] termIdsInRow = rowTermIds.get(rowIndex);
+            for (int i = 0; i < termIdsInRow.length; i++) {
+                int originTermId = termIdsInRow[i];
+                int filteredTermId = prepared.originTermIdToFiltered[originTermId];
+                if (filteredTermId >= 0) {
+                    prepared.tidsetsByTermId.get(filteredTermId).set(docId);
                 }
             }
         }
+        if (timings != null) {
+            timings.secondPassMillis = nanosToMillis(System.nanoTime() - secondPassStart);
+        }
+    }
 
-        return new TermTidsetIndex(
-                Collections.unmodifiableList(idToTerm),
-                Collections.unmodifiableList(tidsetsByTermId));
+    private static final class FrequencyScanResult {
+        private final OpenHashTable freqTable;
+        private final int[] supports;
+        private final int termTypeCount;
+        private final List<int[]> rowTermIds;
+
+        private FrequencyScanResult(
+                OpenHashTable freqTable,
+                int[] supports,
+                int termTypeCount,
+                List<int[]> rowTermIds
+        ) {
+            this.freqTable = freqTable;
+            this.supports = supports;
+            this.termTypeCount = termTypeCount;
+            this.rowTermIds = rowTermIds;
+        }
+    }
+
+    private static final class FilteredIndexPreparation {
+        private final List<byte[]> idToTerm;
+        private final List<BitSet> tidsetsByTermId;
+        private final int[] originTermIdToFiltered;
+
+        private FilteredIndexPreparation(
+                List<byte[]> idToTerm,
+                List<BitSet> tidsetsByTermId,
+                int[] originTermIdToFiltered
+        ) {
+            this.idToTerm = idToTerm;
+            this.tidsetsByTermId = tidsetsByTermId;
+            this.originTermIdToFiltered = originTermIdToFiltered;
+        }
     }
 
     /**

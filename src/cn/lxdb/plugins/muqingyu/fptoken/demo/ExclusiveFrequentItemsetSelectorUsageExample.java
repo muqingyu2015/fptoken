@@ -39,7 +39,7 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
     /**
      * 采样参数设置示例：
      * <ul>
-     *   <li>代码内直接设置采样开关 / 比例 / 最小样本数 / support 缩放。</li>
+     *   <li>代码内直接设置采样比例 / 最小样本数 / support 缩放。</li>
      * </ul>
      */
     private static void runSamplingTuningExample() {
@@ -47,7 +47,6 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
         int oldMinSample = ExclusiveFrequentItemsetSelector.getMinSampleCount();
         double oldScale = ExclusiveFrequentItemsetSelector.getSamplingSupportScale();
         try {
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(EngineTuningConfig.DEFAULT_SAMPLING_ENABLED);
             ExclusiveFrequentItemsetSelector.setSampleRatio(EngineTuningConfig.DEFAULT_SAMPLE_RATIO);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT);
             // 0.0 表示按实际样本占比自动缩放 minSupport
@@ -65,7 +64,6 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
             ExclusiveFrequentItemsetSelector.setSampleRatio(oldRatio);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(oldMinSample);
             ExclusiveFrequentItemsetSelector.setSamplingSupportScale(oldScale);
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(EngineTuningConfig.DEFAULT_SAMPLING_ENABLED);
         }
     }
 

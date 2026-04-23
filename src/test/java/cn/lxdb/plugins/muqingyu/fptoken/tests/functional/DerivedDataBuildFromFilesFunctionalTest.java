@@ -31,7 +31,7 @@ class DerivedDataBuildFromFilesFunctionalTest {
         Path file = dir.resolve("boundary.txt");
         Files.write(file, Arrays.asList("ABCD", "ABCE", "ZZZZ", "ABCD"), StandardCharsets.UTF_8);
 
-        List<DocTerms> rows = tokenizeRows(LineRecordDatasetLoader.loadSingleFile(file, 2, 2).getRows(), 2, 2);
+        List<DocTerms> rows = tokenizeRows(LineRecordDatasetLoader.loadSingleFileRaw(file).getRows(), 2, 2);
         ExclusiveSelectionResult result = resultWithSelectedTerms("AB");
 
         LineFileProcessingResult.DerivedData derived =
@@ -56,7 +56,7 @@ class DerivedDataBuildFromFilesFunctionalTest {
         Path file = dir.resolve("no-selected.txt");
         Files.write(file, Arrays.asList("XYAB", "ABAC", "ABAD", "XYXY"), StandardCharsets.UTF_8);
 
-        List<DocTerms> rows = tokenizeRows(LineRecordDatasetLoader.loadSingleFile(file, 2, 2).getRows(), 2, 2);
+        List<DocTerms> rows = tokenizeRows(LineRecordDatasetLoader.loadSingleFileRaw(file).getRows(), 2, 2);
         ExclusiveSelectionResult emptyResult =
                 new ExclusiveSelectionResult(Collections.<SelectedGroup>emptyList(), 0, 0, 0, 0, false);
 
@@ -83,7 +83,7 @@ class DerivedDataBuildFromFilesFunctionalTest {
                 "ACW"
         ), StandardCharsets.UTF_8);
 
-        List<DocTerms> rows = tokenizeRows(LineRecordDatasetLoader.loadSingleFile(file, 2, 2).getRows(), 2, 2);
+        List<DocTerms> rows = tokenizeRows(LineRecordDatasetLoader.loadSingleFileRaw(file).getRows(), 2, 2);
         ExclusiveSelectionResult emptyResult =
                 new ExclusiveSelectionResult(Collections.<SelectedGroup>emptyList(), 0, 0, 0, 0, false);
 

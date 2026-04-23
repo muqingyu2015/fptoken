@@ -2,7 +2,6 @@ package cn.lxdb.plugins.muqingyu.fptoken.runner.entry;
 
 import cn.lxdb.plugins.muqingyu.fptoken.api.ExclusiveFpRowsProcessingApi;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
-import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.dataset.LineRecordDatasetLoader;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.dataset.SampleDataPreparer;
@@ -14,6 +13,12 @@ import java.util.List;
 
 /**
  * 文件行输入运行器（实现类）。
+ *
+ * <p><b>命令行参数顺序</b>：
+ * {@code inputFile ngramStart ngramEnd minSupport minItemsetSize hotTermThresholdExclusive}</p>
+ *
+ * <p><b>限制说明</b>：
+ * 输入文件按 {@link LineRecordDatasetLoader} 的上限规则处理（每文件最多 32000 行、每行最多 64B）。</p>
  */
 public final class FptokenLineFileRunnerMain {
 
@@ -42,7 +47,7 @@ public final class FptokenLineFileRunnerMain {
 
         // 文件读写层：仅生成 loaded(rows + stats)
         LineRecordDatasetLoader.LoadOutcome loadedOutcome =
-                loadRowsFromFile(dataDir, inputFile, ngramStart, ngramEnd);
+                loadRowsFromFile(dataDir, inputFile);
         LineRecordDatasetLoader.LoadedDataset loaded = loadedOutcome.getLoadedDataset();
         // 处理层：仅基于 rows，供 LXDB API 复用
         LineFileProcessingResult processing =
@@ -67,15 +72,15 @@ public final class FptokenLineFileRunnerMain {
 
         // 统一业务返回：高频倒排层(groups + hotTerms) + 低频正排层(cutRes)。
         LineFileProcessingResult.FinalIndexData finalIndexData = processing.getFinalIndexData();
-        ExclusiveSelectionResult result = processing.getSelectionResult();
+        LineFileProcessingResult.ProcessingStats statsView = processing.getProcessingStats();
 
         System.out.println();
         System.out.println("=== Mining Stats ===");
-        System.out.println("frequentTermCount=" + result.getFrequentTermCount());
-        System.out.println("candidateCount=" + result.getCandidateCount());
-        System.out.println("intersectionCount=" + result.getIntersectionCount());
-        System.out.println("truncatedByLimit=" + result.isTruncatedByCandidateLimit());
-        System.out.println("selectedGroups=" + result.getGroups().size());
+        System.out.println("frequentTermCount=" + statsView.getFrequentTermCount());
+        System.out.println("candidateCount=" + statsView.getCandidateCount());
+        System.out.println("intersectionCount=" + statsView.getIntersectionCount());
+        System.out.println("truncatedByLimit=" + statsView.isTruncatedByCandidateLimit());
+        System.out.println("selectedGroups=" + statsView.getSelectedGroupCount());
 
         System.out.println();
         System.out.println("=== Derived Data Stats ===");
@@ -101,19 +106,20 @@ public final class FptokenLineFileRunnerMain {
             int hotTermThresholdExclusive
     ) throws Exception {
         // 这个方法用于测试与外部调用：返回结构化结果，不负责控制台打印。
+        // 约束：调用方应保证 inputFile 可读、ngram 区间与 support 参数合法。
         LineRecordDatasetLoader.LoadOutcome loaded =
-                loadRowsFromFile(dataDir, inputFile, ngramStart, ngramEnd);
+                loadRowsFromFile(dataDir, inputFile);
         return ExclusiveFpRowsProcessingApi.processRowsWithNgram(
                 loaded.getLoadedDataset().getRows(),
                 ngramStart, ngramEnd, minSupport, minItemsetSize, hotTermThresholdExclusive);
     }
 
     private static LineRecordDatasetLoader.LoadOutcome loadRowsFromFile(
-            Path dataDir, Path inputFile, int ngramStart, int ngramEnd
+            Path dataDir, Path inputFile
     ) throws Exception {
         // 保持 runner 的开箱即用：没有样例文件时自动补齐。
         SampleDataPreparer.ensureSampleFiles(dataDir);
-        return LineRecordDatasetLoader.loadSingleFileWithStats(inputFile, ngramStart, ngramEnd);
+        return LineRecordDatasetLoader.loadSingleFileRawWithStats(inputFile);
     }
 
     private static void printTopGroups(List<SelectedGroup> groups, int limit) {

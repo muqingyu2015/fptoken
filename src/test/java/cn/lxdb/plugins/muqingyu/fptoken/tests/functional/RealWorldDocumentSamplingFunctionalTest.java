@@ -34,8 +34,8 @@ class RealWorldDocumentSamplingFunctionalTest {
 
     private static void assertFileStable(Path file) throws Exception {
         LineRecordDatasetLoader.LoadedDataset loaded = LineRecordDatasetLoader.loadSingleFile(file, 2, 4);
-        ExclusiveSelectionResult full = runWithSampling(loaded, false, 0.0d, 50, 0.0d);
-        ExclusiveSelectionResult sampled = runWithSampling(loaded, true, 0.30d, 80, 0.0d);
+        ExclusiveSelectionResult full = runWithSampling(loaded, 1.0d, 1, 1.0d);
+        ExclusiveSelectionResult sampled = runWithSampling(loaded, 0.30d, 80, 0.0d);
 
         assertTrue(full.getCandidateCount() >= 0);
         assertTrue(sampled.getCandidateCount() >= 0);
@@ -44,7 +44,6 @@ class RealWorldDocumentSamplingFunctionalTest {
 
     private static ExclusiveSelectionResult runWithSampling(
             LineRecordDatasetLoader.LoadedDataset loaded,
-            boolean enabled,
             double ratio,
             int minSampleCount,
             double supportScale
@@ -53,14 +52,12 @@ class RealWorldDocumentSamplingFunctionalTest {
         int oldMin = ExclusiveFrequentItemsetSelector.getMinSampleCount();
         double oldScale = ExclusiveFrequentItemsetSelector.getSamplingSupportScale();
         try {
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(enabled);
             ExclusiveFrequentItemsetSelector.setSampleRatio(ratio);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(minSampleCount);
             ExclusiveFrequentItemsetSelector.setSamplingSupportScale(supportScale);
             return ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
                     loaded.getRows(), 30, 2, 4, 150_000);
         } finally {
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(true);
             ExclusiveFrequentItemsetSelector.setSampleRatio(oldRatio);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(oldMin);
             ExclusiveFrequentItemsetSelector.setSamplingSupportScale(oldScale);

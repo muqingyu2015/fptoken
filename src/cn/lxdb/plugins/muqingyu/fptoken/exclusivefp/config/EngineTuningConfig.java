@@ -20,11 +20,11 @@ public final class EngineTuningConfig {
     /** 默认最大项集长度(item 个数)。 */
     public static final int DEFAULT_MAX_ITEMSET_SIZE = 6;
     /** 默认候选项上限。 */
-    public static final int DEFAULT_MAX_CANDIDATE_COUNT = 200_000;
+    public static final int DEFAULT_MAX_CANDIDATE_COUNT = 150_000;
     /** 默认参与 Beam 扩展的频繁 1-项上限。 */
-    public static final int DEFAULT_MAX_FREQUENT_TERM_COUNT = 1500;
+    public static final int DEFAULT_MAX_FREQUENT_TERM_COUNT = 1200;
     /** 默认每个前缀每层最大扩展分支数。 */
-    public static final int DEFAULT_MAX_BRANCHING_FACTOR = 16;
+    public static final int DEFAULT_MAX_BRANCHING_FACTOR = 12;
     /** Facade 层默认 Beam 宽度(用于自适应分段的基准档位)。 */
     public static final int FACADE_DEFAULT_BEAM_WIDTH = 32;
     /** 默认两阶段挑选中 1-opt 替换尝试上限。 */
@@ -62,7 +62,7 @@ public final class EngineTuningConfig {
     /** 采样比率：只使用文档总数的该比例做挖掘（近似），最后回算完整 doclist。 */
     public static final double DEFAULT_SAMPLE_RATIO = 0.30d;
     /** 最小采样文档数，避免太少时挖掘失效。 */
-    public static final int DEFAULT_MIN_SAMPLE_COUNT = 50;
+    public static final int DEFAULT_MIN_SAMPLE_COUNT = 64;
     /** 采样支持度缩放因子。0.0=自动按采样比例缩放（默认，推荐），1.0=不缩放。 */
     public static final double DEFAULT_SAMPLING_SUPPORT_SCALE = 0.0d;
     /** 采样总开关默认值。 */
@@ -75,7 +75,7 @@ public final class EngineTuningConfig {
     /** 默认 n-gram 结束长度。 */
     public static final int DEFAULT_NGRAM_END = 4;
     /** 默认热点词阈值（count > threshold 才进入 hot term）。 */
-    public static final int DEFAULT_HOT_TERM_THRESHOLD_EXCLUSIVE = 10;
+    public static final int DEFAULT_HOT_TERM_THRESHOLD_EXCLUSIVE = 12;
     /** runner 默认最小支持度。 */
     public static final int DEFAULT_RUNNER_MIN_SUPPORT = 50;
     /** runner 默认最小项集长度。 */
