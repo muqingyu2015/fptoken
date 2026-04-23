@@ -58,13 +58,15 @@ class LineFileRunnerDerivedDataFunctionalTest {
 
         // 3) derived 数据必须是“先统计/再剔除 result 词项”的结果
         Set<ByteArrayKey> selectedTerms = collectSelectedTerms(processing.getSelectionResult());
+        // 新命名语义：highFreq* 是高频倒排层，lowHitForwardRows 是低频正排层（skip index 源）。
+        LineFileProcessingResult.FinalIndexData finalIndexData = processing.getFinalIndexData();
 
         List<DocTerms> expectedCutRes = expectedCutRes(loadedRows, selectedTerms);
-        List<DocTerms> actualCutRes = processing.getDerivedData().getCutRes();
+        List<DocTerms> actualCutRes = finalIndexData.getLowHitForwardRows();
         assertEquals(rowsFingerprint(expectedCutRes), rowsFingerprint(actualCutRes));
 
         Map<String, List<Integer>> expectedHotTerms = expectedHotTerms(loadedRows, 1, selectedTerms);
-        Map<String, List<Integer>> actualHotTerms = hotTermsMap(processing.getDerivedData().getHotTerms());
+        Map<String, List<Integer>> actualHotTerms = hotTermsMap(finalIndexData.getHighFreqSingleTermPostings());
         assertEquals(expectedHotTerms, actualHotTerms);
 
         // selected term 必须从 cut_res 与 hot_terms 同时剔除

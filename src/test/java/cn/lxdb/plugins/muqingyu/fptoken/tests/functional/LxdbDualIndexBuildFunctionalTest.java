@@ -38,11 +38,16 @@ class LxdbDualIndexBuildFunctionalTest {
 
             List<DocTerms> rows = LineRecordDatasetLoader.loadSingleFile(file, 2, 4).getRows();
             LineFileProcessingResult processing = ExclusiveFpRowsProcessingApi.processRows(rows, 80, 2, 16);
+            LineFileProcessingResult.FinalIndexData finalIndexData = processing.getFinalIndexData();
 
+            // 高频层倒排：互斥组合倒排 + 单词倒排。
             Map<ByteArrayKey, LinkedHashSet<Integer>> compressedIndex =
-                    buildCompressedIndex(processing.getSelectionResult(), processing.getDerivedData().getHotTerms());
+                    buildCompressedIndex(
+                            finalIndexData.getHighFreqMutexGroupPostings(),
+                            finalIndexData.getHighFreqSingleTermPostings());
+            // 低频层正排：使用 lowHitForwardRows 构建 skip index。
             Map<ByteArrayKey, LinkedHashSet<Integer>> skipIndex =
-                    buildSkipIndex(processing.getDerivedData().getCutRes(), compressedIndex.keySet());
+                    buildSkipIndex(finalIndexData.getLowHitForwardRows(), compressedIndex.keySet());
             Map<ByteArrayKey, LinkedHashSet<Integer>> sourceIndex = buildSkipIndex(processing.getLoadedRows());
             Set<ByteArrayKey> selectedTerms = collectSelectedTerms(processing.getSelectionResult());
 
@@ -75,7 +80,7 @@ class LxdbDualIndexBuildFunctionalTest {
             // 4) selectionResult 中的词项必须落在主压缩索引，不应再出现在 skip index。
             assertSelectedTermsInCompressedOnly(processing.getSelectionResult(), compressedIndex, skipIndex);
             // 5) hotTerms 也必须落在主压缩索引，不应再出现在 skip index。
-            assertHotTermsInCompressedOnly(processing.getDerivedData().getHotTerms(), compressedIndex, skipIndex);
+            assertHotTermsInCompressedOnly(finalIndexData.getHighFreqSingleTermPostings(), compressedIndex, skipIndex);
         }
     }
 
@@ -116,11 +121,11 @@ class LxdbDualIndexBuildFunctionalTest {
     }
 
     private static Map<ByteArrayKey, LinkedHashSet<Integer>> buildCompressedIndex(
-            ExclusiveSelectionResult result,
+            List<SelectedGroup> mutexGroups,
             List<LineFileProcessingResult.HotTermDocList> hotTerms
     ) {
         Map<ByteArrayKey, LinkedHashSet<Integer>> out = new LinkedHashMap<ByteArrayKey, LinkedHashSet<Integer>>();
-        for (SelectedGroup group : result.getGroups()) {
+        for (SelectedGroup group : mutexGroups) {
             LinkedHashSet<Integer> groupDocs = new LinkedHashSet<Integer>(group.getDocIds());
             for (byte[] termBytes : group.getTerms()) {
                 ByteArrayKey term = new ByteArrayKey(termBytes);

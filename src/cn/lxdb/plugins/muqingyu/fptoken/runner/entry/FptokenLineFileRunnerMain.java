@@ -61,6 +61,8 @@ public final class FptokenLineFileRunnerMain {
             return;
         }
 
+        // 统一业务返回：高频倒排层(groups + hotTerms) + 低频正排层(cutRes)。
+        LineFileProcessingResult.FinalIndexData finalIndexData = processing.getFinalIndexData();
         ExclusiveSelectionResult result = processing.getSelectionResult();
 
         System.out.println();
@@ -74,11 +76,15 @@ public final class FptokenLineFileRunnerMain {
         System.out.println();
         System.out.println("=== Derived Data Stats ===");
         System.out.println("hotTermThresholdExclusive(keep count > xxx): "
-                + processing.getDerivedData().getHotTermThresholdExclusive());
-        System.out.println("cutResRows(after remove selected terms)=" + processing.getDerivedData().getCutRes().size());
-        System.out.println("hotTerms(after remove selected terms)=" + processing.getDerivedData().getHotTerms().size());
+                + finalIndexData.getHotTermThresholdExclusive());
+        System.out.println("highFreqMutexGroupPostings(inverted)="
+                + finalIndexData.getHighFreqMutexGroupPostings().size());
+        System.out.println("highFreqSingleTermPostings(inverted)="
+                + finalIndexData.getHighFreqSingleTermPostings().size());
+        System.out.println("lowHitForwardRows(skip-index source)="
+                + finalIndexData.getLowHitForwardRows().size());
 
-        printTopGroups(result.getGroups(), 20);
+        printTopGroups(finalIndexData.getHighFreqMutexGroupPostings(), 20);
     }
 
     public static LineFileProcessingResult runPipeline(

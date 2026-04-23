@@ -47,11 +47,12 @@ class LxdbDualIndexBuildPerformanceTest {
             final Ref<Map<ByteArrayKey, LinkedHashSet<Integer>>> skipHolder =
                     new Ref<Map<ByteArrayKey, LinkedHashSet<Integer>>>();
             long buildMs = PerfTestSupport.elapsedMillis(() -> {
+                LineFileProcessingResult.FinalIndexData finalIndexData = holder.value.getFinalIndexData();
                 compressedHolder.value = buildCompressedIndex(
-                        holder.value.getSelectionResult(),
-                        holder.value.getDerivedData().getHotTerms());
+                        finalIndexData.getHighFreqMutexGroupPostings(),
+                        finalIndexData.getHighFreqSingleTermPostings());
                 skipHolder.value = buildSkipIndex(
-                        holder.value.getDerivedData().getCutRes(),
+                        finalIndexData.getLowHitForwardRows(),
                         compressedHolder.value.keySet());
             });
             indexBuildTotalMs += buildMs;
@@ -78,9 +79,12 @@ class LxdbDualIndexBuildPerformanceTest {
             final Ref<LineFileProcessingResult> holder = new Ref<LineFileProcessingResult>();
             long elapsedMs = PerfTestSupport.elapsedMillis(() -> {
                 holder.value = ExclusiveFpRowsProcessingApi.processRows(rows, 220, 2, 24);
+                LineFileProcessingResult.FinalIndexData finalIndexData = holder.value.getFinalIndexData();
                 Map<ByteArrayKey, LinkedHashSet<Integer>> compressed =
-                        buildCompressedIndex(holder.value.getSelectionResult(), holder.value.getDerivedData().getHotTerms());
-                buildSkipIndex(holder.value.getDerivedData().getCutRes(), compressed.keySet());
+                        buildCompressedIndex(
+                                finalIndexData.getHighFreqMutexGroupPostings(),
+                                finalIndexData.getHighFreqSingleTermPostings());
+                buildSkipIndex(finalIndexData.getLowHitForwardRows(), compressed.keySet());
             });
             totalMs += elapsedMs;
         }
@@ -90,11 +94,11 @@ class LxdbDualIndexBuildPerformanceTest {
     }
 
     private static Map<ByteArrayKey, LinkedHashSet<Integer>> buildCompressedIndex(
-            ExclusiveSelectionResult result,
+            List<SelectedGroup> mutexGroups,
             List<LineFileProcessingResult.HotTermDocList> hotTerms
     ) {
         Map<ByteArrayKey, LinkedHashSet<Integer>> out = new LinkedHashMap<ByteArrayKey, LinkedHashSet<Integer>>();
-        for (SelectedGroup group : result.getGroups()) {
+        for (SelectedGroup group : mutexGroups) {
             LinkedHashSet<Integer> groupDocs = new LinkedHashSet<Integer>(group.getDocIds());
             for (byte[] termBytes : group.getTerms()) {
                 ByteArrayKey term = new ByteArrayKey(termBytes);

@@ -24,6 +24,55 @@ public final class ExclusiveFpRowsProcessingApi {
     private ExclusiveFpRowsProcessingApi() {
     }
 
+    /**
+     * 行级处理总入口（对外 API）。
+     *
+     * <p>该方法接收上游（如 LXDB）准备好的 {@code List<DocTerms>}，完成以下流程：</p>
+     * <ol>
+     *   <li>对输入 rows 做防御性复制，避免修改调用方对象。</li>
+     *   <li>执行互斥高频项挖掘，得到 {@link ExclusiveSelectionResult}。</li>
+     *   <li>基于同一批 rows 构建最终三层索引输入：
+     *     <ul>
+     *       <li>{@code highFreqMutexGroupPostings}：高频互斥组合倒排（一个 group 内多个 term 共享 docId 列表）</li>
+     *       <li>{@code highFreqSingleTermPostings}：高频单 term 倒排</li>
+     *       <li>{@code lowHitForwardRows}：排除高频层后剩余的低命中正排行（供 skip index 使用）</li>
+     *     </ul>
+     *   </li>
+     * </ol>
+     *
+     * <p><b>建议使用方式</b>：</p>
+     * <pre>{@code
+     * LineFileProcessingResult result =
+     *         ExclusiveFpRowsProcessingApi.processRows(rows, 80, 2, 16);
+     *
+     * LineFileProcessingResult.FinalIndexData finalData = result.getFinalIndexData();
+     * List<SelectedGroup> groupPostings = finalData.getHighFreqMutexGroupPostings();
+     * List<LineFileProcessingResult.HotTermDocList> termPostings = finalData.getHighFreqSingleTermPostings();
+     * List<DocTerms> lowHitRows = finalData.getLowHitForwardRows();
+     * }</pre>
+     *
+     * <p><b>参数说明</b>：</p>
+     * <ul>
+     *   <li>{@code rows}：输入文档行；每个 {@link DocTerms} 代表一条记录（docId + terms）。</li>
+     *   <li>{@code minSupport}：最小支持度；越大结果越“保守”，候选规模更小。</li>
+     *   <li>{@code minItemsetSize}：最小项集长度；通常建议 {@code >= 2}。</li>
+     *   <li>{@code hotTermThresholdExclusive}：高频单 term 阈值（严格 {@code count > threshold} 才进入 highFreqSingleTermPostings）。</li>
+     * </ul>
+     *
+     * <p><b>返回值说明</b>：</p>
+     * <ul>
+     *   <li>{@link LineFileProcessingResult#getFinalIndexData()} 是业务主出口（推荐优先使用）。</li>
+     *   <li>{@link LineFileProcessingResult#getSelectionResult()} 提供挖掘统计与兼容访问。</li>
+     *   <li>{@link LineFileProcessingResult#getLoadedRows()} 为处理时使用的输入快照。</li>
+     * </ul>
+     *
+     * <p><b>注意事项</b>：</p>
+     * <ul>
+     *   <li>方法内部会设置采样参数（代码配置），无需依赖外部 properties 文件。</li>
+     *   <li>若 rows 为空，会返回空结果结构；调用方可直接按空集合处理。</li>
+     *   <li>若希望完全禁用采样，请在外层先调用 {@link ExclusiveFrequentItemsetSelector#setSamplingEnabled(boolean)} 统一配置。</li>
+     * </ul>
+     */
     public static LineFileProcessingResult processRows(
             List<DocTerms> rows,
             int minSupport,
@@ -42,6 +91,8 @@ public final class ExclusiveFpRowsProcessingApi {
                 loadedRows, minSupport, minItemsetSize, 6, 200000);
         LineFileProcessingResult.DerivedData derived =
                 buildDerivedData(loadedRows, result, hotTermThresholdExclusive);
+        // 返回结构中会聚合出最终三元结果（新命名）：
+        // highFreqMutexGroupPostings + highFreqSingleTermPostings + lowHitForwardRows。
         return new LineFileProcessingResult(loadedRows, result, derived);
     }
 
