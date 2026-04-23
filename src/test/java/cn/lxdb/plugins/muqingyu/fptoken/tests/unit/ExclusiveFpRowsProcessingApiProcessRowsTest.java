@@ -13,6 +13,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.runner.result.LineFileProcessingResult;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -146,6 +147,85 @@ class ExclusiveFpRowsProcessingApiProcessRowsTest {
         Collections.sort(expectedLowHit);
         Collections.sort(actualLowHit);
         assertEquals(expectedLowHit, actualLowHit);
+
+        assertTrue(finalData.getHighFreqMutexGroupSkipBitsetIndex().getHashLevels().size() >= 1);
+        assertTrue(finalData.getHighFreqSingleTermSkipBitsetIndex().getHashLevels().size() >= 1);
+        assertTrue(finalData.getLowHitTermSkipBitsetIndex().getHashLevels().size() >= 1);
+
+        LineFileProcessingResult.TermBlockSkipBitsetIndex lowHitBitsets =
+                finalData.getLowHitTermSkipBitsetIndex();
+        assertEquals(2, lowHitBitsets.getMaxPostingIndex());
+        LineFileProcessingResult.HashLevelBitsets l2 = findLevel(lowHitBitsets, 2);
+        int bucket = hashWindowToBucket(bytes("LX"), 0, 2);
+        BitSet bucketBits = l2.getBuckets().get(bucket);
+        assertTrue(bucketBits.get(0));
+    }
+
+    @Test
+    void processRows_shouldAllowDynamicSkipHashGramRange() {
+        List<DocTerms> rows = new ArrayList<DocTerms>();
+        rows.add(new DocTerms(10, Arrays.asList(bytes("ABCD"), bytes("BCDE"))));
+        rows.add(new DocTerms(20, Arrays.asList(bytes("ABCD"), bytes("CDEF"))));
+
+        LineFileProcessingResult result = ExclusiveFpRowsProcessingApi.processRows(
+                rows, 1, 2, 1, 3, 3);
+        LineFileProcessingResult.TermBlockSkipBitsetIndex lowHitIndex =
+                result.getFinalIndexData().getLowHitTermSkipBitsetIndex();
+
+        assertEquals(3, result.getFinalIndexData().getSkipHashMinGram());
+        assertEquals(3, result.getFinalIndexData().getSkipHashMaxGram());
+        assertEquals(1, lowHitIndex.getHashLevels().size());
+        assertEquals(3, lowHitIndex.getHashLevels().get(0).getGramLength());
+    }
+
+    @Test
+    void processRows_shouldRejectInvalidSkipHashGramRange() {
+        List<DocTerms> rows = new ArrayList<DocTerms>();
+        rows.add(new DocTerms(1, Arrays.asList(bytes("ABCD"))));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                ExclusiveFpRowsProcessingApi.processRows(rows, 1, 2, 1, 1, 4));
+        assertThrows(IllegalArgumentException.class, () ->
+                ExclusiveFpRowsProcessingApi.processRows(rows, 1, 2, 1, 4, 3));
+    }
+
+    @Test
+    void processRowsWithNgram_shouldTokenizeSingleRawTermRowsInsideApi() {
+        List<DocTerms> rawRows = new ArrayList<DocTerms>();
+        rawRows.add(new DocTerms(0, Arrays.asList(bytes("ABCD"))));
+        rawRows.add(new DocTerms(1, Arrays.asList(bytes("ABEF"))));
+
+        LineFileProcessingResult result = ExclusiveFpRowsProcessingApi.processRowsWithNgram(
+                rawRows, 2, 2, 100, 2, 0);
+        Map<String, List<Integer>> hotMap = toHotMap(result.getFinalIndexData().getHighFreqSingleTermPostings());
+
+        assertTrue(hotMap.containsKey(hex("AB")));
+        assertFalse(hotMap.containsKey(hex("ABCD"))); // 原始整行不应作为 term 参与统计
+    }
+
+    @Test
+    void processRows_shouldBuildOneByteDocidBitsetIndex_fromRawLoadedRows() {
+        List<DocTerms> rawRows = new ArrayList<DocTerms>();
+        rawRows.add(new DocTerms(0, Arrays.asList(bytes("ABCD"))));
+        rawRows.add(new DocTerms(2, Arrays.asList(bytes("BC"))));
+        rawRows.add(new DocTerms(5, Arrays.asList(bytes("A"))));
+
+        LineFileProcessingResult result = ExclusiveFpRowsProcessingApi.processRowsWithNgram(
+                rawRows, 2, 4, 100, 2, 0);
+        LineFileProcessingResult.OneByteDocidBitsetIndex oneByteIndex =
+                result.getFinalIndexData().getOneByteDocidBitsetIndex();
+
+        assertEquals(5, oneByteIndex.getMaxDocId());
+        assertTrue(oneByteIndex.getDocIdBitset('A').get(0));
+        assertTrue(oneByteIndex.getDocIdBitset('A').get(5));
+        assertFalse(oneByteIndex.getDocIdBitset('A').get(2));
+
+        assertTrue(oneByteIndex.getDocIdBitset('C').get(0));
+        assertTrue(oneByteIndex.getDocIdBitset('C').get(2));
+        assertFalse(oneByteIndex.getDocIdBitset('C').get(5));
+
+        // 顶层便捷访问器应返回一致结构
+        assertEquals(oneByteIndex.getMaxDocId(), result.getOneByteDocidBitsetIndex().getMaxDocId());
     }
 
     private static Map<String, List<Integer>> toHotMap(
@@ -224,6 +304,26 @@ class ExclusiveFpRowsProcessingApiProcessRowsTest {
             out.add(ByteArrayUtils.toHex(ref.getTerms().get(0)) + "@" + ref.getPostingIndex());
         }
         return out;
+    }
+
+    private static LineFileProcessingResult.HashLevelBitsets findLevel(
+            LineFileProcessingResult.TermBlockSkipBitsetIndex index,
+            int gramLength
+    ) {
+        for (LineFileProcessingResult.HashLevelBitsets level : index.getHashLevels()) {
+            if (level.getGramLength() == gramLength) {
+                return level;
+            }
+        }
+        throw new AssertionError("missing gram level: " + gramLength);
+    }
+
+    private static int hashWindowToBucket(byte[] arr, int start, int len) {
+        int h = 1;
+        for (int i = 0; i < len; i++) {
+            h = 31 * h + (arr[start + i] & 0xFF);
+        }
+        return h & 0xFF;
     }
 
     private static byte[] bytes(String value) {

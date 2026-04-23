@@ -177,7 +177,7 @@ public final class ExclusiveFrequentItemsetSelector {
     private static int minSampleCount = EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT;
     private static double samplingSupportScale = EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE;
     /** 采样开关：设为 false 则回退为全量挖掘（用于对比测试）。 */
-    private static boolean samplingEnabled = true;
+    private static boolean samplingEnabled = EngineTuningConfig.DEFAULT_SAMPLING_ENABLED;
     /**
      * 设置采样开关（用于对比测试）。
      * @param enabled true 启用采样（默认），false 全量挖掘

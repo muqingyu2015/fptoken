@@ -1,7 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken.runner.dataset;
 
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
-import cn.lxdb.plugins.muqingyu.fptoken.runner.ngram.ByteNgramTokenizer;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -17,8 +17,8 @@ import java.util.List;
  */
 public final class LineRecordDatasetLoader {
 
-    public static final int MAX_LINES_PER_FILE = 32000;
-    public static final int MAX_BYTES_PER_LINE = 64;
+    public static final int MAX_LINES_PER_FILE = EngineTuningConfig.DEFAULT_MAX_LINES_PER_FILE;
+    public static final int MAX_BYTES_PER_LINE = EngineTuningConfig.DEFAULT_MAX_BYTES_PER_LINE;
 
     private LineRecordDatasetLoader() {
     }
@@ -81,8 +81,11 @@ public final class LineRecordDatasetLoader {
                         truncatedLines++;
                     }
 
+                    // 仅保存原始行字节；具体切词由处理层 processRows 在内部执行。
+                    List<byte[]> raw = new ArrayList<byte[]>(1);
+                    raw.add(bytes);
                     // docId 在加载时连续分配，作为行级唯一标识。
-                    rows.add(new DocTerms(docId++, ByteNgramTokenizer.tokenize(bytes, ngramStart, ngramEnd)));
+                    rows.add(new DocTerms(docId++, raw));
                 }
             }
         }

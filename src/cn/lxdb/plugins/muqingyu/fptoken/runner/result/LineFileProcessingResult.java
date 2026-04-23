@@ -3,8 +3,10 @@ package cn.lxdb.plugins.muqingyu.fptoken.runner.result;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -24,15 +26,30 @@ public final class LineFileProcessingResult {
             ExclusiveSelectionResult selectionResult,
             DerivedData derivedData
     ) {
+        this(loadedRows, selectionResult, derivedData,
+                EngineTuningConfig.DEFAULT_SKIP_HASH_MIN_GRAM,
+                EngineTuningConfig.DEFAULT_SKIP_HASH_MAX_GRAM);
+    }
+
+    public LineFileProcessingResult(
+            List<DocTerms> loadedRows,
+            ExclusiveSelectionResult selectionResult,
+            DerivedData derivedData,
+            int skipHashMinGram,
+            int skipHashMaxGram
+    ) {
         this.loadedRows = Collections.unmodifiableList(new ArrayList<DocTerms>(
                 Objects.requireNonNull(loadedRows, "loadedRows")));
         this.selectionResult = Objects.requireNonNull(selectionResult, "selectionResult");
         this.derivedData = Objects.requireNonNull(derivedData, "derivedData");
         this.finalIndexData = new FinalIndexData(
+                this.loadedRows,
                 selectionResult.getGroups(),
                 derivedData.getHotTerms(),
                 derivedData.getCutRes(),
-                derivedData.getHotTermThresholdExclusive()
+                derivedData.getHotTermThresholdExclusive(),
+                skipHashMinGram,
+                skipHashMaxGram
         );
     }
 
@@ -105,6 +122,13 @@ public final class LineFileProcessingResult {
     }
 
     /**
+     * 便捷访问：等价于 getFinalIndexData().getOneByteDocidBitsetIndex()。
+     */
+    public OneByteDocidBitsetIndex getOneByteDocidBitsetIndex() {
+        return finalIndexData.getOneByteDocidBitsetIndex();
+    }
+
+    /**
      * 二次加工输出：从 cut_res 与 hot_terms 中剔除 result 词项后的结果。
      */
     public static final class DerivedData {
@@ -160,20 +184,33 @@ public final class LineFileProcessingResult {
      * <p>因此这三块共同形成“高频倒排 + 低频正排”的双层索引输入。</p>
      */
     public static final class FinalIndexData {
+        private final List<DocTerms> loadedRows;
         private final List<SelectedGroup> highFreqMutexGroupPostings;
         private final List<HotTermDocList> highFreqSingleTermPostings;
         private final List<DocTerms> lowHitForwardRows;
         private final List<TermsPostingIndexRef> highFreqMutexGroupTermsToIndex;
         private final List<TermsPostingIndexRef> highFreqSingleTermToIndex;
         private final List<TermsPostingIndexRef> lowHitTermToIndexes;
+        private final TermBlockSkipBitsetIndex highFreqMutexGroupSkipBitsetIndex;
+        private final TermBlockSkipBitsetIndex highFreqSingleTermSkipBitsetIndex;
+        private final TermBlockSkipBitsetIndex lowHitTermSkipBitsetIndex;
+        private final OneByteDocidBitsetIndex oneByteDocidBitsetIndex;
+        private final int skipHashMinGram;
+        private final int skipHashMaxGram;
         private final int hotTermThresholdExclusive;
 
         public FinalIndexData(
+                List<DocTerms> loadedRows,
                 List<SelectedGroup> groups,
                 List<HotTermDocList> hotTerms,
                 List<DocTerms> cutRes,
-                int hotTermThresholdExclusive
+                int hotTermThresholdExclusive,
+                int skipHashMinGram,
+                int skipHashMaxGram
         ) {
+            validateSkipHashGramRange(skipHashMinGram, skipHashMaxGram);
+            this.loadedRows = Collections.unmodifiableList(new ArrayList<DocTerms>(
+                    Objects.requireNonNull(loadedRows, "loadedRows")));
             this.highFreqMutexGroupPostings = Collections.unmodifiableList(new ArrayList<SelectedGroup>(
                     Objects.requireNonNull(groups, "groups")));
             this.highFreqSingleTermPostings = Collections.unmodifiableList(new ArrayList<HotTermDocList>(
@@ -186,6 +223,15 @@ public final class LineFileProcessingResult {
                     buildHighFreqSingleTermToIndex(this.highFreqSingleTermPostings));
             this.lowHitTermToIndexes = Collections.unmodifiableList(
                     buildLowHitTermToIndexes(this.lowHitForwardRows));
+            this.skipHashMinGram = skipHashMinGram;
+            this.skipHashMaxGram = skipHashMaxGram;
+            this.highFreqMutexGroupSkipBitsetIndex = buildTermBlockSkipBitsetIndex(
+                    this.highFreqMutexGroupTermsToIndex, skipHashMinGram, skipHashMaxGram);
+            this.highFreqSingleTermSkipBitsetIndex = buildTermBlockSkipBitsetIndex(
+                    this.highFreqSingleTermToIndex, skipHashMinGram, skipHashMaxGram);
+            this.lowHitTermSkipBitsetIndex = buildTermBlockSkipBitsetIndex(
+                    this.lowHitTermToIndexes, skipHashMinGram, skipHashMaxGram);
+            this.oneByteDocidBitsetIndex = buildOneByteDocidBitsetIndex(this.loadedRows);
             this.hotTermThresholdExclusive = hotTermThresholdExclusive;
         }
 
@@ -251,10 +297,48 @@ public final class LineFileProcessingResult {
         }
 
         /**
+         * 高频互斥组块的 skip-index BitSet 结构。
+         */
+        public TermBlockSkipBitsetIndex getHighFreqMutexGroupSkipBitsetIndex() {
+            return highFreqMutexGroupSkipBitsetIndex;
+        }
+
+        /**
+         * 高频单词项块的 skip-index BitSet 结构。
+         */
+        public TermBlockSkipBitsetIndex getHighFreqSingleTermSkipBitsetIndex() {
+            return highFreqSingleTermSkipBitsetIndex;
+        }
+
+        /**
+         * 低频词块的 skip-index BitSet 结构。
+         */
+        public TermBlockSkipBitsetIndex getLowHitTermSkipBitsetIndex() {
+            return lowHitTermSkipBitsetIndex;
+        }
+
+        /**
+         * 1-byte 粒度倒排 BitSet：byte(0~255) -> docId(bitset)。
+         *
+         * <p>该结构基于未分词的 {@code loadedRows} 构建，适用于单字节快速检索。</p>
+         */
+        public OneByteDocidBitsetIndex getOneByteDocidBitsetIndex() {
+            return oneByteDocidBitsetIndex;
+        }
+
+        /**
          * hotTerms 的阈值定义（严格大于该值才进入 hotTerms）。
          */
         public int getHotTermThresholdExclusive() {
             return hotTermThresholdExclusive;
+        }
+
+        public int getSkipHashMinGram() {
+            return skipHashMinGram;
+        }
+
+        public int getSkipHashMaxGram() {
+            return skipHashMaxGram;
         }
 
         /**
@@ -315,6 +399,108 @@ public final class LineFileProcessingResult {
             }
             return out;
         }
+
+        private static TermBlockSkipBitsetIndex buildTermBlockSkipBitsetIndex(
+                List<TermsPostingIndexRef> refs,
+                int skipHashMinGram,
+                int skipHashMaxGram
+        ) {
+            List<byte[]> logicalTerms = new ArrayList<byte[]>();
+            List<Integer> termPostingIndexes = new ArrayList<Integer>();
+            int maxPostingIndex = -1;
+            int maxTermLen = 0;
+
+            for (TermsPostingIndexRef ref : refs) {
+                int postingIndex = ref.getPostingIndex();
+                if (postingIndex > maxPostingIndex) {
+                    maxPostingIndex = postingIndex;
+                }
+                for (byte[] term : ref.getTerms()) {
+                    logicalTerms.add(term);
+                    termPostingIndexes.add(postingIndex);
+                    if (term.length > maxTermLen) {
+                        maxTermLen = term.length;
+                    }
+                }
+            }
+
+            List<HashLevelBitsets> hashLevels = new ArrayList<HashLevelBitsets>();
+            for (int gramLength = skipHashMinGram; gramLength <= skipHashMaxGram; gramLength++) {
+                if (maxTermLen >= gramLength) {
+                    hashLevels.add(buildHashLevelBitsets(gramLength, logicalTerms, termPostingIndexes, maxPostingIndex));
+                }
+            }
+            return new TermBlockSkipBitsetIndex(maxPostingIndex, hashLevels);
+        }
+
+        private static HashLevelBitsets buildHashLevelBitsets(
+                int gramLength,
+                List<byte[]> logicalTerms,
+                List<Integer> termPostingIndexes,
+                int maxPostingIndex
+        ) {
+            List<BitSet> buckets = new ArrayList<BitSet>(256);
+            int bitsetLength = Math.max(0, maxPostingIndex + 1);
+            for (int i = 0; i < 256; i++) {
+                buckets.add(new BitSet(bitsetLength));
+            }
+
+            for (int termId = 0; termId < logicalTerms.size(); termId++) {
+                byte[] term = logicalTerms.get(termId);
+                if (term.length < gramLength) {
+                    continue;
+                }
+                int postingIndex = termPostingIndexes.get(termId);
+                for (int start = 0; start <= term.length - gramLength; start++) {
+                    int bucket = hashWindowToBucket(term, start, gramLength);
+                    buckets.get(bucket).set(postingIndex);
+                }
+            }
+            return new HashLevelBitsets(gramLength, buckets);
+        }
+
+        private static int hashWindowToBucket(byte[] arr, int start, int len) {
+            int h = 1;
+            for (int i = 0; i < len; i++) {
+                h = 31 * h + (arr[start + i] & 0xFF);
+            }
+            return h & 0xFF;
+        }
+
+        private static void validateSkipHashGramRange(int skipHashMinGram, int skipHashMaxGram) {
+            if (skipHashMinGram < 2) {
+                throw new IllegalArgumentException("skipHashMinGram must be >= 2");
+            }
+            if (skipHashMaxGram < skipHashMinGram) {
+                throw new IllegalArgumentException("skipHashMaxGram must be >= skipHashMinGram");
+            }
+        }
+
+        private static OneByteDocidBitsetIndex buildOneByteDocidBitsetIndex(List<DocTerms> loadedRows) {
+            int maxDocId = -1;
+            for (DocTerms row : loadedRows) {
+                if (row.getDocId() > maxDocId) {
+                    maxDocId = row.getDocId();
+                }
+            }
+
+            int bitsetLength = Math.max(0, maxDocId + 1);
+            List<BitSet> buckets = new ArrayList<BitSet>(256);
+            for (int i = 0; i < 256; i++) {
+                buckets.add(new BitSet(bitsetLength));
+            }
+
+            for (DocTerms row : loadedRows) {
+                int docId = row.getDocId();
+                for (byte[] bytes : row.getTermsUnsafe()) {
+                    for (int i = 0; i < bytes.length; i++) {
+                        int unsignedByte = bytes[i] & 0xFF;
+                        buckets.get(unsignedByte).set(docId);
+                    }
+                }
+            }
+            return new OneByteDocidBitsetIndex(maxDocId, buckets);
+        }
     }
 
     /**
@@ -347,6 +533,106 @@ public final class LineFileProcessingResult {
 
         public int getPostingIndex() {
             return postingIndex;
+        }
+    }
+
+    /**
+     * 单个 Term 块对应的一套 skip-index BitSet。
+     *
+     * <p>按配置的 n-gram 区间与 term 实际长度按需生成哈希层；每层固定 256 个桶（0..255），
+     * 桶内 BitSet 的位号为 postingIndex。</p>
+     */
+    public static final class TermBlockSkipBitsetIndex {
+        private final int maxPostingIndex;
+        private final List<HashLevelBitsets> hashLevels;
+
+        public TermBlockSkipBitsetIndex(int maxPostingIndex, List<HashLevelBitsets> hashLevels) {
+            this.maxPostingIndex = maxPostingIndex;
+            this.hashLevels = Collections.unmodifiableList(new ArrayList<HashLevelBitsets>(
+                    Objects.requireNonNull(hashLevels, "hashLevels")));
+        }
+
+        public int getMaxPostingIndex() {
+            return maxPostingIndex;
+        }
+
+        public List<HashLevelBitsets> getHashLevels() {
+            return new ArrayList<HashLevelBitsets>(hashLevels);
+        }
+    }
+
+    /**
+     * 某一 n-gram 级别的 256 桶 BitSet 结构。
+     */
+    public static final class HashLevelBitsets {
+        private final int gramLength;
+        private final List<BitSet> buckets;
+
+        public HashLevelBitsets(int gramLength, List<BitSet> buckets) {
+            this.gramLength = gramLength;
+            Objects.requireNonNull(buckets, "buckets");
+            if (buckets.size() != 256) {
+                throw new IllegalArgumentException("buckets.size must be 256");
+            }
+            List<BitSet> copied = new ArrayList<BitSet>(buckets.size());
+            for (BitSet bucket : buckets) {
+                copied.add((BitSet) Objects.requireNonNull(bucket, "bucket").clone());
+            }
+            this.buckets = Collections.unmodifiableList(copied);
+        }
+
+        public int getGramLength() {
+            return gramLength;
+        }
+
+        public List<BitSet> getBuckets() {
+            List<BitSet> copied = new ArrayList<BitSet>(buckets.size());
+            for (BitSet bucket : buckets) {
+                copied.add((BitSet) bucket.clone());
+            }
+            return copied;
+        }
+    }
+
+    /**
+     * 单字节倒排 BitSet 结构。
+     *
+     * <p>固定 256 个桶，桶下标即无符号 byte 值（0~255），桶内 BitSet 位号为 docId。</p>
+     */
+    public static final class OneByteDocidBitsetIndex {
+        private final int maxDocId;
+        private final List<BitSet> buckets;
+
+        public OneByteDocidBitsetIndex(int maxDocId, List<BitSet> buckets) {
+            this.maxDocId = maxDocId;
+            Objects.requireNonNull(buckets, "buckets");
+            if (buckets.size() != 256) {
+                throw new IllegalArgumentException("buckets.size must be 256");
+            }
+            List<BitSet> copied = new ArrayList<BitSet>(buckets.size());
+            for (BitSet bucket : buckets) {
+                copied.add((BitSet) Objects.requireNonNull(bucket, "bucket").clone());
+            }
+            this.buckets = Collections.unmodifiableList(copied);
+        }
+
+        public int getMaxDocId() {
+            return maxDocId;
+        }
+
+        public BitSet getDocIdBitset(int unsignedByte) {
+            if (unsignedByte < 0 || unsignedByte > 255) {
+                throw new IllegalArgumentException("unsignedByte must be in [0,255]");
+            }
+            return (BitSet) buckets.get(unsignedByte).clone();
+        }
+
+        public List<BitSet> getBuckets() {
+            List<BitSet> copied = new ArrayList<BitSet>(buckets.size());
+            for (BitSet bucket : buckets) {
+                copied.add((BitSet) bucket.clone());
+            }
+            return copied;
         }
     }
 

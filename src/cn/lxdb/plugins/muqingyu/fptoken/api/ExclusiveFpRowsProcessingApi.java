@@ -1,11 +1,13 @@
 package cn.lxdb.plugins.muqingyu.fptoken.api;
 
 import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
+import cn.lxdb.plugins.muqingyu.fptoken.runner.ngram.ByteNgramTokenizer;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.result.LineFileProcessingResult;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -79,21 +81,96 @@ public final class ExclusiveFpRowsProcessingApi {
             int minItemsetSize,
             int hotTermThresholdExclusive
     ) {
+        return processRowsWithNgramAndSkipHash(
+                rows,
+                EngineTuningConfig.DEFAULT_NGRAM_START,
+                EngineTuningConfig.DEFAULT_NGRAM_END,
+                minSupport, minItemsetSize, hotTermThresholdExclusive,
+                EngineTuningConfig.DEFAULT_SKIP_HASH_MIN_GRAM,
+                EngineTuningConfig.DEFAULT_SKIP_HASH_MAX_GRAM
+        );
+    }
+
+    /**
+     * 行级处理总入口（可配置分词 n-gram 区间）。
+     *
+     * <p>当 rows 每条仅包含一段原始字节时，会在方法内部执行 n-gram 切割；
+     * 当 rows 已经是多 term 形式时，保留其现状以兼容历史调用。</p>
+     */
+    public static LineFileProcessingResult processRowsWithNgram(
+            List<DocTerms> rows,
+            int ngramStart,
+            int ngramEnd,
+            int minSupport,
+            int minItemsetSize,
+            int hotTermThresholdExclusive
+    ) {
+        return processRowsWithNgramAndSkipHash(
+                rows, ngramStart, ngramEnd,
+                minSupport, minItemsetSize, hotTermThresholdExclusive,
+                EngineTuningConfig.DEFAULT_SKIP_HASH_MIN_GRAM,
+                EngineTuningConfig.DEFAULT_SKIP_HASH_MAX_GRAM
+        );
+    }
+
+    /**
+     * 行级处理总入口（可配置 skip-index n-gram 区间）。
+     *
+     * <p>相比四参数版本，新增 {@code skipHashMinGram}/{@code skipHashMaxGram}，
+     * 用于控制 skip-index BitSet 哈希层构建区间（例如 2~6）。</p>
+     */
+    public static LineFileProcessingResult processRows(
+            List<DocTerms> rows,
+            int minSupport,
+            int minItemsetSize,
+            int hotTermThresholdExclusive,
+            int skipHashMinGram,
+            int skipHashMaxGram
+    ) {
+        return processRowsWithNgramAndSkipHash(
+                rows,
+                EngineTuningConfig.DEFAULT_NGRAM_START,
+                EngineTuningConfig.DEFAULT_NGRAM_END,
+                minSupport, minItemsetSize, hotTermThresholdExclusive,
+                skipHashMinGram, skipHashMaxGram
+        );
+    }
+
+    /**
+     * 行级处理总入口（同时可配置分词 n-gram 区间与 skip-index 哈希层区间）。
+     */
+    public static LineFileProcessingResult processRowsWithNgramAndSkipHash(
+            List<DocTerms> rows,
+            int ngramStart,
+            int ngramEnd,
+            int minSupport,
+            int minItemsetSize,
+            int hotTermThresholdExclusive,
+            int skipHashMinGram,
+            int skipHashMaxGram
+    ) {
+        validateNgramRange(ngramStart, ngramEnd);
         // 代码内配置抽样参数（不依赖 properties 文件）
-        ExclusiveFrequentItemsetSelector.setSamplingEnabled(true);
-        ExclusiveFrequentItemsetSelector.setSampleRatio(0.30d);
-        ExclusiveFrequentItemsetSelector.setMinSampleCount(50);
-        ExclusiveFrequentItemsetSelector.setSamplingSupportScale(0.0d);
+        ExclusiveFrequentItemsetSelector.setSamplingEnabled(EngineTuningConfig.DEFAULT_SAMPLING_ENABLED);
+        ExclusiveFrequentItemsetSelector.setSampleRatio(EngineTuningConfig.DEFAULT_SAMPLE_RATIO);
+        ExclusiveFrequentItemsetSelector.setMinSampleCount(EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT);
+        ExclusiveFrequentItemsetSelector.setSamplingSupportScale(EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE);
 
         // 处理层不要修改调用方传入的 rows，这里先做一份防御性拷贝。
         List<DocTerms> loadedRows = copyRows(rows);
+        List<DocTerms> tokenizedRows = tokenizeRowsForMining(loadedRows, ngramStart, ngramEnd);
         ExclusiveSelectionResult result = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                loadedRows, minSupport, minItemsetSize, 6, 200000);
+                tokenizedRows,
+                minSupport,
+                minItemsetSize,
+                EngineTuningConfig.DEFAULT_MAX_ITEMSET_SIZE,
+                EngineTuningConfig.DEFAULT_MAX_CANDIDATE_COUNT);
         LineFileProcessingResult.DerivedData derived =
-                buildDerivedData(loadedRows, result, hotTermThresholdExclusive);
+                buildDerivedData(tokenizedRows, result, hotTermThresholdExclusive);
         // 返回结构中会聚合出最终三元结果（新命名）：
         // highFreqMutexGroupPostings + highFreqSingleTermPostings + lowHitForwardRows。
-        return new LineFileProcessingResult(loadedRows, result, derived);
+        return new LineFileProcessingResult(
+                loadedRows, result, derived, skipHashMinGram, skipHashMaxGram);
     }
 
     public static LineFileProcessingResult.DerivedData buildDerivedData(
@@ -120,6 +197,35 @@ public final class ExclusiveFpRowsProcessingApi {
             out.add(new DocTerms(row.getDocId(), row.getTermsUnsafe()));
         }
         return out;
+    }
+
+    private static List<DocTerms> tokenizeRowsForMining(
+            List<DocTerms> rows,
+            int ngramStart,
+            int ngramEnd
+    ) {
+        List<DocTerms> out = new ArrayList<DocTerms>(rows.size());
+        for (DocTerms row : rows) {
+            List<byte[]> terms = row.getTermsUnsafe();
+            if (terms.size() == 1) {
+                out.add(new DocTerms(
+                        row.getDocId(),
+                        ByteNgramTokenizer.tokenize(terms.get(0), ngramStart, ngramEnd)));
+            } else {
+                // 兼容历史：如果调用方已提供 term 列表，则不重复切词。
+                out.add(new DocTerms(row.getDocId(), terms));
+            }
+        }
+        return out;
+    }
+
+    private static void validateNgramRange(int ngramStart, int ngramEnd) {
+        if (ngramStart <= 0) {
+            throw new IllegalArgumentException("ngramStart must be > 0");
+        }
+        if (ngramEnd < ngramStart) {
+            throw new IllegalArgumentException("ngramEnd must be >= ngramStart");
+        }
     }
 
     private static List<LineFileProcessingResult.HotTermDocList> buildHotTerms(

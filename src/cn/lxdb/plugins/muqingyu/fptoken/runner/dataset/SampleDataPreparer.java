@@ -1,5 +1,6 @@
 package cn.lxdb.plugins.muqingyu.fptoken.runner.dataset;
 
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -13,7 +14,7 @@ import java.util.List;
  */
 public final class SampleDataPreparer {
 
-    private static final int MAJOR_LEN = 64;
+    private static final int MAJOR_LEN = EngineTuningConfig.DEFAULT_MAX_BYTES_PER_LINE;
     private static final String ALPHABET = "0123456789abcdefABCDEFGHIJKLMNOPQRSTUVWXYZ-_";
 
     private SampleDataPreparer() {
@@ -26,7 +27,10 @@ public final class SampleDataPreparer {
         generated.add(ensureFile(dataDir.resolve("records_001_small.txt"), 128, "S"));
         generated.add(ensureFile(dataDir.resolve("records_002_medium.txt"), 2048, "M"));
         generated.add(ensureFile(dataDir.resolve("records_003_large.txt"), 12000, "L"));
-        generated.add(ensureFile(dataDir.resolve("records_004_limit32000.txt"), 32000, "X"));
+        generated.add(ensureFile(
+                dataDir.resolve("records_004_limit32000.txt"),
+                EngineTuningConfig.DEFAULT_MAX_LINES_PER_FILE,
+                "X"));
         generated.add(ensureFile(dataDir.resolve("records_005_sparse_short.txt"), 768, "P"));
         generated.add(ensureFile(dataDir.resolve("records_006_mix.txt"), 4096, "Q"));
 

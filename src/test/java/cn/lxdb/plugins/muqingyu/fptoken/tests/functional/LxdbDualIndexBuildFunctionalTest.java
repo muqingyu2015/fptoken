@@ -10,6 +10,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResu
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.dataset.LineRecordDatasetLoader;
+import cn.lxdb.plugins.muqingyu.fptoken.runner.ngram.ByteNgramTokenizer;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.result.LineFileProcessingResult;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -48,7 +49,8 @@ class LxdbDualIndexBuildFunctionalTest {
             // 低频层正排：使用 lowHitForwardRows 构建 skip index。
             Map<ByteArrayKey, LinkedHashSet<Integer>> skipIndex =
                     buildSkipIndex(finalIndexData.getLowHitForwardRows(), compressedIndex.keySet());
-            Map<ByteArrayKey, LinkedHashSet<Integer>> sourceIndex = buildSkipIndex(processing.getLoadedRows());
+            Map<ByteArrayKey, LinkedHashSet<Integer>> sourceIndex =
+                    buildSkipIndex(tokenizeRows(processing.getLoadedRows(), 2, 4));
             Set<ByteArrayKey> selectedTerms = collectSelectedTerms(processing.getSelectionResult());
 
             // 1) 主压缩索引与 skip 索引应按 term 空间互斥。
@@ -172,6 +174,16 @@ class LxdbDualIndexBuildFunctionalTest {
                 }
                 docs.add(docId);
             }
+        }
+        return out;
+    }
+
+    private static List<DocTerms> tokenizeRows(List<DocTerms> rawRows, int ngramStart, int ngramEnd) {
+        List<DocTerms> out = new ArrayList<DocTerms>(rawRows.size());
+        for (DocTerms row : rawRows) {
+            List<byte[]> terms = row.getTermsUnsafe();
+            byte[] raw = terms.isEmpty() ? new byte[0] : terms.get(0);
+            out.add(new DocTerms(row.getDocId(), ByteNgramTokenizer.tokenize(raw, ngramStart, ngramEnd)));
         }
         return out;
     }

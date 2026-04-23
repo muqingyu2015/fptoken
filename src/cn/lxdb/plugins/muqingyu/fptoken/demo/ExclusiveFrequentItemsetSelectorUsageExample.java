@@ -1,6 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken.demo;
 
 import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
@@ -46,11 +47,12 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
         int oldMinSample = ExclusiveFrequentItemsetSelector.getMinSampleCount();
         double oldScale = ExclusiveFrequentItemsetSelector.getSamplingSupportScale();
         try {
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(true);
-            ExclusiveFrequentItemsetSelector.setSampleRatio(0.30d);
-            ExclusiveFrequentItemsetSelector.setMinSampleCount(50);
+            ExclusiveFrequentItemsetSelector.setSamplingEnabled(EngineTuningConfig.DEFAULT_SAMPLING_ENABLED);
+            ExclusiveFrequentItemsetSelector.setSampleRatio(EngineTuningConfig.DEFAULT_SAMPLE_RATIO);
+            ExclusiveFrequentItemsetSelector.setMinSampleCount(EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT);
             // 0.0 表示按实际样本占比自动缩放 minSupport
-            ExclusiveFrequentItemsetSelector.setSamplingSupportScale(0.0d);
+            ExclusiveFrequentItemsetSelector.setSamplingSupportScale(
+                    EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE);
 
             List<DocTerms> rows = buildSamplingDemoRows(320);
             ExclusiveSelectionResult result =
@@ -63,7 +65,7 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
             ExclusiveFrequentItemsetSelector.setSampleRatio(oldRatio);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(oldMinSample);
             ExclusiveFrequentItemsetSelector.setSamplingSupportScale(oldScale);
-            ExclusiveFrequentItemsetSelector.setSamplingEnabled(true);
+            ExclusiveFrequentItemsetSelector.setSamplingEnabled(EngineTuningConfig.DEFAULT_SAMPLING_ENABLED);
         }
     }
 

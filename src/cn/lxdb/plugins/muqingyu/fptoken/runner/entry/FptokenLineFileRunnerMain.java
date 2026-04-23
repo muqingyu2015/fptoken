@@ -1,6 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken.runner.entry;
 
 import cn.lxdb.plugins.muqingyu.fptoken.api.ExclusiveFpRowsProcessingApi;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.dataset.LineRecordDatasetLoader;
@@ -18,9 +19,12 @@ public final class FptokenLineFileRunnerMain {
 
     private static final String DEFAULT_DATA_DIR = "sample-data/line-records";
     private static final String DEFAULT_INPUT_FILE = "records_001_small.txt";
-    private static final int DEFAULT_NGRAM_START = 2;
-    private static final int DEFAULT_NGRAM_END = 4;
-    private static final int DEFAULT_HOT_TERM_THRESHOLD_EXCLUSIVE = 10;
+    private static final int DEFAULT_NGRAM_START = EngineTuningConfig.DEFAULT_NGRAM_START;
+    private static final int DEFAULT_NGRAM_END = EngineTuningConfig.DEFAULT_NGRAM_END;
+    private static final int DEFAULT_HOT_TERM_THRESHOLD_EXCLUSIVE =
+            EngineTuningConfig.DEFAULT_HOT_TERM_THRESHOLD_EXCLUSIVE;
+    private static final int DEFAULT_MIN_SUPPORT = EngineTuningConfig.DEFAULT_RUNNER_MIN_SUPPORT;
+    private static final int DEFAULT_MIN_ITEMSET_SIZE = EngineTuningConfig.DEFAULT_RUNNER_MIN_ITEMSET_SIZE;
 
     private FptokenLineFileRunnerMain() {
     }
@@ -31,8 +35,8 @@ public final class FptokenLineFileRunnerMain {
         Path inputFile = args.length > 0 ? Paths.get(args[0]) : dataDir.resolve(DEFAULT_INPUT_FILE);
         int ngramStart = args.length > 1 ? Integer.parseInt(args[1]) : DEFAULT_NGRAM_START;
         int ngramEnd = args.length > 2 ? Integer.parseInt(args[2]) : DEFAULT_NGRAM_END;
-        int minSupport = args.length > 3 ? Integer.parseInt(args[3]) : 50;
-        int minItemsetSize = args.length > 4 ? Integer.parseInt(args[4]) : 2;
+        int minSupport = args.length > 3 ? Integer.parseInt(args[3]) : DEFAULT_MIN_SUPPORT;
+        int minItemsetSize = args.length > 4 ? Integer.parseInt(args[4]) : DEFAULT_MIN_ITEMSET_SIZE;
         int hotTermThresholdExclusive =
                 args.length > 5 ? Integer.parseInt(args[5]) : DEFAULT_HOT_TERM_THRESHOLD_EXCLUSIVE;
 
@@ -42,8 +46,8 @@ public final class FptokenLineFileRunnerMain {
         LineRecordDatasetLoader.LoadedDataset loaded = loadedOutcome.getLoadedDataset();
         // 处理层：仅基于 rows，供 LXDB API 复用
         LineFileProcessingResult processing =
-                ExclusiveFpRowsProcessingApi.processRows(
-                        loaded.getRows(), minSupport, minItemsetSize, hotTermThresholdExclusive);
+                ExclusiveFpRowsProcessingApi.processRowsWithNgram(
+                        loaded.getRows(), ngramStart, ngramEnd, minSupport, minItemsetSize, hotTermThresholdExclusive);
         LineRecordDatasetLoader.Stats stats = loadedOutcome.getStats();
 
         System.out.println("=== Input Summary ===");
@@ -99,8 +103,9 @@ public final class FptokenLineFileRunnerMain {
         // 这个方法用于测试与外部调用：返回结构化结果，不负责控制台打印。
         LineRecordDatasetLoader.LoadOutcome loaded =
                 loadRowsFromFile(dataDir, inputFile, ngramStart, ngramEnd);
-        return ExclusiveFpRowsProcessingApi.processRows(
-                loaded.getLoadedDataset().getRows(), minSupport, minItemsetSize, hotTermThresholdExclusive);
+        return ExclusiveFpRowsProcessingApi.processRowsWithNgram(
+                loaded.getLoadedDataset().getRows(),
+                ngramStart, ngramEnd, minSupport, minItemsetSize, hotTermThresholdExclusive);
     }
 
     private static LineRecordDatasetLoader.LoadOutcome loadRowsFromFile(

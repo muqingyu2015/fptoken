@@ -65,6 +65,31 @@ public final class EngineTuningConfig {
     public static final int DEFAULT_MIN_SAMPLE_COUNT = 50;
     /** 采样支持度缩放因子。0.0=自动按采样比例缩放（默认，推荐），1.0=不缩放。 */
     public static final double DEFAULT_SAMPLING_SUPPORT_SCALE = 0.0d;
+    /** 采样总开关默认值。 */
+    public static final boolean DEFAULT_SAMPLING_ENABLED = true;
+
+    // ===== 行处理 API / Runner / Loader 默认参数 =====
+
+    /** 默认 n-gram 起始长度。 */
+    public static final int DEFAULT_NGRAM_START = 2;
+    /** 默认 n-gram 结束长度。 */
+    public static final int DEFAULT_NGRAM_END = 4;
+    /** 默认热点词阈值（count > threshold 才进入 hot term）。 */
+    public static final int DEFAULT_HOT_TERM_THRESHOLD_EXCLUSIVE = 10;
+    /** runner 默认最小支持度。 */
+    public static final int DEFAULT_RUNNER_MIN_SUPPORT = 50;
+    /** runner 默认最小项集长度。 */
+    public static final int DEFAULT_RUNNER_MIN_ITEMSET_SIZE = 2;
+
+    /** skip-index 哈希层默认最小 n-gram。 */
+    public static final int DEFAULT_SKIP_HASH_MIN_GRAM = 2;
+    /** skip-index 哈希层默认最大 n-gram。 */
+    public static final int DEFAULT_SKIP_HASH_MAX_GRAM = 4;
+
+    /** 行加载每文件最大行数。 */
+    public static final int DEFAULT_MAX_LINES_PER_FILE = 32000;
+    /** 行加载每行最大字节数。 */
+    public static final int DEFAULT_MAX_BYTES_PER_LINE = 64;
 
     /** 过滤"过热词"默认文档覆盖率上限（1.0 表示不过滤）。 */
     public static final double DEFAULT_MAX_DOC_COVERAGE_RATIO = 1.0d;

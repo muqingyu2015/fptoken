@@ -1,5 +1,6 @@
 package cn.lxdb.plugins.muqingyu.fptoken.runner.dataset;
 
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -14,8 +15,8 @@ import java.nio.file.Paths;
  */
 public final class RealWorldSampleGenerator {
 
-    private static final int MAX_BYTES_PER_LINE = 64;
-    private static final int MAX_LINES_PER_FILE = 32000;
+    private static final int MAX_BYTES_PER_LINE = EngineTuningConfig.DEFAULT_MAX_BYTES_PER_LINE;
+    private static final int MAX_LINES_PER_FILE = EngineTuningConfig.DEFAULT_MAX_LINES_PER_FILE;
 
     private RealWorldSampleGenerator() {
     }

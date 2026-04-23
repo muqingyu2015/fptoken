@@ -12,6 +12,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.dataset.LineRecordDatasetLoader;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.entry.FptokenLineFileRunnerMain;
+import cn.lxdb.plugins.muqingyu.fptoken.runner.ngram.ByteNgramTokenizer;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.result.LineFileProcessingResult;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -50,9 +51,10 @@ class LineFileRunnerDerivedDataFunctionalTest {
         assertEquals(lines.size(), loaded.getStats().getDocCount());
         assertEquals(lines.size(), loaded.getStats().getTotalLines());
 
-        // 2) result 必须等价于同参数独立执行的处理结果
+        // 2) result 必须等价于同参数独立执行的处理结果（先在测试侧做同样切词）
+        List<DocTerms> tokenizedRows = tokenizeRows(loadedRows, 2, 2);
         ExclusiveSelectionResult direct = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                loadedRows, 2, 2, 6, 200000);
+                tokenizedRows, 2, 2, 6, 200000);
         assertEquals(groupsFingerprint(direct.getGroups()), groupsFingerprint(processing.getSelectionResult().getGroups()));
         assertEquals(direct.getIntersectionCount(), processing.getSelectionResult().getIntersectionCount());
 
@@ -61,11 +63,11 @@ class LineFileRunnerDerivedDataFunctionalTest {
         // 新命名语义：highFreq* 是高频倒排层，lowHitForwardRows 是低频正排层（skip index 源）。
         LineFileProcessingResult.FinalIndexData finalIndexData = processing.getFinalIndexData();
 
-        List<DocTerms> expectedCutRes = expectedCutRes(loadedRows, selectedTerms);
+        List<DocTerms> expectedCutRes = expectedCutRes(tokenizedRows, selectedTerms);
         List<DocTerms> actualCutRes = finalIndexData.getLowHitForwardRows();
         assertEquals(rowsFingerprint(expectedCutRes), rowsFingerprint(actualCutRes));
 
-        Map<String, List<Integer>> expectedHotTerms = expectedHotTerms(loadedRows, 1, selectedTerms);
+        Map<String, List<Integer>> expectedHotTerms = expectedHotTerms(tokenizedRows, 1, selectedTerms);
         Map<String, List<Integer>> actualHotTerms = hotTermsMap(finalIndexData.getHighFreqSingleTermPostings());
         assertEquals(expectedHotTerms, actualHotTerms);
 
@@ -176,5 +178,15 @@ class LineFileRunnerDerivedDataFunctionalTest {
             sb.append(';');
         }
         return sb.toString();
+    }
+
+    private static List<DocTerms> tokenizeRows(List<DocTerms> rawRows, int ngramStart, int ngramEnd) {
+        List<DocTerms> out = new ArrayList<DocTerms>(rawRows.size());
+        for (DocTerms row : rawRows) {
+            List<byte[]> terms = row.getTermsUnsafe();
+            byte[] raw = terms.isEmpty() ? new byte[0] : terms.get(0);
+            out.add(new DocTerms(row.getDocId(), ByteNgramTokenizer.tokenize(raw, ngramStart, ngramEnd)));
+        }
+        return out;
     }
 }

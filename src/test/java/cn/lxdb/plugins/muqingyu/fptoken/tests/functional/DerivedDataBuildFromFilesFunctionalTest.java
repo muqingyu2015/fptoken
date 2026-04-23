@@ -10,6 +10,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResu
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.dataset.LineRecordDatasetLoader;
+import cn.lxdb.plugins.muqingyu.fptoken.runner.ngram.ByteNgramTokenizer;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.result.LineFileProcessingResult;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -30,7 +31,7 @@ class DerivedDataBuildFromFilesFunctionalTest {
         Path file = dir.resolve("boundary.txt");
         Files.write(file, Arrays.asList("ABCD", "ABCE", "ZZZZ", "ABCD"), StandardCharsets.UTF_8);
 
-        List<DocTerms> rows = LineRecordDatasetLoader.loadSingleFile(file, 2, 2).getRows();
+        List<DocTerms> rows = tokenizeRows(LineRecordDatasetLoader.loadSingleFile(file, 2, 2).getRows(), 2, 2);
         ExclusiveSelectionResult result = resultWithSelectedTerms("AB");
 
         LineFileProcessingResult.DerivedData derived =
@@ -55,7 +56,7 @@ class DerivedDataBuildFromFilesFunctionalTest {
         Path file = dir.resolve("no-selected.txt");
         Files.write(file, Arrays.asList("XYAB", "ABAC", "ABAD", "XYXY"), StandardCharsets.UTF_8);
 
-        List<DocTerms> rows = LineRecordDatasetLoader.loadSingleFile(file, 2, 2).getRows();
+        List<DocTerms> rows = tokenizeRows(LineRecordDatasetLoader.loadSingleFile(file, 2, 2).getRows(), 2, 2);
         ExclusiveSelectionResult emptyResult =
                 new ExclusiveSelectionResult(Collections.<SelectedGroup>emptyList(), 0, 0, 0, 0, false);
 
@@ -82,7 +83,7 @@ class DerivedDataBuildFromFilesFunctionalTest {
                 "ACW"
         ), StandardCharsets.UTF_8);
 
-        List<DocTerms> rows = LineRecordDatasetLoader.loadSingleFile(file, 2, 2).getRows();
+        List<DocTerms> rows = tokenizeRows(LineRecordDatasetLoader.loadSingleFile(file, 2, 2).getRows(), 2, 2);
         ExclusiveSelectionResult emptyResult =
                 new ExclusiveSelectionResult(Collections.<SelectedGroup>emptyList(), 0, 0, 0, 0, false);
 
@@ -144,5 +145,15 @@ class DerivedDataBuildFromFilesFunctionalTest {
 
     private static String hex(String value) {
         return ByteArrayUtils.toHex(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static List<DocTerms> tokenizeRows(List<DocTerms> rawRows, int ngramStart, int ngramEnd) {
+        List<DocTerms> out = new ArrayList<DocTerms>(rawRows.size());
+        for (DocTerms row : rawRows) {
+            List<byte[]> terms = row.getTermsUnsafe();
+            byte[] raw = terms.isEmpty() ? new byte[0] : terms.get(0);
+            out.add(new DocTerms(row.getDocId(), ByteNgramTokenizer.tokenize(raw, ngramStart, ngramEnd)));
+        }
+        return out;
     }
 }
