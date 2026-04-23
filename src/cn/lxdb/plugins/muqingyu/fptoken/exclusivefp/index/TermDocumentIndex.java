@@ -1,6 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.index;
 
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
 import java.util.BitSet;
 import java.util.List;
 
@@ -32,6 +33,16 @@ public final class TermDocumentIndex {
     /** 仅供性能敏感路径使用。 */
     public List<byte[]> getIdToTermUnsafe() {
         return delegate.getIdToTermUnsafe();
+    }
+
+    /** termId -> 词引用（ByteRef）。 */
+    public List<ByteRef> getIdToTermRefs() {
+        return delegate.getIdToTermRefs();
+    }
+
+    /** 仅供性能敏感路径使用。 */
+    public List<ByteRef> getIdToTermRefsUnsafe() {
+        return delegate.getIdToTermRefsUnsafe();
     }
 
     /** 仅供性能敏感路径使用。 */

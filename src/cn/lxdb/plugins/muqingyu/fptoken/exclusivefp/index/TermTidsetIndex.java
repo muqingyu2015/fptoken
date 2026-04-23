@@ -1,6 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.index;
 
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.OpenHashTable;
 import java.util.ArrayList;
@@ -29,10 +30,16 @@ import java.util.List;
  */
 public final class TermTidsetIndex {
     private final List<byte[]> idToTerm;
+    private final List<ByteRef> idToTermRefs;
     private final List<BitSet> tidsetsByTermId;
 
     private TermTidsetIndex(List<byte[]> idToTerm, List<BitSet> tidsetsByTermId) {
         this.idToTerm = idToTerm;
+        List<ByteRef> refs = new ArrayList<>(idToTerm.size());
+        for (byte[] term : idToTerm) {
+            refs.add(ByteRef.wrap(term));
+        }
+        this.idToTermRefs = Collections.unmodifiableList(refs);
         this.tidsetsByTermId = tidsetsByTermId;
     }
 
@@ -55,12 +62,15 @@ public final class TermTidsetIndex {
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             DocTerms row = requireValidRow(rows, rowIndex);
             int docId = row.getDocId();
-            for (byte[] rawTerm : row.getTermsUnsafe()) {
-                if (rawTerm == null || rawTerm.length == 0) {
+            for (ByteRef rawTermRef : row.getTermRefsUnsafe()) {
+                if (rawTermRef == null || rawTermRef.getLength() == 0) {
                     continue;
                 }
-                int hash = ByteArrayUtils.hash(rawTerm);
-                int termId = termIdMap.getOrPut(rawTerm, hash, true);
+                int hash = ByteArrayUtils.hash(
+                        rawTermRef.getSourceUnsafe(),
+                        rawTermRef.getOffset(),
+                        rawTermRef.getLength());
+                int termId = termIdMap.getOrPut(rawTermRef, hash, true);
                 if (termId >= idToTerm.size()) {
                     // 新词：直接从 OpenHashTable 获取已存储的 byte[]，避免重复拷贝
                     idToTerm.add(termIdMap.getKeyBytes(termId));
@@ -208,15 +218,18 @@ public final class TermTidsetIndex {
         List<int[]> rowTermIds = new ArrayList<int[]>(rows.size());
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             DocTerms row = requireValidRow(rows, rowIndex);
-            List<byte[]> rowTerms = row.getTermsUnsafe();
+            List<ByteRef> rowTerms = row.getTermRefsUnsafe();
             int[] ids = new int[rowTerms.size()];
             int used = 0;
-            for (byte[] rawTerm : rowTerms) {
-                if (rawTerm == null || rawTerm.length == 0) {
+            for (ByteRef rawTermRef : rowTerms) {
+                if (rawTermRef == null || rawTermRef.getLength() == 0) {
                     continue;
                 }
-                int hash = ByteArrayUtils.hash(rawTerm);
-                int termId = freqTable.getOrPut(rawTerm, hash, true);
+                int hash = ByteArrayUtils.hash(
+                        rawTermRef.getSourceUnsafe(),
+                        rawTermRef.getOffset(),
+                        rawTermRef.getLength());
+                int termId = freqTable.getOrPut(rawTermRef, hash, true);
                 if (termId >= supports.length) {
                     supports = growSupportsArray(supports, termId);
                 }
@@ -364,9 +377,19 @@ public final class TermTidsetIndex {
         return out;
     }
 
+    /** termId → 词引用视图（每个 term 为完整数组引用）。 */
+    public List<ByteRef> getIdToTermRefs() {
+        return new ArrayList<>(idToTermRefs);
+    }
+
     /** 仅供性能敏感内部路径;调用方不得修改列表及其中元素。 */
     public List<byte[]> getIdToTermUnsafe() {
         return idToTerm;
+    }
+
+    /** 仅供性能敏感内部路径;调用方不得修改列表及其中元素。 */
+    public List<ByteRef> getIdToTermRefsUnsafe() {
+        return idToTermRefs;
     }
 
     /** 仅供性能敏感内部路径;调用方不得修改列表及其中元素。 */

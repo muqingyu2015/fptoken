@@ -1,5 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util;
 
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
+
 /**
  * 开放寻址哈希表：byte[] → int（termId），专为 TermTidsetIndex.build() 优化。
  *
@@ -86,10 +88,43 @@ public final class OpenHashTable {
     }
 
     /**
+     * ByteRef 版本：按引用区间内容查找/插入，避免调用方先切片复制临时 byte[]。
+     */
+    public int getOrPut(ByteRef rawTermRef, int hash, boolean insertIfMissing) {
+        int idx = hash & mask;
+        while (true) {
+            byte[] k = keys[idx];
+            if (k == null) {
+                if (!insertIfMissing) {
+                    return -1;
+                }
+                int termId = size;
+                keys[idx] = copyRange(rawTermRef.getSourceUnsafe(), rawTermRef.getOffset(), rawTermRef.getLength());
+                hashes[idx] = hash;
+                values[idx] = termId;
+                termIdToKey[termId] = keys[idx];
+                size++;
+                if (size > keys.length * LOAD_FACTOR) {
+                    rehash();
+                }
+                return termId;
+            }
+            if (hashes[idx] == hash && bytesEqualRef(k, rawTermRef)) {
+                return values[idx];
+            }
+            idx = (idx + 1) & mask;
+        }
+    }
+
+    /**
      * 只查找，不插入。
      */
     public int get(byte[] rawTerm, int hash) {
         return getOrPut(rawTerm, hash, false);
+    }
+
+    public int get(ByteRef rawTermRef, int hash) {
+        return getOrPut(rawTermRef, hash, false);
     }
 
     /** 当前存储的 term 数量。 */
@@ -124,6 +159,26 @@ public final class OpenHashTable {
             }
         }
         return true;
+    }
+
+    private static boolean bytesEqualRef(byte[] a, ByteRef b) {
+        if (a.length != b.getLength()) {
+            return false;
+        }
+        int start = b.getOffset();
+        byte[] src = b.getSourceUnsafe();
+        for (int i = 0; i < a.length; i++) {
+            if (a[i] != src[start + i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static byte[] copyRange(byte[] src, int offset, int length) {
+        byte[] out = new byte[length];
+        System.arraycopy(src, offset, out, 0, length);
+        return out;
     }
 
     private void rehash() {

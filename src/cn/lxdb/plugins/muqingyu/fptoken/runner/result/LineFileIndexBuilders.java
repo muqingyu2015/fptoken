@@ -1,6 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken.runner.result;
 
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -52,14 +53,14 @@ final class LineFileIndexBuilders {
     ) {
         int estimatedSize = 0;
         for (int i = 0; i < lowHitForwardRows.size(); i++) {
-            estimatedSize += lowHitForwardRows.get(i).getTermsUnsafe().size();
+            estimatedSize += lowHitForwardRows.get(i).getTermRefsUnsafe().size();
         }
         List<LineFileProcessingResult.TermsPostingIndexRef> out =
                 new ArrayList<LineFileProcessingResult.TermsPostingIndexRef>(estimatedSize);
         for (int rowIndex = 0; rowIndex < lowHitForwardRows.size(); rowIndex++) {
             DocTerms row = lowHitForwardRows.get(rowIndex);
             int docId = row.getDocId();
-            for (byte[] term : row.getTermsUnsafe()) {
+            for (ByteRef term : row.getTermRefsUnsafe()) {
                 out.add(new LineFileProcessingResult.TermsPostingIndexRef(term, docId));
             }
         }
@@ -72,7 +73,7 @@ final class LineFileIndexBuilders {
             int skipHashMaxGram
     ) {
         BitsetBuildScratch scratch = BITSET_BUILD_SCRATCH.get();
-        List<byte[]> logicalTerms = scratch.borrowLogicalTerms();
+        List<ByteRef> logicalTerms = scratch.borrowLogicalTerms();
         List<Integer> termPostingIndexes = scratch.borrowTermPostingIndexes();
         int maxPostingIndex = -1;
         int maxTermLen = 0;
@@ -82,11 +83,11 @@ final class LineFileIndexBuilders {
             if (postingIndex > maxPostingIndex) {
                 maxPostingIndex = postingIndex;
             }
-            for (byte[] term : ref.getTermsUnsafe()) {
+            for (ByteRef term : ref.getTermsUnsafe()) {
                 logicalTerms.add(term);
                 termPostingIndexes.add(postingIndex);
-                if (term.length > maxTermLen) {
-                    maxTermLen = term.length;
+                if (term.getLength() > maxTermLen) {
+                    maxTermLen = term.getLength();
                 }
             }
         }
@@ -113,9 +114,12 @@ final class LineFileIndexBuilders {
         List<BitSet> buckets = scratch.borrowBuckets();
         for (DocTerms row : loadedRows) {
             int docId = row.getDocId();
-            for (byte[] bytes : row.getTermsUnsafe()) {
-                for (int i = 0; i < bytes.length; i++) {
-                    buckets.get(bytes[i] & 0xFF).set(docId);
+            for (ByteRef bytes : row.getTermRefsUnsafe()) {
+                byte[] src = bytes.getSourceUnsafe();
+                int start = bytes.getOffset();
+                int end = start + bytes.getLength();
+                for (int i = start; i < end; i++) {
+                    buckets.get(src[i] & 0xFF).set(docId);
                 }
             }
         }
@@ -133,18 +137,18 @@ final class LineFileIndexBuilders {
 
     private static LineFileProcessingResult.HashLevelBitsets buildHashLevelBitsets(
             int gramLength,
-            List<byte[]> logicalTerms,
+            List<ByteRef> logicalTerms,
             List<Integer> termPostingIndexes,
             BitsetBuildScratch scratch
     ) {
         List<BitSet> buckets = scratch.borrowBuckets();
         for (int termId = 0; termId < logicalTerms.size(); termId++) {
-            byte[] term = logicalTerms.get(termId);
-            if (term.length < gramLength) {
+            ByteRef term = logicalTerms.get(termId);
+            if (term.getLength() < gramLength) {
                 continue;
             }
             int postingIndex = termPostingIndexes.get(termId);
-            for (int start = 0; start <= term.length - gramLength; start++) {
+            for (int start = 0; start <= term.getLength() - gramLength; start++) {
                 int bucket = hashWindowToBucket(term, start, gramLength);
                 buckets.get(bucket).set(postingIndex);
             }
@@ -152,17 +156,19 @@ final class LineFileIndexBuilders {
         return new LineFileProcessingResult.HashLevelBitsets(gramLength, buckets);
     }
 
-    private static int hashWindowToBucket(byte[] arr, int start, int len) {
+    private static int hashWindowToBucket(ByteRef arr, int start, int len) {
         int h = 1;
+        byte[] source = arr.getSourceUnsafe();
+        int base = arr.getOffset() + start;
         for (int i = 0; i < len; i++) {
-            h = 31 * h + (arr[start + i] & 0xFF);
+            h = 31 * h + (source[base + i] & 0xFF);
         }
         return h & 0xFF;
     }
 
     private static final class BitsetBuildScratch {
         private final List<BitSet> buckets = new ArrayList<BitSet>(256);
-        private final List<byte[]> logicalTerms = new ArrayList<byte[]>();
+        private final List<ByteRef> logicalTerms = new ArrayList<ByteRef>();
         private final List<Integer> termPostingIndexes = new ArrayList<Integer>();
         private final List<LineFileProcessingResult.HashLevelBitsets> hashLevels =
                 new ArrayList<LineFileProcessingResult.HashLevelBitsets>();
@@ -177,7 +183,7 @@ final class LineFileIndexBuilders {
             return buckets;
         }
 
-        private List<byte[]> borrowLogicalTerms() {
+        private List<ByteRef> borrowLogicalTerms() {
             logicalTerms.clear();
             return logicalTerms;
         }

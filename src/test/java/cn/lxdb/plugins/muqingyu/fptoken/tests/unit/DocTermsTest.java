@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -58,6 +59,34 @@ class DocTermsTest {
         DocTerms d = new DocTerms(1, Arrays.asList(t));
         t[0] = 99;
         assertTrue(Arrays.equals(new byte[] {3, 4, 5}, d.getTerms().get(0)));
+    }
+
+    @Test
+    void fromByteRefs_shouldKeepSliceOrderAndExposeRefMetadata() {
+        byte[] src = new byte[] {9, 8, 7, 6, 5, 4};
+        DocTerms d = DocTerms.fromByteRefs(7, Arrays.asList(
+                new ByteRef(src, 1, 3),
+                new ByteRef(src, 4, 2)
+        ));
+
+        assertEquals(2, d.getTermRefsUnsafe().size());
+        assertEquals(1, d.getTermRefsUnsafe().get(0).getOffset());
+        assertEquals(3, d.getTermRefsUnsafe().get(0).getLength());
+        assertTrue(Arrays.equals(new byte[] {8, 7, 6}, d.getTermsUnsafe().get(0)));
+        assertTrue(Arrays.equals(new byte[] {5, 4}, d.getTermsUnsafe().get(1)));
+    }
+
+    @Test
+    void fromByteRefs_shouldDedupeByContent() {
+        byte[] src = new byte[] {1, 2, 1, 2, 3};
+        DocTerms d = DocTerms.fromByteRefs(9, Arrays.asList(
+                new ByteRef(src, 0, 2),
+                new ByteRef(src, 2, 2),
+                new ByteRef(src, 4, 1)
+        ));
+        assertEquals(2, d.getTermRefsUnsafe().size());
+        assertTrue(Arrays.equals(new byte[] {1, 2}, d.getTermsUnsafe().get(0)));
+        assertTrue(Arrays.equals(new byte[] {3}, d.getTermsUnsafe().get(1)));
     }
 }
 

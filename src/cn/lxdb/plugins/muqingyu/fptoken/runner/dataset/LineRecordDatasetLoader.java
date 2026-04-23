@@ -1,6 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken.runner.dataset;
 
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.ngram.ByteNgramTokenizer;
 import java.io.BufferedReader;
@@ -195,11 +196,11 @@ public final class LineRecordDatasetLoader {
             RowBuildMode mode
     ) {
         if (mode == RowBuildMode.TOKENIZED) {
-            return new DocTerms(docId, ByteNgramTokenizer.tokenize(bytes, ngramStart, ngramEnd));
+            return new DocTerms(docId, ByteNgramTokenizer.tokenizeRefs(bytes, 0, bytes.length, ngramStart, ngramEnd));
         }
         // RAW_BYTES：仅保存原始行字节；后续由处理层决定是否切词。
-        List<byte[]> raw = new ArrayList<byte[]>(1);
-        raw.add(bytes);
+        List<ByteRef> raw = new ArrayList<ByteRef>(1);
+        raw.add(ByteRef.wrap(bytes));
         return new DocTerms(docId, raw);
     }
 

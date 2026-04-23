@@ -2,6 +2,7 @@ package cn.lxdb.plugins.muqingyu.fptoken.demo;
 
 import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
@@ -120,10 +121,11 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
     }
 
     /** 将字符串转为 {@code byte[]} 词列表（演示用）；生产侧通常直接消费字节 token。 */
-    private static List<byte[]> bytesTerms(String... terms) {
-        List<byte[]> out = new ArrayList<>(terms.length);
+    private static List<ByteRef> bytesTerms(String... terms) {
+        List<ByteRef> out = new ArrayList<>(terms.length);
         for (String term : terms) {
-            out.add(term.getBytes());
+            byte[] bytes = term.getBytes();
+            out.add(ByteRef.wrap(bytes));
         }
         return out;
     }
@@ -208,15 +210,15 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
         return rows;
     }
 
-    private static List<byte[]> slidingItems123(byte[] window) {
-        List<byte[]> out = new ArrayList<>();
+    private static List<ByteRef> slidingItems123(byte[] window) {
+        List<ByteRef> out = new ArrayList<>();
         for (int i = 0; i < window.length; i++) {
-            out.add(Arrays.copyOfRange(window, i, i + 1));
+            out.add(new ByteRef(window, i, 1));
             if (i + 2 <= window.length) {
-                out.add(Arrays.copyOfRange(window, i, i + 2));
+                out.add(new ByteRef(window, i, 2));
             }
             if (i + 3 <= window.length) {
-                out.add(Arrays.copyOfRange(window, i, i + 3));
+                out.add(new ByteRef(window, i, 3));
             }
         }
         return out;
@@ -233,17 +235,17 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
     private static List<DocTerms> buildSamplingDemoRows(int docCount) {
         List<DocTerms> rows = new ArrayList<>(docCount);
         for (int i = 0; i < docCount; i++) {
-            List<byte[]> terms = new ArrayList<>();
-            terms.add("coreA".getBytes());
-            terms.add("coreB".getBytes());
+            List<ByteRef> terms = new ArrayList<>();
+            terms.add(ByteRef.wrap("coreA".getBytes()));
+            terms.add(ByteRef.wrap("coreB".getBytes()));
             if (i % 2 == 0) {
-                terms.add("even".getBytes());
+                terms.add(ByteRef.wrap("even".getBytes()));
             }
             if (i % 3 == 0) {
-                terms.add("mod3".getBytes());
+                terms.add(ByteRef.wrap("mod3".getBytes()));
             }
             if (i % 5 == 0) {
-                terms.add("mod5".getBytes());
+                terms.add(ByteRef.wrap("mod5".getBytes()));
             }
             rows.add(new DocTerms(i, terms));
         }

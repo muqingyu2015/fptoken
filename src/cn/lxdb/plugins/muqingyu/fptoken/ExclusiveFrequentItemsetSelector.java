@@ -5,12 +5,12 @@ import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.index.TermTidsetIndex;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.miner.BeamFrequentItemsetMiner;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.CandidateItemset;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.FrequentItemsetMiningResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.picker.TwoPhaseExclusiveItemsetPicker;
-import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
@@ -359,7 +359,7 @@ public final class ExclusiveFrequentItemsetSelector {
         // 当不需要过滤时（minSupport=1），退化到 build() 单次扫描
         TermTidsetIndex fullIndex = TermTidsetIndex.buildWithSupportBounds(
                 rows, minSupport, adaptiveMaxDocCoverageRatio());
-        List<byte[]> termVocabulary = fullIndex.getIdToTermUnsafe();
+        List<ByteRef> termVocabulary = fullIndex.getIdToTermRefsUnsafe();
         if (termVocabulary.isEmpty()) {
             return emptyResult(maxCandidateCount);
         }
@@ -711,7 +711,7 @@ public final class ExclusiveFrequentItemsetSelector {
      */
     private static List<SelectedGroup> toSelectedGroups(
             List<CandidateItemset> selectedCandidates,
-            List<byte[]> termVocabulary
+            List<ByteRef> termVocabulary
     ) {
         int vocabularySize = termVocabulary.size();
         int selectedCount = selectedCandidates.size();
@@ -719,11 +719,11 @@ public final class ExclusiveFrequentItemsetSelector {
         for (int selectedIndex = 0; selectedIndex < selectedCount; selectedIndex++) {
             CandidateItemset candidate = selectedCandidates.get(selectedIndex);
             int[] candidateTermIds = candidate.getTermIdsUnsafe();
-            List<byte[]> terms = new ArrayList<>(candidateTermIds.length);
+            List<ByteRef> terms = new ArrayList<>(candidateTermIds.length);
             for (int i = 0; i < candidateTermIds.length; i++) {
                 int termId = candidateTermIds[i];
                 assertTermIdWithinVocabulary(termId, vocabularySize);
-                terms.add(ByteArrayUtils.copy(termVocabulary.get(termId)));
+                terms.add(termVocabulary.get(termId));
             }
             out.add(new SelectedGroup(
                     terms,

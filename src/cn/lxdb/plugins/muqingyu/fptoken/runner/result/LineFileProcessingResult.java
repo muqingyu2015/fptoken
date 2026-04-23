@@ -1,11 +1,11 @@
 package cn.lxdb.plugins.muqingyu.fptoken.runner.result;
 
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey;
-import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
@@ -329,7 +329,7 @@ public final class LineFileProcessingResult {
         private static int countTerms(List<DocTerms> rows) {
             int total = 0;
             for (DocTerms row : rows) {
-                total += row.getTermsUnsafe().size();
+                total += row.getTermRefsUnsafe().size();
             }
             return total;
         }
@@ -342,8 +342,8 @@ public final class LineFileProcessingResult {
             Map<ByteArrayKey, Set<Integer>> termToDocIds = new HashMap<ByteArrayKey, Set<Integer>>();
             for (DocTerms row : loadedRows) {
                 int docId = row.getDocId();
-                for (byte[] term : row.getTermsUnsafe()) {
-                    ByteArrayKey key = new ByteArrayKey(term);
+                for (ByteRef term : row.getTermRefsUnsafe()) {
+                    ByteArrayKey key = new ByteArrayKey(term.copyBytes());
                     Set<Integer> docIds = termToDocIds.get(key);
                     if (docIds == null) {
                         docIds = new HashSet<Integer>();
@@ -355,8 +355,8 @@ public final class LineFileProcessingResult {
 
             Set<ByteArrayKey> mutexTerms = new HashSet<ByteArrayKey>();
             for (SelectedGroup group : highFreqMutexGroupPostings) {
-                for (byte[] term : group.getTerms()) {
-                    mutexTerms.add(new ByteArrayKey(term));
+                for (ByteRef term : group.getTermRefs()) {
+                    mutexTerms.add(new ByteArrayKey(term.copyBytes()));
                 }
             }
 
@@ -732,35 +732,43 @@ public final class LineFileProcessingResult {
      * 差异仅体现在构建语义：terms 可以是多项（互斥组）或单项（其余两块）。</p>
      */
     public static final class TermsPostingIndexRef {
-        private final List<byte[]> terms;
+        private final List<ByteRef> terms;
         private final int postingIndex;
 
-        public TermsPostingIndexRef(byte[] term, int postingIndex) {
-            this.terms = Collections.singletonList(
-                    ByteArrayUtils.copy(Objects.requireNonNull(term, "term")));
+        public TermsPostingIndexRef(ByteRef term, int postingIndex) {
+            this.terms = Collections.singletonList(toRef(Objects.requireNonNull(term, "term")));
             this.postingIndex = postingIndex;
         }
 
-        public TermsPostingIndexRef(List<byte[]> terms, int postingIndex) {
+        public TermsPostingIndexRef(byte[] term, int postingIndex) {
+            this.terms = Collections.singletonList(toRef(Objects.requireNonNull(term, "term")));
+            this.postingIndex = postingIndex;
+        }
+
+        public TermsPostingIndexRef(List<?> terms, int postingIndex) {
             Objects.requireNonNull(terms, "terms");
             if (terms.size() == 1) {
-                this.terms = Collections.singletonList(
-                        ByteArrayUtils.copy(Objects.requireNonNull(terms.get(0), "term")));
+                this.terms = Collections.singletonList(toRef(Objects.requireNonNull(terms.get(0), "term")));
                 this.postingIndex = postingIndex;
                 return;
             }
-            List<byte[]> copied = new ArrayList<byte[]>(terms.size());
-            for (byte[] term : terms) {
-                copied.add(ByteArrayUtils.copy(Objects.requireNonNull(term, "term")));
+            List<ByteRef> copied = new ArrayList<>(terms.size());
+            for (Object term : terms) {
+                copied.add(toRef(Objects.requireNonNull(term, "term")));
             }
             this.terms = Collections.unmodifiableList(copied);
             this.postingIndex = postingIndex;
         }
 
+        public List<ByteRef> getTermRefs() {
+            return new ArrayList<>(terms);
+        }
+
+        /** 兼容入口：返回 byte[] 副本列表。 */
         public List<byte[]> getTerms() {
-            List<byte[]> copied = new ArrayList<byte[]>(terms.size());
-            for (byte[] term : terms) {
-                copied.add(ByteArrayUtils.copy(term));
+            List<byte[]> copied = new ArrayList<>(terms.size());
+            for (ByteRef term : terms) {
+                copied.add(term.copyBytes());
             }
             return copied;
         }
@@ -770,8 +778,20 @@ public final class LineFileProcessingResult {
         }
 
         /** 仅供 runner.result 包内构建路径使用；外部仍应通过 {@link #getTerms()} 获取防御性副本。 */
-        List<byte[]> getTermsUnsafe() {
+        List<ByteRef> getTermsUnsafe() {
             return terms;
+        }
+
+        private static ByteRef toRef(Object term) {
+            if (term instanceof ByteRef) {
+                ByteRef ref = (ByteRef) term;
+                return new ByteRef(ref.getSourceUnsafe(), ref.getOffset(), ref.getLength());
+            }
+            if (term instanceof byte[]) {
+                byte[] bytes = (byte[]) term;
+                return ByteRef.wrap(bytes.clone());
+            }
+            throw new IllegalArgumentException("term must be ByteRef or byte[]");
         }
     }
 
@@ -879,19 +899,29 @@ public final class LineFileProcessingResult {
      * 高频词及其文档列表。
      */
     public static final class HotTermDocList {
-        private final byte[] term;
+        private final ByteRef term;
         private final List<Integer> docIds;
         private final int count;
 
         public HotTermDocList(byte[] term, List<Integer> docIds) {
-            this.term = ByteArrayUtils.copy(Objects.requireNonNull(term, "term"));
+            this(ByteRef.wrap(Objects.requireNonNull(term, "term").clone()), docIds);
+        }
+
+        public HotTermDocList(ByteRef term, List<Integer> docIds) {
+            ByteRef safeTerm = Objects.requireNonNull(term, "term");
+            this.term = new ByteRef(safeTerm.getSourceUnsafe(), safeTerm.getOffset(), safeTerm.getLength());
             this.docIds = Collections.unmodifiableList(new ArrayList<Integer>(
                     Objects.requireNonNull(docIds, "docIds")));
             this.count = this.docIds.size();
         }
 
+        public ByteRef getTermRef() {
+            return term;
+        }
+
+        /** 兼容入口：返回 byte[] 副本。 */
         public byte[] getTerm() {
-            return ByteArrayUtils.copy(term);
+            return term.copyBytes();
         }
 
         /**

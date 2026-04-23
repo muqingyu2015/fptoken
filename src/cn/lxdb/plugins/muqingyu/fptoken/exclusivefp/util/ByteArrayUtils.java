@@ -1,5 +1,6 @@
 package cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util;
 
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -39,6 +40,15 @@ public final class ByteArrayUtils {
         return h;
     }
 
+    /** 区间哈希：按 {@code [offset, offset+length)} 计算。 */
+    public static int hash(byte[] arr, int offset, int length) {
+        int h = 1;
+        for (int i = 0; i < length; i++) {
+            h = 31 * h + (arr[offset + i] & 0xFF);
+        }
+        return h;
+    }
+
     /**
      * 无符号字节字典序：逐字节按 0–255 比较，较短者若为前缀则更短者更小。
      */
@@ -52,6 +62,23 @@ public final class ByteArrayUtils {
             }
         }
         return a.length - b.length;
+    }
+
+    /** ByteRef 无符号字节字典序比较。 */
+    public static int compareUnsigned(ByteRef a, ByteRef b) {
+        int n = Math.min(a.getLength(), b.getLength());
+        byte[] as = a.getSourceUnsafe();
+        byte[] bs = b.getSourceUnsafe();
+        int ao = a.getOffset();
+        int bo = b.getOffset();
+        for (int i = 0; i < n; i++) {
+            int av = as[ao + i] & 0xFF;
+            int bv = bs[bo + i] & 0xFF;
+            if (av != bv) {
+                return av - bv;
+            }
+        }
+        return a.getLength() - b.getLength();
     }
 
     /** 将每个字节展开为两个十六进制字符（大写），长度 {@code bytes.length * 2}。 */
@@ -75,6 +102,15 @@ public final class ByteArrayUtils {
         return out;
     }
 
+    /** 将 ByteRef 列表转为十六进制字符串列表。 */
+    public static List<String> formatTermRefsHex(List<ByteRef> terms) {
+        List<String> out = new ArrayList<>(terms.size());
+        for (ByteRef t : terms) {
+            out.add(toHex(t.copyBytes()));
+        }
+        return out;
+    }
+
     /**
      * 单文档词规范化：跳过 null 与空数组；其余按出现顺序去重（{@link LinkedHashSet}）。
      *
@@ -94,5 +130,59 @@ public final class ByteArrayUtils {
             out.add(key.bytes());
         }
         return out;
+    }
+
+    /**
+     * 单文档 ByteRef 规范化：跳过 null/空区间，其余按内容去重并保持首次出现顺序。
+     */
+    public static List<ByteRef> normalizeTermRefs(Collection<ByteRef> terms) {
+        Set<ByteRefContentKey> uniq = new LinkedHashSet<>();
+        for (ByteRef term : terms) {
+            if (term == null || term.getLength() == 0) {
+                continue;
+            }
+            uniq.add(new ByteRefContentKey(term));
+        }
+        List<ByteRef> out = new ArrayList<>(uniq.size());
+        for (ByteRefContentKey key : uniq) {
+            out.add(key.ref);
+        }
+        return out;
+    }
+
+    private static final class ByteRefContentKey {
+        private final ByteRef ref;
+        private final int hash;
+
+        private ByteRefContentKey(ByteRef ref) {
+            this.ref = ref;
+            this.hash = hash(ref.getSourceUnsafe(), ref.getOffset(), ref.getLength());
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof ByteRefContentKey)) {
+                return false;
+            }
+            ByteRef a = ref;
+            ByteRef b = ((ByteRefContentKey) obj).ref;
+            if (a.getLength() != b.getLength()) {
+                return false;
+            }
+            for (int i = 0; i < a.getLength(); i++) {
+                if (a.getSourceUnsafe()[a.getOffset() + i] != b.getSourceUnsafe()[b.getOffset() + i]) {
+                    return false;
+                }
+            }
+            return true;
+        }
     }
 }

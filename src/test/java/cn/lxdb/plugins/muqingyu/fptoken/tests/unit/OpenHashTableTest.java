@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.OpenHashTable;
 import java.util.ArrayList;
@@ -56,5 +57,20 @@ class OpenHashTableTest {
         OpenHashTable table = new OpenHashTable();
         assertThrows(IllegalArgumentException.class, () -> table.getKeyBytes(-1));
         assertThrows(IllegalArgumentException.class, () -> table.getKeyBytes(0));
+    }
+
+    @Test
+    void byteRefLookup_shouldMatchBySliceContentWithoutTempArray() {
+        OpenHashTable table = new OpenHashTable(8);
+        byte[] source = new byte[] {9, 1, 2, 3, 1, 2, 3, 8};
+        ByteRef ref1 = new ByteRef(source, 1, 3); // [1,2,3]
+        ByteRef ref2 = new ByteRef(source, 4, 3); // [1,2,3]
+
+        int id1 = table.getOrPut(ref1, ByteArrayUtils.hash(source, 1, 3), true);
+        int id2 = table.getOrPut(ref2, ByteArrayUtils.hash(source, 4, 3), true);
+
+        assertEquals(id1, id2);
+        assertEquals(1, table.size());
+        assertArrayEquals(new byte[] {1, 2, 3}, table.getKeyBytes(id1));
     }
 }

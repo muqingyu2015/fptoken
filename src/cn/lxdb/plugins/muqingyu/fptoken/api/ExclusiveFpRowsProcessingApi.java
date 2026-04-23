@@ -2,20 +2,20 @@ package cn.lxdb.plugins.muqingyu.fptoken.api;
 
 import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.OpenHashTable;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.ngram.ByteNgramTokenizer;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.result.LineFileProcessingResult;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -348,9 +348,9 @@ public final class ExclusiveFpRowsProcessingApi {
     }
 
     private static List<DocTerms> copyRows(List<DocTerms> rows) {
-        List<DocTerms> out = new ArrayList<DocTerms>(rows.size());
+        List<DocTerms> out = new ArrayList<>(rows.size());
         for (DocTerms row : rows) {
-            out.add(new DocTerms(row.getDocId(), row.getTermsUnsafe()));
+            out.add(new DocTerms(row.getDocId(), row.getTermRefsUnsafe()));
         }
         return out;
     }
@@ -360,16 +360,22 @@ public final class ExclusiveFpRowsProcessingApi {
             int ngramStart,
             int ngramEnd
     ) {
-        List<DocTerms> out = new ArrayList<DocTerms>(rows.size());
+        List<DocTerms> out = new ArrayList<>(rows.size());
         for (DocTerms row : rows) {
-            List<byte[]> terms = row.getTermsUnsafe();
-            if (terms.size() == 1) {
+            List<ByteRef> termRefs = row.getTermRefsUnsafe();
+            if (termRefs.size() == 1) {
+                ByteRef source = termRefs.get(0);
                 out.add(new DocTerms(
                         row.getDocId(),
-                        ByteNgramTokenizer.tokenize(terms.get(0), ngramStart, ngramEnd)));
+                        ByteNgramTokenizer.tokenizeRefs(
+                                source.getSourceUnsafe(),
+                                source.getOffset(),
+                                source.getLength(),
+                                ngramStart,
+                                ngramEnd)));
             } else {
                 // 兼容历史：如果调用方已提供 term 列表，则不重复切词。
-                out.add(new DocTerms(row.getDocId(), terms));
+                out.add(new DocTerms(row.getDocId(), termRefs));
             }
         }
         return out;
@@ -388,29 +394,33 @@ public final class ExclusiveFpRowsProcessingApi {
             List<DocTerms> rows,
             int hotTermThresholdExclusive
     ) {
-        // LinkedHashSet 保证 docId 去重且保持首次出现顺序，便于稳定回放与测试断言。
-        Map<ByteArrayKey, LinkedHashSet<Integer>> termToDocs = new LinkedHashMap<ByteArrayKey, LinkedHashSet<Integer>>();
+        // termId 由 OpenHashTable 分配，减少 byte[] 键对象创建。
+        OpenHashTable termTable = new OpenHashTable();
+        List<LinkedHashSet<Integer>> docsByTermId = new ArrayList<>();
         for (DocTerms row : rows) {
             int docId = row.getDocId();
-            for (byte[] term : row.getTermsUnsafe()) {
-                int hash = ByteArrayUtils.hash(term);
-                ByteArrayKey lookupKey = ByteArrayKey.forLookup(term, hash);
-                LinkedHashSet<Integer> docs = termToDocs.get(lookupKey);
-                if (docs == null) {
-                    docs = new LinkedHashSet<Integer>();
-                    termToDocs.put(new ByteArrayKey(term), docs);
+            for (ByteRef termRef : row.getTermRefsUnsafe()) {
+                int hash = ByteArrayUtils.hash(
+                        termRef.getSourceUnsafe(),
+                        termRef.getOffset(),
+                        termRef.getLength());
+                int termId = termTable.getOrPut(termRef, hash, true);
+                while (docsByTermId.size() <= termId) {
+                    docsByTermId.add(new LinkedHashSet<Integer>());
                 }
+                LinkedHashSet<Integer> docs = docsByTermId.get(termId);
                 docs.add(docId);
             }
         }
 
         List<LineFileProcessingResult.HotTermDocList> out =
-                new ArrayList<LineFileProcessingResult.HotTermDocList>(termToDocs.size());
-        for (Map.Entry<ByteArrayKey, LinkedHashSet<Integer>> entry : termToDocs.entrySet()) {
-            List<Integer> docIds = new ArrayList<Integer>(entry.getValue());
+                new ArrayList<>(docsByTermId.size());
+        for (int termId = 0; termId < docsByTermId.size(); termId++) {
+            List<Integer> docIds = new ArrayList<>(docsByTermId.get(termId));
             // 阈值语义是严格大于（count > threshold）。
             if (docIds.size() > hotTermThresholdExclusive) {
-                out.add(new LineFileProcessingResult.HotTermDocList(entry.getKey().bytes(), docIds));
+                out.add(new LineFileProcessingResult.HotTermDocList(
+                        ByteRef.wrap(termTable.getKeyBytes(termId)), docIds));
             }
         }
         // 展示层排序：先按出现文档数降序，再按字节序升序保证同 count 稳定顺序。
@@ -424,7 +434,7 @@ public final class ExclusiveFpRowsProcessingApi {
                 if (c != 0) {
                     return c;
                 }
-                return ByteArrayUtils.compareUnsigned(a.getTerm(), b.getTerm());
+                return ByteArrayUtils.compareUnsigned(a.getTermRef(), b.getTermRef());
             }
         });
         return out;
@@ -433,11 +443,15 @@ public final class ExclusiveFpRowsProcessingApi {
     private static Set<ByteArrayKey> collectSelectedTerms(ExclusiveSelectionResult result) {
         Set<ByteArrayKey> out = new LinkedHashSet<ByteArrayKey>();
         for (SelectedGroup g : result.getGroups()) {
-            for (byte[] term : g.getTerms()) {
-                int hash = ByteArrayUtils.hash(term);
-                ByteArrayKey lookupKey = ByteArrayKey.forLookup(term, hash);
+            for (ByteRef term : g.getTermRefs()) {
+                int hash = ByteArrayUtils.hash(
+                        term.getSourceUnsafe(),
+                        term.getOffset(),
+                        term.getLength());
+                byte[] termBytes = term.copyBytes();
+                ByteArrayKey lookupKey = ByteArrayKey.forLookup(termBytes, hash);
                 if (!out.contains(lookupKey)) {
-                    out.add(new ByteArrayKey(term));
+                    out.add(new ByteArrayKey(termBytes));
                 }
             }
         }
@@ -452,20 +466,33 @@ public final class ExclusiveFpRowsProcessingApi {
         if (selectedTerms.isEmpty()) {
             return cutRes;
         }
-        List<DocTerms> out = new ArrayList<DocTerms>(cutRes.size());
+        OpenHashTable selectedLookup = buildSelectedLookup(selectedTerms);
+        List<DocTerms> out = new ArrayList<>(cutRes.size());
         for (DocTerms row : cutRes) {
-            List<byte[]> rowTerms = row.getTermsUnsafe();
-            List<byte[]> filtered = new ArrayList<byte[]>(rowTerms.size());
-            for (byte[] term : rowTerms) {
-                int hash = ByteArrayUtils.hash(term);
-                ByteArrayKey lookupKey = ByteArrayKey.forLookup(term, hash);
-                if (!selectedTerms.contains(lookupKey)) {
-                    filtered.add(term);
+            List<ByteRef> rowTerms = row.getTermRefsUnsafe();
+            List<ByteRef> filtered = new ArrayList<>(rowTerms.size());
+            for (ByteRef termRef : rowTerms) {
+                int hash = ByteArrayUtils.hash(
+                        termRef.getSourceUnsafe(),
+                        termRef.getOffset(),
+                        termRef.getLength());
+                if (selectedLookup.get(termRef, hash) < 0) {
+                    filtered.add(termRef);
                 }
             }
             out.add(new DocTerms(row.getDocId(), filtered));
         }
         return out;
+    }
+
+    private static OpenHashTable buildSelectedLookup(Set<ByteArrayKey> selectedTerms) {
+        OpenHashTable table = new OpenHashTable(selectedTerms.size() * 2 + 1);
+        for (ByteArrayKey key : selectedTerms) {
+            byte[] term = key.bytes();
+            int hash = ByteArrayUtils.hash(term);
+            table.getOrPut(term, hash, true);
+        }
+        return table;
     }
 
     private static List<LineFileProcessingResult.HotTermDocList> removeSelectedTermsFromHotTerms(
@@ -479,9 +506,12 @@ public final class ExclusiveFpRowsProcessingApi {
         List<LineFileProcessingResult.HotTermDocList> out =
                 new ArrayList<LineFileProcessingResult.HotTermDocList>(hotTerms.size());
         for (LineFileProcessingResult.HotTermDocList item : hotTerms) {
-            byte[] term = item.getTerm();
-            int hash = ByteArrayUtils.hash(term);
-            ByteArrayKey lookupKey = ByteArrayKey.forLookup(term, hash);
+            ByteRef term = item.getTermRef();
+            int hash = ByteArrayUtils.hash(
+                    term.getSourceUnsafe(),
+                    term.getOffset(),
+                    term.getLength());
+            ByteArrayKey lookupKey = ByteArrayKey.forLookup(term.copyBytes(), hash);
             if (!selectedTerms.contains(lookupKey)) {
                 out.add(item);
             }

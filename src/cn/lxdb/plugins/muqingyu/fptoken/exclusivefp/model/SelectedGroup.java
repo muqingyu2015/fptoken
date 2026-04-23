@@ -14,7 +14,7 @@ import java.util.Objects;
  * @author muqingyu
  */
 public final class SelectedGroup {
-    private final List<byte[]> terms;
+    private final List<ByteRef> terms;
     private final List<Integer> docIds;
     private final int support;
     private final int estimatedSaving;
@@ -25,12 +25,19 @@ public final class SelectedGroup {
      * @param support 通常等于 {@code docIds.size()}
      * @param estimatedSaving 与 {@link CandidateItemset#getEstimatedSaving()} 一致含义
      */
-    public SelectedGroup(List<byte[]> terms, List<Integer> docIds, int support, int estimatedSaving) {
+    public SelectedGroup(List<?> terms, List<Integer> docIds, int support, int estimatedSaving) {
         Objects.requireNonNull(terms, "terms");
         Objects.requireNonNull(docIds, "docIds");
-        List<byte[]> copiedTerms = new ArrayList<>(terms.size());
-        for (byte[] t : terms) {
-            copiedTerms.add(ByteArrayUtils.copy(Objects.requireNonNull(t, "term")));
+        List<ByteRef> copiedTerms = new ArrayList<>(terms.size());
+        for (Object t : terms) {
+            if (t instanceof ByteRef) {
+                ByteRef ref = (ByteRef) Objects.requireNonNull(t, "term");
+                copiedTerms.add(new ByteRef(ref.getSourceUnsafe(), ref.getOffset(), ref.getLength()));
+            } else if (t instanceof byte[]) {
+                copiedTerms.add(ByteRef.wrap(ByteArrayUtils.copy((byte[]) t)));
+            } else if (t != null) {
+                throw new IllegalArgumentException("term must be ByteRef or byte[]");
+            }
         }
         this.terms = Collections.unmodifiableList(copiedTerms);
         this.docIds = Collections.unmodifiableList(new ArrayList<>(docIds));
@@ -38,10 +45,15 @@ public final class SelectedGroup {
         this.estimatedSaving = estimatedSaving;
     }
 
+    public List<ByteRef> getTermRefs() {
+        return new ArrayList<>(terms);
+    }
+
+    /** 兼容入口：返回 byte[] 副本。 */
     public List<byte[]> getTerms() {
         List<byte[]> out = new ArrayList<>(terms.size());
-        for (byte[] t : terms) {
-            out.add(ByteArrayUtils.copy(t));
+        for (ByteRef ref : terms) {
+            out.add(ref.copyBytes());
         }
         return out;
     }
@@ -60,7 +72,7 @@ public final class SelectedGroup {
 
     @Override
     public String toString() {
-        return "SelectedGroup{terms=" + ByteArrayUtils.formatTermsHex(terms)
+        return "SelectedGroup{terms=" + ByteArrayUtils.formatTermRefsHex(terms)
                 + ", support=" + support
                 + ", estimatedSaving=" + estimatedSaving
                 + ", docIds=" + docIds + "}";
