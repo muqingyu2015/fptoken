@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FPToken 全量测试报告</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      margin: 24px;
+      color: #222;
+      line-height: 1.5;
+    }
+    h1, h2 { margin-bottom: 8px; }
+    .meta, .ok {
+      padding: 12px 14px;
+      border-radius: 8px;
+      margin: 12px 0;
+    }
+    .meta { background: #f5f7fa; border: 1px solid #d7dee8; }
+    .ok { background: #eefaf0; border: 1px solid #b8e0bf; }
+    code {
+      background: #f2f4f8;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #d9d9d9;
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f7f7f7;
+    }
+    .small {
+      color: #666;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>FPToken 全量测试报告（功能 + 性能）</h1>
+  <div class="small">生成时间：2026-04-22</div>
+
+  <div class="meta">
+    <div><b>项目路径</b>：<code>D:/cursor/fptoken</code></div>
+    <div><b>执行命令</b>：<code>./scripts/run-fptoken-tests.ps1 -Perf -Scale -Budget -Stress -Soak</code></div>
+    <div><b>开始时间</b>：2026-04-22T15:03:04.870Z</div>
+    <div><b>结束时间</b>：2026-04-22T15:08:20.688Z</div>
+    <div><b>总耗时</b>：315818 ms（约 5 分 16 秒）</div>
+    <div><b>JUnit 执行耗时</b>：310218 ms</div>
+  </div>
+
+  <div class="ok">
+    <b>结论：</b>本次全量功能与性能测试全部通过，无失败用例。<br/>
+    <b>测试统计：</b>
+    containers: 65 found / 65 started / 65 successful / 0 failed；
+    tests: 465 found / 465 started / 465 successful / 0 failed / 0 skipped。
+  </div>
+
+  <h2>关键性能观测（节选）</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>场景</th>
+        <th>观测值</th>
+        <th>结果</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>基础性能打印</td>
+        <td><code>[fptoken perf] docs=30000 records=2000 timeMs=213 ...</code></td>
+        <td>通过</td>
+      </tr>
+      <tr>
+        <td>Scale 量级阶梯</td>
+        <td>
+          <code>records=200 docs=3000 ms=13</code><br/>
+          <code>records=600 docs=9000 ms=39</code><br/>
+          <code>records=1200 docs=18000 ms=91</code>
+        </td>
+        <td>通过</td>
+      </tr>
+      <tr>
+        <td>高负载场景打印</td>
+        <td><code>[S-007] docs=150000 timeMs=3324 groups=9</code></td>
+        <td>通过</td>
+      </tr>
+      <tr>
+        <td>窗口影响压力项</td>
+        <td><code>PERF_E2E_006_007_008_009_windowSizeImpact()</code>：25313 ms</td>
+        <td>通过</td>
+      </tr>
+      <tr>
+        <td>Soak 相关项</td>
+        <td>
+          <code>PERF_SOAK_004_warmupVsColdStart()</code>：11074 ms<br/>
+          <code>PERF_SOAK_005_jitterP99_proxy()</code>：12885 ms
+        </td>
+        <td>通过</td>
+      </tr>
+      <tr>
+        <td>双层索引性能用例</td>
+        <td>
+          <code>PERF_LXDB_IDX_001_dualIndexBuild_shouldStayWithinBudget_forDiverseProfiles()</code><br/>
+          <code>PERF_LXDB_IDX_002_dualIndexBuild_scaleMatrix_shouldStayWithinBudget()</code>
+        </td>
+        <td>通过</td>
+      </tr>
+      <tr>
+        <td>文件上限性能矩阵</td>
+        <td><code>MaxLengthFilePerformanceTest</code> 5 个用例全部通过（64B/行、32000行上限及组合矩阵）</td>
+        <td>通过</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>覆盖范围说明</h2>
+  <ul>
+    <li>功能测试：包含常规功能、边界、回归、集成、鲁棒性与派生数据链路验证。</li>
+    <li>性能测试：包含 perf、scale、budget、stress、soak 五类开关覆盖。</li>
+    <li>关键压测类（Part1/Part2、ScenarioMatrix、Budget、Application/Infrastructure）均已执行并通过。</li>
+  </ul>
+
+  <p class="small">
+    说明：本报告基于本次控制台全量执行结果整理；如需“按类名/方法名逐条导出（CSV/JSON）”版，我可以继续生成机器可读明细报告。
+  </p>
+</body>
+</html>
