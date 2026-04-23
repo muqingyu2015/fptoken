@@ -20,11 +20,20 @@ class ExclusiveFpRowsProcessingApiOptionsUnitTest {
 
         assertEquals(EngineTuningConfig.DEFAULT_RUNNER_MIN_SUPPORT, options.getMinSupport());
         assertEquals(EngineTuningConfig.DEFAULT_RUNNER_MIN_ITEMSET_SIZE, options.getMinItemsetSize());
+        assertEquals(EngineTuningConfig.DEFAULT_MAX_ITEMSET_SIZE, options.getMaxItemsetSize());
+        assertEquals(EngineTuningConfig.DEFAULT_MAX_CANDIDATE_COUNT, options.getMaxCandidateCount());
         assertEquals(EngineTuningConfig.DEFAULT_HOT_TERM_THRESHOLD_EXCLUSIVE, options.getHotTermThresholdExclusive());
         assertEquals(EngineTuningConfig.DEFAULT_NGRAM_START, options.getNgramStart());
         assertEquals(EngineTuningConfig.DEFAULT_NGRAM_END, options.getNgramEnd());
         assertEquals(EngineTuningConfig.DEFAULT_SKIP_HASH_MIN_GRAM, options.getSkipHashMinGram());
         assertEquals(EngineTuningConfig.DEFAULT_SKIP_HASH_MAX_GRAM, options.getSkipHashMaxGram());
+        assertEquals(EngineTuningConfig.DEFAULT_SAMPLE_RATIO, options.getSampleRatio());
+        assertEquals(EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT, options.getMinSampleCount());
+        assertEquals(EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE, options.getSamplingSupportScale());
+        assertEquals(EngineTuningConfig.PICKER_DEFAULT_MIN_NET_GAIN, options.getPickerMinNetGain());
+        assertEquals(EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM, options.getPickerEstimatedBytesPerTerm());
+        assertEquals(EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM,
+                options.getPickerCoverageRewardPerTerm());
     }
 
     @Test
@@ -33,20 +42,59 @@ class ExclusiveFpRowsProcessingApiOptionsUnitTest {
         ExclusiveFpRowsProcessingApi.ProcessingOptions changed = base
                 .withMinSupport(99)
                 .withMinItemsetSize(3)
+                .withMaxItemsetSize(7)
+                .withMaxCandidateCount(190_000)
                 .withNgramRange(3, 5)
-                .withSkipHashGramRange(3, 6);
+                .withSkipHashGramRange(3, 6)
+                .withSampleRatio(0.42d)
+                .withMinSampleCount(88)
+                .withSamplingSupportScale(0.7d)
+                .withPickerMinNetGain(2)
+                .withPickerEstimatedBytesPerTerm(1)
+                .withPickerCoverageRewardPerTerm(5);
 
         assertEquals(EngineTuningConfig.DEFAULT_RUNNER_MIN_SUPPORT, base.getMinSupport());
         assertEquals(EngineTuningConfig.DEFAULT_RUNNER_MIN_ITEMSET_SIZE, base.getMinItemsetSize());
+        assertEquals(EngineTuningConfig.DEFAULT_MAX_ITEMSET_SIZE, base.getMaxItemsetSize());
+        assertEquals(EngineTuningConfig.DEFAULT_MAX_CANDIDATE_COUNT, base.getMaxCandidateCount());
         assertEquals(EngineTuningConfig.DEFAULT_NGRAM_START, base.getNgramStart());
         assertEquals(EngineTuningConfig.DEFAULT_SKIP_HASH_MIN_GRAM, base.getSkipHashMinGram());
+        assertEquals(EngineTuningConfig.DEFAULT_SAMPLE_RATIO, base.getSampleRatio());
+        assertEquals(EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT, base.getMinSampleCount());
+        assertEquals(EngineTuningConfig.PICKER_DEFAULT_MIN_NET_GAIN, base.getPickerMinNetGain());
+        assertEquals(EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM, base.getPickerEstimatedBytesPerTerm());
+        assertEquals(EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM,
+                base.getPickerCoverageRewardPerTerm());
 
         assertEquals(99, changed.getMinSupport());
         assertEquals(3, changed.getMinItemsetSize());
+        assertEquals(7, changed.getMaxItemsetSize());
+        assertEquals(190_000, changed.getMaxCandidateCount());
         assertEquals(3, changed.getNgramStart());
         assertEquals(5, changed.getNgramEnd());
         assertEquals(3, changed.getSkipHashMinGram());
         assertEquals(6, changed.getSkipHashMaxGram());
+        assertEquals(0.42d, changed.getSampleRatio());
+        assertEquals(88, changed.getMinSampleCount());
+        assertEquals(0.7d, changed.getSamplingSupportScale());
+        assertEquals(2, changed.getPickerMinNetGain());
+        assertEquals(1, changed.getPickerEstimatedBytesPerTerm());
+        assertEquals(5, changed.getPickerCoverageRewardPerTerm());
+    }
+
+    @Test
+    void compressionFocusedOptions_shouldUseCompressionProfileDefaults() {
+        ExclusiveFpRowsProcessingApi.ProcessingOptions options = ExclusiveFpRowsProcessingApi.compressionFocusedOptions();
+        assertEquals(EngineTuningConfig.COMPRESSION_FOCUSED_MAX_ITEMSET_SIZE, options.getMaxItemsetSize());
+        assertEquals(EngineTuningConfig.COMPRESSION_FOCUSED_MAX_CANDIDATE_COUNT, options.getMaxCandidateCount());
+        assertEquals(EngineTuningConfig.COMPRESSION_FOCUSED_SAMPLE_RATIO, options.getSampleRatio());
+        assertEquals(EngineTuningConfig.COMPRESSION_FOCUSED_MIN_SAMPLE_COUNT, options.getMinSampleCount());
+        assertEquals(EngineTuningConfig.COMPRESSION_FOCUSED_SAMPLING_SUPPORT_SCALE, options.getSamplingSupportScale());
+        assertEquals(EngineTuningConfig.COMPRESSION_FOCUSED_PICKER_MIN_NET_GAIN, options.getPickerMinNetGain());
+        assertEquals(EngineTuningConfig.COMPRESSION_FOCUSED_PICKER_ESTIMATED_BYTES_PER_TERM,
+                options.getPickerEstimatedBytesPerTerm());
+        assertEquals(EngineTuningConfig.COMPRESSION_FOCUSED_PICKER_COVERAGE_REWARD_PER_TERM,
+                options.getPickerCoverageRewardPerTerm());
     }
 
     @Test
@@ -70,6 +118,46 @@ class ExclusiveFpRowsProcessingApiOptionsUnitTest {
                 IllegalArgumentException.class,
                 () -> ExclusiveFpRowsProcessingApi.IntermediateSteps.validateProcessingOptions(
                         ExclusiveFpRowsProcessingApi.defaultOptions().withSkipHashGramRange(1, 4))
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExclusiveFpRowsProcessingApi.IntermediateSteps.validateProcessingOptions(
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withMaxItemsetSize(0))
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExclusiveFpRowsProcessingApi.IntermediateSteps.validateProcessingOptions(
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withMaxItemsetSize(1).withMinItemsetSize(2))
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExclusiveFpRowsProcessingApi.IntermediateSteps.validateProcessingOptions(
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withMaxCandidateCount(0))
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExclusiveFpRowsProcessingApi.IntermediateSteps.validateProcessingOptions(
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withSampleRatio(-0.01d))
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExclusiveFpRowsProcessingApi.IntermediateSteps.validateProcessingOptions(
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withMinSampleCount(0))
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExclusiveFpRowsProcessingApi.IntermediateSteps.validateProcessingOptions(
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withPickerMinNetGain(-1))
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExclusiveFpRowsProcessingApi.IntermediateSteps.validateProcessingOptions(
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withPickerEstimatedBytesPerTerm(0))
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExclusiveFpRowsProcessingApi.IntermediateSteps.validateProcessingOptions(
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withPickerCoverageRewardPerTerm(-1))
         );
     }
 

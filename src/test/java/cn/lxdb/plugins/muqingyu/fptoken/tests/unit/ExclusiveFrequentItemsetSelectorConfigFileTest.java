@@ -14,19 +14,41 @@ class ExclusiveFrequentItemsetSelectorConfigFileTest {
         double oldRatio = ExclusiveFrequentItemsetSelector.getSampleRatio();
         int oldMin = ExclusiveFrequentItemsetSelector.getMinSampleCount();
         double oldScale = ExclusiveFrequentItemsetSelector.getSamplingSupportScale();
+        int oldMinNetGain = ExclusiveFrequentItemsetSelector.getPickerMinNetGain();
+        int oldEstimatedBytes = ExclusiveFrequentItemsetSelector.getPickerEstimatedBytesPerTerm();
+        int oldCoverageReward = ExclusiveFrequentItemsetSelector.getPickerCoverageRewardPerTerm();
         try {
             ExclusiveFrequentItemsetSelector.setSampleRatio(0.42d);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(77);
             ExclusiveFrequentItemsetSelector.setSamplingSupportScale(0.88d);
+            ExclusiveFrequentItemsetSelector.setPickerMinNetGain(2);
+            ExclusiveFrequentItemsetSelector.setPickerEstimatedBytesPerTerm(1);
+            ExclusiveFrequentItemsetSelector.setPickerCoverageRewardPerTerm(4);
 
             assertEquals(0.42d, ExclusiveFrequentItemsetSelector.getSampleRatio(), 1e-9);
             assertEquals(77, ExclusiveFrequentItemsetSelector.getMinSampleCount());
             assertEquals(0.88d, ExclusiveFrequentItemsetSelector.getSamplingSupportScale(), 1e-9);
+            assertEquals(2, ExclusiveFrequentItemsetSelector.getPickerMinNetGain());
+            assertEquals(1, ExclusiveFrequentItemsetSelector.getPickerEstimatedBytesPerTerm());
+            assertEquals(4, ExclusiveFrequentItemsetSelector.getPickerCoverageRewardPerTerm());
         } finally {
             ExclusiveFrequentItemsetSelector.setSampleRatio(oldRatio);
             ExclusiveFrequentItemsetSelector.setMinSampleCount(oldMin);
             ExclusiveFrequentItemsetSelector.setSamplingSupportScale(oldScale);
+            ExclusiveFrequentItemsetSelector.setPickerMinNetGain(oldMinNetGain);
+            ExclusiveFrequentItemsetSelector.setPickerEstimatedBytesPerTerm(oldEstimatedBytes);
+            ExclusiveFrequentItemsetSelector.setPickerCoverageRewardPerTerm(oldCoverageReward);
         }
+    }
+
+    @Test
+    void codeConfig_invalidPickerTuning_shouldThrow() {
+        assertThrows(IllegalArgumentException.class,
+                () -> ExclusiveFrequentItemsetSelector.setPickerMinNetGain(-1));
+        assertThrows(IllegalArgumentException.class,
+                () -> ExclusiveFrequentItemsetSelector.setPickerEstimatedBytesPerTerm(0));
+        assertThrows(IllegalArgumentException.class,
+                () -> ExclusiveFrequentItemsetSelector.setPickerCoverageRewardPerTerm(-1));
     }
 
     @Test
@@ -59,15 +81,29 @@ class ExclusiveFrequentItemsetSelectorConfigFileTest {
         ExclusiveFrequentItemsetSelector.setSampleRatio(0.66d);
         ExclusiveFrequentItemsetSelector.setMinSampleCount(99);
         ExclusiveFrequentItemsetSelector.setSamplingSupportScale(0.77d);
+        ExclusiveFrequentItemsetSelector.setPickerMinNetGain(3);
+        ExclusiveFrequentItemsetSelector.setPickerEstimatedBytesPerTerm(1);
+        ExclusiveFrequentItemsetSelector.setPickerCoverageRewardPerTerm(3);
 
         ExclusiveFrequentItemsetSelector.setSampleRatio(EngineTuningConfig.DEFAULT_SAMPLE_RATIO);
         ExclusiveFrequentItemsetSelector.setMinSampleCount(EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT);
         ExclusiveFrequentItemsetSelector.setSamplingSupportScale(EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE);
+        ExclusiveFrequentItemsetSelector.setPickerMinNetGain(EngineTuningConfig.PICKER_DEFAULT_MIN_NET_GAIN);
+        ExclusiveFrequentItemsetSelector.setPickerEstimatedBytesPerTerm(
+                EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM);
+        ExclusiveFrequentItemsetSelector.setPickerCoverageRewardPerTerm(
+                EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM);
 
         assertEquals(EngineTuningConfig.DEFAULT_SAMPLE_RATIO, ExclusiveFrequentItemsetSelector.getSampleRatio(), 1e-12);
         assertEquals(EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT, ExclusiveFrequentItemsetSelector.getMinSampleCount());
         assertEquals(EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE,
                 ExclusiveFrequentItemsetSelector.getSamplingSupportScale(), 1e-12);
+        assertEquals(EngineTuningConfig.PICKER_DEFAULT_MIN_NET_GAIN,
+                ExclusiveFrequentItemsetSelector.getPickerMinNetGain());
+        assertEquals(EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM,
+                ExclusiveFrequentItemsetSelector.getPickerEstimatedBytesPerTerm());
+        assertEquals(EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM,
+                ExclusiveFrequentItemsetSelector.getPickerCoverageRewardPerTerm());
     }
 
     @Test

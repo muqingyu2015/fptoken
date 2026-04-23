@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import cn.lxdb.plugins.muqingyu.fptoken.api.ExclusiveFpRowsProcessingApi;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.result.LineFileProcessingResult;
@@ -82,6 +83,46 @@ class ExclusiveFpRowsProcessingApiProcessRowsTest {
     }
 
     @Test
+    void processRows_compressionFocusedOptions_shouldIncreaseMutexAbsorbRatio_onClusteredRows() {
+        List<DocTerms> rows = buildClusteredRowsForMutexAbsorption();
+
+        ExclusiveFpRowsProcessingApi.ProcessingOptions baseline =
+                ExclusiveFpRowsProcessingApi.defaultOptions()
+                        .withMinSupport(2)
+                        .withMinItemsetSize(2)
+                        .withHotTermThresholdExclusive(2)
+                        .withPickerEstimatedBytesPerTerm(2);
+        LineFileProcessingResult baselineResult = ExclusiveFpRowsProcessingApi.processRows(rows, baseline);
+
+        ExclusiveFpRowsProcessingApi.ProcessingOptions tuned =
+                ExclusiveFpRowsProcessingApi.compressionFocusedOptions()
+                        .withMinSupport(2)
+                        .withMinItemsetSize(2)
+                        .withHotTermThresholdExclusive(2)
+                        .withSampleRatio(0.65d)
+                        .withMinSampleCount(16)
+                        .withPickerEstimatedBytesPerTerm(1);
+        LineFileProcessingResult tunedResult = ExclusiveFpRowsProcessingApi.processRows(rows, tuned);
+
+        LineFileProcessingResult.ProcessingStats baselineStats = baselineResult.getProcessingStats();
+        LineFileProcessingResult.ProcessingStats tunedStats = tunedResult.getProcessingStats();
+
+        assertTrue(
+                tunedStats.getHighFreqSingleTermMovedToMutexGroupPercent()
+                        >= baselineStats.getHighFreqSingleTermMovedToMutexGroupPercent(),
+                () -> "tuned absorb ratio should be >= baseline, tuned="
+                        + tunedStats.getHighFreqSingleTermMovedToMutexGroupPercent()
+                        + ", baseline=" + baselineStats.getHighFreqSingleTermMovedToMutexGroupPercent()
+        );
+        assertTrue(
+                tunedStats.getSelectedGroupCount() >= baselineStats.getSelectedGroupCount(),
+                () -> "tuned group count should be >= baseline, tuned="
+                        + tunedStats.getSelectedGroupCount()
+                        + ", baseline=" + baselineStats.getSelectedGroupCount()
+        );
+    }
+
+    @Test
     void processRows_optionsOverload_shouldRejectNullOptions() {
         List<DocTerms> rows = new ArrayList<DocTerms>();
         rows.add(new DocTerms(0, Arrays.asList(bytes("AB"), bytes("BC"))));
@@ -89,6 +130,48 @@ class ExclusiveFpRowsProcessingApiProcessRowsTest {
         assertNotNull(ExclusiveFpRowsProcessingApi.defaultOptions());
         assertThrows(NullPointerException.class, () ->
                 ExclusiveFpRowsProcessingApi.processRows(rows, null));
+    }
+
+    @Test
+    void processRows_optionsOverload_shouldRejectInvalidAdvancedTuning() {
+        List<DocTerms> rows = new ArrayList<DocTerms>();
+        rows.add(new DocTerms(0, Arrays.asList(bytes("AB"), bytes("BC"))));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                ExclusiveFpRowsProcessingApi.processRows(
+                        rows,
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withMaxItemsetSize(0)
+                ));
+        assertThrows(IllegalArgumentException.class, () ->
+                ExclusiveFpRowsProcessingApi.processRows(
+                        rows,
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withMaxCandidateCount(0)
+                ));
+        assertThrows(IllegalArgumentException.class, () ->
+                ExclusiveFpRowsProcessingApi.processRows(
+                        rows,
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withSampleRatio(1.2d)
+                ));
+        assertThrows(IllegalArgumentException.class, () ->
+                ExclusiveFpRowsProcessingApi.processRows(
+                        rows,
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withMinSampleCount(0)
+                ));
+        assertThrows(IllegalArgumentException.class, () ->
+                ExclusiveFpRowsProcessingApi.processRows(
+                        rows,
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withPickerMinNetGain(-1)
+                ));
+        assertThrows(IllegalArgumentException.class, () ->
+                ExclusiveFpRowsProcessingApi.processRows(
+                        rows,
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withPickerEstimatedBytesPerTerm(0)
+                ));
+        assertThrows(IllegalArgumentException.class, () ->
+                ExclusiveFpRowsProcessingApi.processRows(
+                        rows,
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withPickerCoverageRewardPerTerm(-1)
+                ));
     }
 
     @Test
@@ -210,6 +293,64 @@ class ExclusiveFpRowsProcessingApiProcessRowsTest {
         assertEquals(finalData.getSkipHashMinGram(), stats.getSkipHashMinGram());
         assertEquals(finalData.getSkipHashMaxGram(), stats.getSkipHashMaxGram());
         assertEquals(finalData.getOneByteDocidBitsetIndex().getMaxDocId(), stats.getOneByteIndexMaxDocId());
+        assertTrue(stats.getHighFreqSingleTermCandidateCountBeforeDedup() >= 0);
+        assertTrue(stats.getHighFreqSingleTermMovedToMutexGroupCount() >= 0);
+        assertTrue(stats.getHighFreqSingleTermMovedToMutexGroupCount()
+                <= stats.getHighFreqSingleTermCandidateCountBeforeDedup());
+        assertTrue(stats.getHighFreqSingleTermMovedToMutexGroupPercent() >= 0.0d);
+        assertTrue(stats.getLowHitForwardRowsPercent() >= 0.0d);
+        assertTrue(stats.getLowHitForwardTermsPercent() >= 0.0d);
+    }
+
+    @Test
+    void processingStats_shouldReportMutexAbsorbRatio_andLowHitRatio() {
+        List<DocTerms> loadedRows = new ArrayList<DocTerms>();
+        loadedRows.add(new DocTerms(0, Arrays.asList(bytes("A"), bytes("B"), bytes("X"))));
+        loadedRows.add(new DocTerms(1, Arrays.asList(bytes("A"), bytes("B"), bytes("Y"))));
+        loadedRows.add(new DocTerms(2, Arrays.asList(bytes("A"), bytes("C"), bytes("Y"))));
+        loadedRows.add(new DocTerms(3, Arrays.asList(bytes("A"), bytes("D"), bytes("Z"))));
+
+        List<SelectedGroup> groups = new ArrayList<SelectedGroup>();
+        groups.add(new SelectedGroup(Arrays.asList(bytes("A"), bytes("B")), Arrays.asList(0, 1), 2, 0));
+
+        ExclusiveSelectionResult selectionResult = new ExclusiveSelectionResult(
+                groups,
+                6,
+                12,
+                20,
+                1000,
+                false
+        );
+
+        List<DocTerms> lowHitRows = new ArrayList<DocTerms>();
+        lowHitRows.add(new DocTerms(0, Arrays.asList(bytes("X"))));
+        lowHitRows.add(new DocTerms(2, Arrays.asList(bytes("Y"))));
+
+        List<LineFileProcessingResult.HotTermDocList> hotTerms =
+                new ArrayList<LineFileProcessingResult.HotTermDocList>();
+        hotTerms.add(new LineFileProcessingResult.HotTermDocList(bytes("Y"), Arrays.asList(1, 2)));
+
+        LineFileProcessingResult.DerivedData derivedData =
+                new LineFileProcessingResult.DerivedData(1, lowHitRows, hotTerms);
+
+        LineFileProcessingResult result = new LineFileProcessingResult(
+                loadedRows,
+                selectionResult,
+                derivedData
+        );
+        LineFileProcessingResult.ProcessingStats stats = result.getProcessingStats();
+
+        // 高频单词候选（阈值=1）共有 A、B、Y 三个，其中 A、B 被组合层吸收
+        assertEquals(3, stats.getHighFreqSingleTermCandidateCountBeforeDedup());
+        assertEquals(2, stats.getHighFreqSingleTermMovedToMutexGroupCount());
+        assertEquals((2.0d * 100.0d) / 3.0d,
+                stats.getHighFreqSingleTermMovedToMutexGroupPercent(),
+                0.0001d);
+
+        // 低频层：2 行 / 总 4 行 = 50%
+        assertEquals(50.0d, stats.getLowHitForwardRowsPercent(), 0.0001d);
+        // 低频层词项：2 词 / 总 12 词 = 16.666...%
+        assertEquals((2.0d * 100.0d) / 12.0d, stats.getLowHitForwardTermsPercent(), 0.0001d);
     }
 
     @Test
@@ -433,5 +574,20 @@ class ExclusiveFpRowsProcessingApiProcessRowsTest {
 
     private static String hex(String value) {
         return ByteArrayUtils.toHex(bytes(value));
+    }
+
+    private static List<DocTerms> buildClusteredRowsForMutexAbsorption() {
+        List<DocTerms> rows = new ArrayList<DocTerms>();
+        rows.add(new DocTerms(0, Arrays.asList(bytes("A"), bytes("B"), bytes("C"), bytes("X1"))));
+        rows.add(new DocTerms(1, Arrays.asList(bytes("A"), bytes("B"), bytes("C"), bytes("X2"))));
+        rows.add(new DocTerms(2, Arrays.asList(bytes("A"), bytes("B"), bytes("D"), bytes("X3"))));
+        rows.add(new DocTerms(3, Arrays.asList(bytes("A"), bytes("B"), bytes("D"), bytes("X4"))));
+        rows.add(new DocTerms(4, Arrays.asList(bytes("M"), bytes("N"), bytes("P"), bytes("Y1"))));
+        rows.add(new DocTerms(5, Arrays.asList(bytes("M"), bytes("N"), bytes("P"), bytes("Y2"))));
+        rows.add(new DocTerms(6, Arrays.asList(bytes("M"), bytes("N"), bytes("Q"), bytes("Y3"))));
+        rows.add(new DocTerms(7, Arrays.asList(bytes("M"), bytes("N"), bytes("Q"), bytes("Y4"))));
+        rows.add(new DocTerms(8, Arrays.asList(bytes("A"), bytes("B"), bytes("M"), bytes("N"), bytes("Z1"))));
+        rows.add(new DocTerms(9, Arrays.asList(bytes("A"), bytes("B"), bytes("M"), bytes("N"), bytes("Z2"))));
+        return rows;
     }
 }

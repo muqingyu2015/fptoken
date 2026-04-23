@@ -32,6 +32,15 @@ class TwoPhaseExclusiveItemsetPickerTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> two.pick(Collections.singletonList(CandidateFixture.itemset(new int[] {0}, 0)), 1, -1));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> two.pick(
+                        Collections.singletonList(CandidateFixture.itemset(new int[] {0}, 0)),
+                        1,
+                        1,
+                        0,
+                        0
+                ));
     }
 
     @Test
@@ -168,6 +177,46 @@ class TwoPhaseExclusiveItemsetPickerTest {
         assertTrue(CandidateFixture.mutuallyExclusiveByTermId(out));
         assertTrue(out.contains(challengerA));
         assertFalse(out.contains(challengerB));
+    }
+
+    @Test
+    void estimatedBytesPerTerm_shouldAffectMinNetGainFiltering() {
+        // len=2, support=3 -> estimatedSaving=3
+        // cost(2B/term)=4 => net=-1 (will be filtered by minNetGain=1)
+        // cost(1B/term)=2 => net=1 (can pass minNetGain=1)
+        CandidateItemset pair = CandidateFixture.itemset(new int[] {0, 1}, 0, 1, 2);
+        CandidateItemset safeSingle = CandidateFixture.itemset(new int[] {2}, 0, 1, 2, 3);
+        List<CandidateItemset> candidates = new ArrayList<>();
+        candidates.add(pair);
+        candidates.add(safeSingle);
+
+        List<CandidateItemset> highCost =
+                two.pick(candidates, 8, 0, 1, 2);
+        List<CandidateItemset> lowCost =
+                two.pick(candidates, 8, 0, 1, 1);
+
+        assertFalse(highCost.contains(pair));
+        assertTrue(lowCost.contains(pair));
+    }
+
+    @Test
+    void coverageRewardPerTerm_shouldPreferLongerCandidate_whenNetGainEqual() {
+        // pair: len=2 support=3 => netGain(1B)=1
+        CandidateItemset pair = CandidateFixture.itemset(new int[] {0, 1}, 0, 1, 2);
+        // single: len=1 support=2 => netGain(1B)=1
+        CandidateItemset single = CandidateFixture.itemset(new int[] {2}, 0, 1);
+        List<CandidateItemset> candidates = new ArrayList<>();
+        candidates.add(single);
+        candidates.add(pair);
+
+        List<CandidateItemset> noCoverageBias =
+                two.pick(candidates, 8, 10, 0, 1, 0);
+        List<CandidateItemset> withCoverageBias =
+                two.pick(candidates, 8, 10, 0, 1, 4);
+
+        assertTrue(noCoverageBias.size() >= 1);
+        assertTrue(withCoverageBias.size() >= 1);
+        assertTrue(withCoverageBias.contains(pair));
     }
 }
 

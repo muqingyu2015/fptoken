@@ -183,6 +183,9 @@ public final class ExclusiveFrequentItemsetSelector {
     private static double sampleRatio = EngineTuningConfig.DEFAULT_SAMPLE_RATIO;
     private static int minSampleCount = EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT;
     private static double samplingSupportScale = EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE;
+    private static int pickerMinNetGain = EngineTuningConfig.PICKER_DEFAULT_MIN_NET_GAIN;
+    private static int pickerEstimatedBytesPerTerm = EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM;
+    private static int pickerCoverageRewardPerTerm = EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM;
     /**
      * 兼容保留：当前实现固定走采样路径，本方法不再切换执行分支。
      *
@@ -241,6 +244,45 @@ public final class ExclusiveFrequentItemsetSelector {
     /** 当前采样支持度缩放因子（便于测试与运行期观测）。 */
     public static double getSamplingSupportScale() {
         return samplingSupportScale;
+    }
+
+    /** 当前互斥挑选净收益阈值。 */
+    public static int getPickerMinNetGain() {
+        return pickerMinNetGain;
+    }
+
+    /** 设置互斥挑选净收益阈值。 */
+    public static void setPickerMinNetGain(int minNetGain) {
+        if (minNetGain < 0) {
+            throw new IllegalArgumentException("minNetGain must be >= 0");
+        }
+        pickerMinNetGain = minNetGain;
+    }
+
+    /** 当前互斥挑选的每 term 字典成本估计（字节）。 */
+    public static int getPickerEstimatedBytesPerTerm() {
+        return pickerEstimatedBytesPerTerm;
+    }
+
+    /** 设置互斥挑选的每 term 字典成本估计（字节）。 */
+    public static void setPickerEstimatedBytesPerTerm(int estimatedBytesPerTerm) {
+        if (estimatedBytesPerTerm <= 0) {
+            throw new IllegalArgumentException("estimatedBytesPerTerm must be > 0");
+        }
+        pickerEstimatedBytesPerTerm = estimatedBytesPerTerm;
+    }
+
+    /** 当前互斥挑选每 term 覆盖奖励。 */
+    public static int getPickerCoverageRewardPerTerm() {
+        return pickerCoverageRewardPerTerm;
+    }
+
+    /** 设置互斥挑选每 term 覆盖奖励。 */
+    public static void setPickerCoverageRewardPerTerm(int coverageRewardPerTerm) {
+        if (coverageRewardPerTerm < 0) {
+            throw new IllegalArgumentException("coverageRewardPerTerm must be >= 0");
+        }
+        pickerCoverageRewardPerTerm = coverageRewardPerTerm;
     }
 
     /**
@@ -501,7 +543,9 @@ public final class ExclusiveFrequentItemsetSelector {
                 candidates,
                 dictionarySize,
                 adaptiveMaxSwapTrials(candidates.size()),
-                minNetGain
+                minNetGain,
+                adaptivePickerEstimatedBytesPerTerm(),
+                adaptivePickerCoverageRewardPerTerm()
         );
     }
 
@@ -579,7 +623,15 @@ public final class ExclusiveFrequentItemsetSelector {
     }
 
     private static int adaptiveMinNetGain() {
-        return EngineTuningConfig.DEFAULT_MIN_NET_GAIN;
+        return pickerMinNetGain;
+    }
+
+    private static int adaptivePickerEstimatedBytesPerTerm() {
+        return pickerEstimatedBytesPerTerm;
+    }
+
+    private static int adaptivePickerCoverageRewardPerTerm() {
+        return pickerCoverageRewardPerTerm;
     }
 
     /**

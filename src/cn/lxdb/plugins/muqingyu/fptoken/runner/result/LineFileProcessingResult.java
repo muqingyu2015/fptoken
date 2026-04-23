@@ -4,12 +4,17 @@ import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 行记录处理链路的完整输出：输入快照、挖掘结果以及索引派生结果。
@@ -230,6 +235,11 @@ public final class LineFileProcessingResult {
         private final int skipHashMinGram;
         private final int skipHashMaxGram;
         private final int oneByteIndexMaxDocId;
+        private final int highFreqSingleTermCandidateCountBeforeDedup;
+        private final int highFreqSingleTermMovedToMutexGroupCount;
+        private final double highFreqSingleTermMovedToMutexGroupPercent;
+        private final double lowHitForwardRowsPercent;
+        private final double lowHitForwardTermsPercent;
 
         private ProcessingStats(
                 int inputRowCount,
@@ -247,7 +257,12 @@ public final class LineFileProcessingResult {
                 int hotTermThresholdExclusive,
                 int skipHashMinGram,
                 int skipHashMaxGram,
-                int oneByteIndexMaxDocId
+                int oneByteIndexMaxDocId,
+                int highFreqSingleTermCandidateCountBeforeDedup,
+                int highFreqSingleTermMovedToMutexGroupCount,
+                double highFreqSingleTermMovedToMutexGroupPercent,
+                double lowHitForwardRowsPercent,
+                double lowHitForwardTermsPercent
         ) {
             this.inputRowCount = inputRowCount;
             this.selectedGroupCount = selectedGroupCount;
@@ -265,6 +280,11 @@ public final class LineFileProcessingResult {
             this.skipHashMinGram = skipHashMinGram;
             this.skipHashMaxGram = skipHashMaxGram;
             this.oneByteIndexMaxDocId = oneByteIndexMaxDocId;
+            this.highFreqSingleTermCandidateCountBeforeDedup = highFreqSingleTermCandidateCountBeforeDedup;
+            this.highFreqSingleTermMovedToMutexGroupCount = highFreqSingleTermMovedToMutexGroupCount;
+            this.highFreqSingleTermMovedToMutexGroupPercent = highFreqSingleTermMovedToMutexGroupPercent;
+            this.lowHitForwardRowsPercent = lowHitForwardRowsPercent;
+            this.lowHitForwardTermsPercent = lowHitForwardTermsPercent;
         }
 
         private static ProcessingStats from(
@@ -272,11 +292,20 @@ public final class LineFileProcessingResult {
                 ExclusiveSelectionResult selectionResult,
                 FinalIndexData finalIndexData
         ) {
+            HighFreqTermMergeStats mergeStats = computeHighFreqTermMergeStats(
+                    loadedRows,
+                    finalIndexData.getHighFreqMutexGroupPostings(),
+                    finalIndexData.getHotTermThresholdExclusive()
+            );
+            int lowHitRows = finalIndexData.getLowHitForwardRows().size();
+            int loadedRowsCount = loadedRows.size();
+            int totalInputTerms = countTerms(loadedRows);
+            int lowHitTerms = countTerms(finalIndexData.getLowHitForwardRows());
             return new ProcessingStats(
-                    loadedRows.size(),
+                    loadedRowsCount,
                     finalIndexData.getHighFreqMutexGroupPostings().size(),
                     finalIndexData.getHighFreqSingleTermPostings().size(),
-                    finalIndexData.getLowHitForwardRows().size(),
+                    lowHitRows,
                     finalIndexData.getHighFreqMutexGroupTermsToIndex().size(),
                     finalIndexData.getHighFreqSingleTermToIndex().size(),
                     finalIndexData.getLowHitTermToIndexes().size(),
@@ -288,8 +317,67 @@ public final class LineFileProcessingResult {
                     finalIndexData.getHotTermThresholdExclusive(),
                     finalIndexData.getSkipHashMinGram(),
                     finalIndexData.getSkipHashMaxGram(),
-                    finalIndexData.getOneByteDocidBitsetIndex().getMaxDocId()
+                    finalIndexData.getOneByteDocidBitsetIndex().getMaxDocId(),
+                    mergeStats.totalHighFreqSingleTermsBeforeDedup,
+                    mergeStats.movedIntoMutexGroups,
+                    ratioPercent(mergeStats.movedIntoMutexGroups, mergeStats.totalHighFreqSingleTermsBeforeDedup),
+                    ratioPercent(lowHitRows, loadedRowsCount),
+                    ratioPercent(lowHitTerms, totalInputTerms)
             );
+        }
+
+        private static int countTerms(List<DocTerms> rows) {
+            int total = 0;
+            for (DocTerms row : rows) {
+                total += row.getTermsUnsafe().size();
+            }
+            return total;
+        }
+
+        private static HighFreqTermMergeStats computeHighFreqTermMergeStats(
+                List<DocTerms> loadedRows,
+                List<SelectedGroup> highFreqMutexGroupPostings,
+                int hotTermThresholdExclusive
+        ) {
+            Map<ByteArrayKey, Set<Integer>> termToDocIds = new HashMap<ByteArrayKey, Set<Integer>>();
+            for (DocTerms row : loadedRows) {
+                int docId = row.getDocId();
+                for (byte[] term : row.getTermsUnsafe()) {
+                    ByteArrayKey key = new ByteArrayKey(term);
+                    Set<Integer> docIds = termToDocIds.get(key);
+                    if (docIds == null) {
+                        docIds = new HashSet<Integer>();
+                        termToDocIds.put(key, docIds);
+                    }
+                    docIds.add(Integer.valueOf(docId));
+                }
+            }
+
+            Set<ByteArrayKey> mutexTerms = new HashSet<ByteArrayKey>();
+            for (SelectedGroup group : highFreqMutexGroupPostings) {
+                for (byte[] term : group.getTerms()) {
+                    mutexTerms.add(new ByteArrayKey(term));
+                }
+            }
+
+            int totalHighFreqSingleTermsBeforeDedup = 0;
+            int movedIntoMutexGroups = 0;
+            for (Map.Entry<ByteArrayKey, Set<Integer>> entry : termToDocIds.entrySet()) {
+                if (entry.getValue().size() > hotTermThresholdExclusive) {
+                    totalHighFreqSingleTermsBeforeDedup++;
+                    if (mutexTerms.contains(entry.getKey())) {
+                        movedIntoMutexGroups++;
+                    }
+                }
+            }
+            return new HighFreqTermMergeStats(totalHighFreqSingleTermsBeforeDedup, movedIntoMutexGroups);
+        }
+
+        private static double ratioPercent(int numerator, int denominator) {
+            if (denominator <= 0) {
+                return 0.0d;
+            }
+            return (numerator * 100.0d) / denominator;
         }
 
         public int getInputRowCount() {
@@ -354,6 +442,53 @@ public final class LineFileProcessingResult {
 
         public int getOneByteIndexMaxDocId() {
             return oneByteIndexMaxDocId;
+        }
+
+        /**
+         * “高频单词候选（扣除组合层之前）”总数。
+         *
+         * <p>口径：在输入 rows 中，doc 覆盖数严格大于 hotTermThresholdExclusive 的单词数量。</p>
+         */
+        public int getHighFreqSingleTermCandidateCountBeforeDedup() {
+            return highFreqSingleTermCandidateCountBeforeDedup;
+        }
+
+        /**
+         * 被高频组合层吸收（从高频单词层移出以减少重复）的单词数量。
+         */
+        public int getHighFreqSingleTermMovedToMutexGroupCount() {
+            return highFreqSingleTermMovedToMutexGroupCount;
+        }
+
+        /**
+         * 被高频组合层吸收的单词占比（相对“高频单词候选总数”）。
+         */
+        public double getHighFreqSingleTermMovedToMutexGroupPercent() {
+            return highFreqSingleTermMovedToMutexGroupPercent;
+        }
+
+        /**
+         * 低频剩余层在整体行数中的占比（百分比）。
+         */
+        public double getLowHitForwardRowsPercent() {
+            return lowHitForwardRowsPercent;
+        }
+
+        /**
+         * 低频剩余层在整体词项数中的占比（百分比）。
+         */
+        public double getLowHitForwardTermsPercent() {
+            return lowHitForwardTermsPercent;
+        }
+
+        private static final class HighFreqTermMergeStats {
+            private final int totalHighFreqSingleTermsBeforeDedup;
+            private final int movedIntoMutexGroups;
+
+            private HighFreqTermMergeStats(int totalHighFreqSingleTermsBeforeDedup, int movedIntoMutexGroups) {
+                this.totalHighFreqSingleTermsBeforeDedup = totalHighFreqSingleTermsBeforeDedup;
+                this.movedIntoMutexGroups = movedIntoMutexGroups;
+            }
         }
     }
 

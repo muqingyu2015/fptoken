@@ -72,6 +72,16 @@ public final class ExclusiveFpRowsProcessingApi {
         return ProcessingOptions.defaults();
     }
 
+    /**
+     * 返回“压缩优先”参数快照。
+     *
+     * <p>该档位会提升组合发现能力（更高采样、更大候选与项集上限），
+     * 适合在 CPU 预算允许时追求更高的高频组合层占比。</p>
+     */
+    public static ProcessingOptions compressionFocusedOptions() {
+        return ProcessingOptions.compressionFocusedDefaults();
+    }
+
 
     private ExclusiveFpRowsProcessingApi() {
     }
@@ -218,7 +228,8 @@ public final class ExclusiveFpRowsProcessingApi {
             List<DocTerms> rows,
             ProcessingOptions options
     ) {
-        applyDefaultSamplingConfig();
+        applySamplingConfig(options);
+        applySelectorTuningConfig(options);
 
         // 处理层不要修改调用方传入的 rows，这里先做一份防御性拷贝。
         List<DocTerms> loadedRows = copyRows(rows);
@@ -228,7 +239,12 @@ public final class ExclusiveFpRowsProcessingApi {
                 options.getNgramEnd()
         );
         ExclusiveSelectionResult result = selectWithDefaultSelectorTuning(
-                tokenizedRows, options.getMinSupport(), options.getMinItemsetSize());
+                tokenizedRows,
+                options.getMinSupport(),
+                options.getMinItemsetSize(),
+                options.getMaxItemsetSize(),
+                options.getMaxCandidateCount()
+        );
         LineFileProcessingResult.DerivedData derived =
                 buildDerivedData(tokenizedRows, result, options.getHotTermThresholdExclusive());
         // 返回结构中会聚合出最终三元结果（新命名）：
@@ -247,6 +263,30 @@ public final class ExclusiveFpRowsProcessingApi {
         if (options.getMinItemsetSize() <= 0) {
             throw new IllegalArgumentException("minItemsetSize must be > 0");
         }
+        if (options.getMaxItemsetSize() <= 0) {
+            throw new IllegalArgumentException("maxItemsetSize must be > 0");
+        }
+        if (options.getMaxItemsetSize() < options.getMinItemsetSize()) {
+            throw new IllegalArgumentException("maxItemsetSize must be >= minItemsetSize");
+        }
+        if (options.getMaxCandidateCount() <= 0) {
+            throw new IllegalArgumentException("maxCandidateCount must be > 0");
+        }
+        if (options.getSampleRatio() < 0.0d || options.getSampleRatio() > 1.0d) {
+            throw new IllegalArgumentException("sampleRatio must be in [0,1]");
+        }
+        if (options.getMinSampleCount() <= 0) {
+            throw new IllegalArgumentException("minSampleCount must be > 0");
+        }
+        if (options.getPickerMinNetGain() < 0) {
+            throw new IllegalArgumentException("pickerMinNetGain must be >= 0");
+        }
+        if (options.getPickerEstimatedBytesPerTerm() <= 0) {
+            throw new IllegalArgumentException("pickerEstimatedBytesPerTerm must be > 0");
+        }
+        if (options.getPickerCoverageRewardPerTerm() < 0) {
+            throw new IllegalArgumentException("pickerCoverageRewardPerTerm must be >= 0");
+        }
         validateNgramRange(options.getNgramStart(), options.getNgramEnd());
         validateSkipHashGramRange(options.getSkipHashMinGram(), options.getSkipHashMaxGram());
     }
@@ -260,24 +300,33 @@ public final class ExclusiveFpRowsProcessingApi {
         }
     }
 
-    private static void applyDefaultSamplingConfig() {
+    private static void applySamplingConfig(ProcessingOptions options) {
         // 代码内配置抽样参数（不依赖 properties 文件）
-        ExclusiveFrequentItemsetSelector.setSampleRatio(EngineTuningConfig.DEFAULT_SAMPLE_RATIO);
-        ExclusiveFrequentItemsetSelector.setMinSampleCount(EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT);
-        ExclusiveFrequentItemsetSelector.setSamplingSupportScale(EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE);
+        ExclusiveFrequentItemsetSelector.setSampleRatio(options.getSampleRatio());
+        ExclusiveFrequentItemsetSelector.setMinSampleCount(options.getMinSampleCount());
+        ExclusiveFrequentItemsetSelector.setSamplingSupportScale(options.getSamplingSupportScale());
+    }
+
+    private static void applySelectorTuningConfig(ProcessingOptions options) {
+        ExclusiveFrequentItemsetSelector.setPickerMinNetGain(options.getPickerMinNetGain());
+        ExclusiveFrequentItemsetSelector.setPickerEstimatedBytesPerTerm(options.getPickerEstimatedBytesPerTerm());
+        ExclusiveFrequentItemsetSelector.setPickerCoverageRewardPerTerm(options.getPickerCoverageRewardPerTerm());
     }
 
     private static ExclusiveSelectionResult selectWithDefaultSelectorTuning(
             List<DocTerms> rows,
             int minSupport,
-            int minItemsetSize
+            int minItemsetSize,
+            int maxItemsetSize,
+            int maxCandidateCount
     ) {
         return ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
                 rows,
                 minSupport,
                 minItemsetSize,
-                EngineTuningConfig.DEFAULT_MAX_ITEMSET_SIZE,
-                EngineTuningConfig.DEFAULT_MAX_CANDIDATE_COUNT);
+                maxItemsetSize,
+                maxCandidateCount
+        );
     }
 
     public static LineFileProcessingResult.DerivedData buildDerivedData(
@@ -500,70 +549,209 @@ public final class ExclusiveFpRowsProcessingApi {
     public static final class ProcessingOptions {
         private final int minSupport;
         private final int minItemsetSize;
+        private final int maxItemsetSize;
+        private final int maxCandidateCount;
         private final int hotTermThresholdExclusive;
         private final int ngramStart;
         private final int ngramEnd;
         private final int skipHashMinGram;
         private final int skipHashMaxGram;
+        private final double sampleRatio;
+        private final int minSampleCount;
+        private final double samplingSupportScale;
+        private final int pickerMinNetGain;
+        private final int pickerEstimatedBytesPerTerm;
+        private final int pickerCoverageRewardPerTerm;
 
         private ProcessingOptions(
                 int minSupport,
                 int minItemsetSize,
+                int maxItemsetSize,
+                int maxCandidateCount,
                 int hotTermThresholdExclusive,
                 int ngramStart,
                 int ngramEnd,
                 int skipHashMinGram,
-                int skipHashMaxGram
+                int skipHashMaxGram,
+                double sampleRatio,
+                int minSampleCount,
+                double samplingSupportScale,
+                int pickerMinNetGain,
+                int pickerEstimatedBytesPerTerm,
+                int pickerCoverageRewardPerTerm
         ) {
             this.minSupport = minSupport;
             this.minItemsetSize = minItemsetSize;
+            this.maxItemsetSize = maxItemsetSize;
+            this.maxCandidateCount = maxCandidateCount;
             this.hotTermThresholdExclusive = hotTermThresholdExclusive;
             this.ngramStart = ngramStart;
             this.ngramEnd = ngramEnd;
             this.skipHashMinGram = skipHashMinGram;
             this.skipHashMaxGram = skipHashMaxGram;
+            this.sampleRatio = sampleRatio;
+            this.minSampleCount = minSampleCount;
+            this.samplingSupportScale = samplingSupportScale;
+            this.pickerMinNetGain = pickerMinNetGain;
+            this.pickerEstimatedBytesPerTerm = pickerEstimatedBytesPerTerm;
+            this.pickerCoverageRewardPerTerm = pickerCoverageRewardPerTerm;
         }
 
         public static ProcessingOptions defaults() {
             return new ProcessingOptions(
                     EngineTuningConfig.DEFAULT_RUNNER_MIN_SUPPORT,
                     EngineTuningConfig.DEFAULT_RUNNER_MIN_ITEMSET_SIZE,
+                    EngineTuningConfig.DEFAULT_MAX_ITEMSET_SIZE,
+                    EngineTuningConfig.DEFAULT_MAX_CANDIDATE_COUNT,
                     EngineTuningConfig.DEFAULT_HOT_TERM_THRESHOLD_EXCLUSIVE,
                     EngineTuningConfig.DEFAULT_NGRAM_START,
                     EngineTuningConfig.DEFAULT_NGRAM_END,
                     EngineTuningConfig.DEFAULT_SKIP_HASH_MIN_GRAM,
-                    EngineTuningConfig.DEFAULT_SKIP_HASH_MAX_GRAM
+                    EngineTuningConfig.DEFAULT_SKIP_HASH_MAX_GRAM,
+                    EngineTuningConfig.DEFAULT_SAMPLE_RATIO,
+                    EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT,
+                    EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE,
+                    EngineTuningConfig.PICKER_DEFAULT_MIN_NET_GAIN,
+                    EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM,
+                    EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM
+            );
+        }
+
+        public static ProcessingOptions compressionFocusedDefaults() {
+            return new ProcessingOptions(
+                    EngineTuningConfig.DEFAULT_RUNNER_MIN_SUPPORT,
+                    EngineTuningConfig.DEFAULT_RUNNER_MIN_ITEMSET_SIZE,
+                    EngineTuningConfig.COMPRESSION_FOCUSED_MAX_ITEMSET_SIZE,
+                    EngineTuningConfig.COMPRESSION_FOCUSED_MAX_CANDIDATE_COUNT,
+                    EngineTuningConfig.DEFAULT_HOT_TERM_THRESHOLD_EXCLUSIVE,
+                    EngineTuningConfig.DEFAULT_NGRAM_START,
+                    EngineTuningConfig.DEFAULT_NGRAM_END,
+                    EngineTuningConfig.DEFAULT_SKIP_HASH_MIN_GRAM,
+                    EngineTuningConfig.DEFAULT_SKIP_HASH_MAX_GRAM,
+                    EngineTuningConfig.COMPRESSION_FOCUSED_SAMPLE_RATIO,
+                    EngineTuningConfig.COMPRESSION_FOCUSED_MIN_SAMPLE_COUNT,
+                    EngineTuningConfig.COMPRESSION_FOCUSED_SAMPLING_SUPPORT_SCALE,
+                    EngineTuningConfig.COMPRESSION_FOCUSED_PICKER_MIN_NET_GAIN,
+                    EngineTuningConfig.COMPRESSION_FOCUSED_PICKER_ESTIMATED_BYTES_PER_TERM,
+                    EngineTuningConfig.COMPRESSION_FOCUSED_PICKER_COVERAGE_REWARD_PER_TERM
             );
         }
 
         public ProcessingOptions withMinSupport(int value) {
             return new ProcessingOptions(
-                    value, minItemsetSize, hotTermThresholdExclusive,
-                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram);
+                    value, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, minSampleCount, samplingSupportScale,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+            );
         }
 
         public ProcessingOptions withMinItemsetSize(int value) {
             return new ProcessingOptions(
-                    minSupport, value, hotTermThresholdExclusive,
-                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram);
+                    minSupport, value, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, minSampleCount, samplingSupportScale,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+            );
+        }
+
+        public ProcessingOptions withMaxItemsetSize(int value) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, value, maxCandidateCount, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, minSampleCount, samplingSupportScale,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+            );
+        }
+
+        public ProcessingOptions withMaxCandidateCount(int value) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, maxItemsetSize, value, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, minSampleCount, samplingSupportScale,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+            );
         }
 
         public ProcessingOptions withHotTermThresholdExclusive(int value) {
             return new ProcessingOptions(
-                    minSupport, minItemsetSize, value,
-                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram);
+                    minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, value,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, minSampleCount, samplingSupportScale,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+            );
         }
 
         public ProcessingOptions withNgramRange(int start, int end) {
             return new ProcessingOptions(
-                    minSupport, minItemsetSize, hotTermThresholdExclusive,
-                    start, end, skipHashMinGram, skipHashMaxGram);
+                    minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
+                    start, end, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, minSampleCount, samplingSupportScale,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+            );
         }
 
         public ProcessingOptions withSkipHashGramRange(int minGram, int maxGram) {
             return new ProcessingOptions(
-                    minSupport, minItemsetSize, hotTermThresholdExclusive,
-                    ngramStart, ngramEnd, minGram, maxGram);
+                    minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, minGram, maxGram,
+                    sampleRatio, minSampleCount, samplingSupportScale,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+            );
+        }
+
+        public ProcessingOptions withSampleRatio(double value) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    value, minSampleCount, samplingSupportScale,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+            );
+        }
+
+        public ProcessingOptions withMinSampleCount(int value) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, value, samplingSupportScale,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+            );
+        }
+
+        public ProcessingOptions withSamplingSupportScale(double value) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, minSampleCount, value,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+            );
+        }
+
+        public ProcessingOptions withPickerMinNetGain(int value) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, minSampleCount, samplingSupportScale,
+                    value, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+            );
+        }
+
+        public ProcessingOptions withPickerEstimatedBytesPerTerm(int value) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, minSampleCount, samplingSupportScale,
+                    pickerMinNetGain, value, pickerCoverageRewardPerTerm
+            );
+        }
+
+        public ProcessingOptions withPickerCoverageRewardPerTerm(int value) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, minSampleCount, samplingSupportScale,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, value
+            );
         }
 
         public int getMinSupport() {
@@ -572,6 +760,14 @@ public final class ExclusiveFpRowsProcessingApi {
 
         public int getMinItemsetSize() {
             return minItemsetSize;
+        }
+
+        public int getMaxItemsetSize() {
+            return maxItemsetSize;
+        }
+
+        public int getMaxCandidateCount() {
+            return maxCandidateCount;
         }
 
         public int getHotTermThresholdExclusive() {
@@ -592,6 +788,30 @@ public final class ExclusiveFpRowsProcessingApi {
 
         public int getSkipHashMaxGram() {
             return skipHashMaxGram;
+        }
+
+        public double getSampleRatio() {
+            return sampleRatio;
+        }
+
+        public int getMinSampleCount() {
+            return minSampleCount;
+        }
+
+        public double getSamplingSupportScale() {
+            return samplingSupportScale;
+        }
+
+        public int getPickerMinNetGain() {
+            return pickerMinNetGain;
+        }
+
+        public int getPickerEstimatedBytesPerTerm() {
+            return pickerEstimatedBytesPerTerm;
+        }
+
+        public int getPickerCoverageRewardPerTerm() {
+            return pickerCoverageRewardPerTerm;
         }
     }
 }

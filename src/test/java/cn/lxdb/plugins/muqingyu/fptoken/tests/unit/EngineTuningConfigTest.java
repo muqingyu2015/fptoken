@@ -16,6 +16,23 @@ class EngineTuningConfigTest {
         assertTrue(EngineTuningConfig.DEFAULT_MAX_BRANCHING_FACTOR > 0);
         assertTrue(EngineTuningConfig.FACADE_DEFAULT_BEAM_WIDTH > 0);
         assertTrue(EngineTuningConfig.DEFAULT_MAX_SWAP_TRIALS >= 0);
+        assertTrue(EngineTuningConfig.COMPRESSION_FOCUSED_MAX_ITEMSET_SIZE
+                >= EngineTuningConfig.DEFAULT_MAX_ITEMSET_SIZE);
+        assertTrue(EngineTuningConfig.COMPRESSION_FOCUSED_MAX_CANDIDATE_COUNT
+                >= EngineTuningConfig.DEFAULT_MAX_CANDIDATE_COUNT);
+        assertTrue(EngineTuningConfig.COMPRESSION_FOCUSED_SAMPLE_RATIO
+                >= EngineTuningConfig.DEFAULT_SAMPLE_RATIO);
+        assertTrue(EngineTuningConfig.COMPRESSION_FOCUSED_SAMPLE_RATIO <= 1.0d);
+        assertTrue(EngineTuningConfig.COMPRESSION_FOCUSED_MIN_SAMPLE_COUNT
+                >= EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT);
+        assertTrue(EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM > 0);
+        assertTrue(EngineTuningConfig.COMPRESSION_FOCUSED_PICKER_ESTIMATED_BYTES_PER_TERM > 0);
+        assertTrue(EngineTuningConfig.COMPRESSION_FOCUSED_PICKER_ESTIMATED_BYTES_PER_TERM
+                <= EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM);
+        assertTrue(EngineTuningConfig.COMPRESSION_FOCUSED_PICKER_MIN_NET_GAIN >= 0);
+        assertTrue(EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM >= 0);
+        assertTrue(EngineTuningConfig.COMPRESSION_FOCUSED_PICKER_COVERAGE_REWARD_PER_TERM
+                >= EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM);
     }
 
     @Test

@@ -33,6 +33,29 @@ public final class EngineTuningConfig {
     public static final int DEFAULT_MIN_NET_GAIN = 0;
     /** 互斥挑选中每个 term 的粗略字典开销估计(字节)。 */
     public static final int PICKER_ESTIMATED_BYTES_PER_TERM = 2;
+    /** 互斥挑选净收益阈值默认值（允许进入挑选阶段的最低净收益）。 */
+    public static final int PICKER_DEFAULT_MIN_NET_GAIN = DEFAULT_MIN_NET_GAIN;
+    /** 互斥挑选中每个 term 的覆盖奖励（默认 0，保持历史行为）。 */
+    public static final int PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM = 0;
+
+    // ===== 压缩优先调优档（目标：提升高频组合层占比） =====
+
+    /** 压缩优先：放宽最大项集长度，鼓励更长的共现组合进入候选。 */
+    public static final int COMPRESSION_FOCUSED_MAX_ITEMSET_SIZE = 8;
+    /** 压缩优先：放宽候选上限，减少早期截断导致的组合层损失。 */
+    public static final int COMPRESSION_FOCUSED_MAX_CANDIDATE_COUNT = 220_000;
+    /** 压缩优先：提高采样比率，提升组合发现质量。 */
+    public static final double COMPRESSION_FOCUSED_SAMPLE_RATIO = 0.50d;
+    /** 压缩优先：保证中小样本也有足够采样文档。 */
+    public static final int COMPRESSION_FOCUSED_MIN_SAMPLE_COUNT = 128;
+    /** 压缩优先：采样支持度缩放沿用自动比例，避免手工失配。 */
+    public static final double COMPRESSION_FOCUSED_SAMPLING_SUPPORT_SCALE = 0.0d;
+    /** 压缩优先：降低 term 字典成本估计，让更多组合进入候选。 */
+    public static final int COMPRESSION_FOCUSED_PICKER_ESTIMATED_BYTES_PER_TERM = 1;
+    /** 压缩优先：净收益阈值保持 0，避免过早过滤组合。 */
+    public static final int COMPRESSION_FOCUSED_PICKER_MIN_NET_GAIN = 0;
+    /** 压缩优先：提升“每多覆盖一个 term”的奖励，偏向组合层。 */
+    public static final int COMPRESSION_FOCUSED_PICKER_COVERAGE_REWARD_PER_TERM = 3;
 
     // ===== Miner 内部运行参数(BeamFrequentItemsetMiner) =====
 

@@ -14,7 +14,7 @@ import java.util.Set;
  * <p><b>第二阶段规则</b>：
  * <ul>
  *   <li>按候选列表顺序遍历「挑战者」；对每个挑战者，尝试替换当前解中某一「在位者」。</li>
- *   <li>仅当 {@link #objective(CandidateItemset)} 严格优于在位者时才尝试；每次尝试计入 {@code maxSwapTrials}，无论是否替换成功。</li>
+ *   <li>仅当 {@link #objective(CandidateItemset, int, int)} 严格优于在位者时才尝试；每次尝试计入 {@code maxSwapTrials}，无论是否替换成功。</li>
  *   <li>替换需保持互斥：除被替换位置外，其余已选项占用的 termId 与挑战者无交集。</li>
  *   <li>每个挑战者至多成功替换一次（内层成功后 {@code break}），不做多步连锁优化。</li>
  * </ul>
@@ -38,7 +38,14 @@ public final class TwoPhaseExclusiveItemsetPicker {
             int dictionarySize,
             int maxSwapTrials
     ) {
-        return pick(candidates, dictionarySize, maxSwapTrials, EngineTuningConfig.DEFAULT_MIN_NET_GAIN);
+        return pick(
+                candidates,
+                dictionarySize,
+                maxSwapTrials,
+                EngineTuningConfig.PICKER_DEFAULT_MIN_NET_GAIN,
+                EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM,
+                EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM
+        );
     }
 
     public List<CandidateItemset> pick(
@@ -46,6 +53,41 @@ public final class TwoPhaseExclusiveItemsetPicker {
             int dictionarySize,
             int maxSwapTrials,
             int minNetGain
+    ) {
+        return pick(
+                candidates,
+                dictionarySize,
+                maxSwapTrials,
+                minNetGain,
+                EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM,
+                EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM
+        );
+    }
+
+    public List<CandidateItemset> pick(
+            List<CandidateItemset> candidates,
+            int dictionarySize,
+            int maxSwapTrials,
+            int minNetGain,
+            int estimatedBytesPerTerm
+    ) {
+        return pick(
+                candidates,
+                dictionarySize,
+                maxSwapTrials,
+                minNetGain,
+                estimatedBytesPerTerm,
+                EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM
+        );
+    }
+
+    public List<CandidateItemset> pick(
+            List<CandidateItemset> candidates,
+            int dictionarySize,
+            int maxSwapTrials,
+            int minNetGain,
+            int estimatedBytesPerTerm,
+            int coverageRewardPerTerm
     ) {
         if (candidates == null) {
             throw new IllegalArgumentException("candidates must not be null");
@@ -59,10 +101,17 @@ public final class TwoPhaseExclusiveItemsetPicker {
         if (minNetGain < 0) {
             throw new IllegalArgumentException("minNetGain must be >= 0");
         }
+        if (estimatedBytesPerTerm <= 0) {
+            throw new IllegalArgumentException("estimatedBytesPerTerm must be > 0");
+        }
+        if (coverageRewardPerTerm < 0) {
+            throw new IllegalArgumentException("coverageRewardPerTerm must be >= 0");
+        }
         validateCandidates(candidates);
 
         int bitsetSize = effectiveBitsetSize(candidates, dictionarySize);
-        List<CandidateItemset> filteredCandidates = filterByMinNetGain(candidates, minNetGain);
+        List<CandidateItemset> filteredCandidates =
+                filterByMinNetGain(candidates, minNetGain, estimatedBytesPerTerm);
         if (filteredCandidates.isEmpty()) {
             return new ArrayList<>();
         }
@@ -76,11 +125,11 @@ public final class TwoPhaseExclusiveItemsetPicker {
         // 预计算分数，避免在双层循环中重复 objective()。
         long[] selectedScores = new long[selected.size()];
         for (int i = 0; i < selected.size(); i++) {
-            selectedScores[i] = objective(selected.get(i));
+            selectedScores[i] = objective(selected.get(i), estimatedBytesPerTerm, coverageRewardPerTerm);
         }
         long[] challengerScores = new long[filteredCandidates.size()];
         for (int i = 0; i < filteredCandidates.size(); i++) {
-            challengerScores[i] = objective(filteredCandidates.get(i));
+            challengerScores[i] = objective(filteredCandidates.get(i), estimatedBytesPerTerm, coverageRewardPerTerm);
         }
         Set<CandidateItemset> selectedSet = new HashSet<>(selected);
 
@@ -172,14 +221,18 @@ public final class TwoPhaseExclusiveItemsetPicker {
         }
     }
 
-    private static List<CandidateItemset> filterByMinNetGain(List<CandidateItemset> candidates, int minNetGain) {
+    private static List<CandidateItemset> filterByMinNetGain(
+            List<CandidateItemset> candidates,
+            int minNetGain,
+            int estimatedBytesPerTerm
+    ) {
         if (minNetGain <= 0) {
             return candidates;
         }
         List<CandidateItemset> out = new ArrayList<>(candidates.size());
         for (int i = 0; i < candidates.size(); i++) {
             CandidateItemset candidate = candidates.get(i);
-            if (netGain(candidate) >= minNetGain) {
+            if (netGain(candidate, estimatedBytesPerTerm) >= minNetGain) {
                 out.add(candidate);
             }
         }
@@ -213,14 +266,16 @@ public final class TwoPhaseExclusiveItemsetPicker {
      * 替换阶段使用的标量目标（越大越好）。主项为 {@link CandidateItemset#getEstimatedSaving()}，
      * 其次 {@link CandidateItemset#getSupport()}，再次项集长度；系数拉开量级避免比较歧义。
      */
-    private long objective(CandidateItemset c) {
-        return ((long) netGain(c)) * 1000000L
+    private long objective(CandidateItemset c, int estimatedBytesPerTerm, int coverageRewardPerTerm) {
+        long coverageBonus = ((long) coverageRewardPerTerm) * ((long) c.length()) * 1000L;
+        return ((long) netGain(c, estimatedBytesPerTerm)) * 1000000L
                 + ((long) c.getSupport()) * 1000L
+                + coverageBonus
                 + (long) c.length();
     }
 
-    private static int netGain(CandidateItemset c) {
-        int dictionaryCost = c.length() * EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM;
+    private static int netGain(CandidateItemset c, int estimatedBytesPerTerm) {
+        int dictionaryCost = c.length() * estimatedBytesPerTerm;
         return c.getEstimatedSaving() - dictionaryCost;
     }
 }
