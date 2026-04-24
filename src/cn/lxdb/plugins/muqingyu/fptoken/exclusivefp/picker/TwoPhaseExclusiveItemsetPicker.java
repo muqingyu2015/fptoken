@@ -268,9 +268,11 @@ public final class TwoPhaseExclusiveItemsetPicker {
      */
     private long objective(CandidateItemset c, int estimatedBytesPerTerm, int coverageRewardPerTerm) {
         long coverageBonus = ((long) coverageRewardPerTerm) * ((long) c.length()) * 1000L;
+        long priorityBonus = ((long) c.getPriorityBoost()) * 1000L;
         return ((long) netGain(c, estimatedBytesPerTerm)) * 1000000L
                 + ((long) c.getSupport()) * 1000L
                 + coverageBonus
+                + priorityBonus
                 + (long) c.length();
     }
 

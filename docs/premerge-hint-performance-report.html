@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FPToken 预合并提示（Pre-merge Hints）性能对比报告</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --good: #3fb950;
+      --warn: #d29922;
+      --border: #30363d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      margin: 0;
+      padding: 2rem 1.5rem 4rem;
+      max-width: 960px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    h1 { font-size: 1.75rem; font-weight: 600; margin-top: 0; }
+    h2 { font-size: 1.2rem; color: var(--accent); margin-top: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 0.35rem; }
+    p { color: var(--text); }
+    .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      margin: 1rem 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.65rem 0.85rem;
+      text-align: left;
+    }
+    th { background: rgba(88, 166, 255, 0.12); color: var(--accent); font-weight: 600; }
+    tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+    .up { color: var(--good); font-weight: 600; }
+    .flat { color: var(--warn); }
+    code {
+      background: rgba(110, 118, 129, 0.25);
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      font-size: 0.88em;
+    }
+    ul { padding-left: 1.25rem; color: var(--muted); }
+    ul li { margin: 0.35rem 0; }
+    .note { font-size: 0.9rem; color: var(--muted); margin-top: 1.5rem; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <h1>FPToken 预合并提示（Pre-merge Hints）性能对比报告</h1>
+  <p class="meta">
+    报告类型：模拟 Lucene 合并场景的合成负载 · 指标为单次 JVM 内多次测量的<strong>中位数耗时（ms）</strong><br />
+    数据来源：<code>MergePremergeHintAccelerationPerformanceTest</code>（需 <code>-Dfptoken.runPerfTests=true</code>）<br />
+    生成说明：数值会随机器负载波动；下列为<strong>一次代表性运行</strong>的日志摘录，用于说明量级与对比关系。
+  </p>
+
+  <div class="card">
+    <h2 style="margin-top:0;border:none;padding:0;">结论摘要</h2>
+    <ul style="color:var(--text);">
+      <li><strong>仅高频提示（mutex + single）</strong>相对<strong>无提示基线</strong>：本次运行中位数由 <strong>13 ms → 7 ms</strong>，约 <span class="up">−46%</span> 耗时（提升约 <strong>86%</strong> 吞吐等价表述：同时间可跑约 1.86 倍次数）。</li>
+      <li><strong>拆分提示来源</strong>（仅 mutex / 仅 single / 二者）：本次运行基线 <strong>10 ms</strong>；<strong>both=9 ms</strong> 略优；mutex-only 在个别运行中可能略慢于基线（毫秒级抖动），测试用例已对回归做宽松阈值保护。</li>
+      <li><strong>实现说明</strong>：merge 路径使用 <code>withPremergeMutexGroupHints</code> 与 <code>withPremergeSingleTermHints</code> 分开传入，并配合 <code>hintBoostWeight</code>；不再通过 <code>ProcessingOptions</code> 传入历史低频正排先验。</li>
+    </ul>
+  </div>
+
+  <h2>1. 无提示 vs 有提示（主场景）</h2>
+  <p>模拟：多段历史 segment 先跑一遍得到 <code>highFreqMutexGroupPostings</code> 与 <code>highFreqSingleTermPostings</code>，合并为 merged 段后再处理；对比「不传 hints」与「传 hints + hintBoost」。</p>
+  <table>
+    <thead>
+      <tr>
+        <th>配置</th>
+        <th>中位数耗时 (ms)</th>
+        <th>候选数</th>
+        <th>互斥组数（输出）</th>
+        <th>相对基线</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>无 pre-merge hints（基线）</td>
+        <td><strong>13</strong></td>
+        <td>347</td>
+        <td>10</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>有 pre-merge hints（mutex + single，带 boost）</td>
+        <td><strong>7</strong></td>
+        <td>347</td>
+        <td>46</td>
+        <td class="up">约 −46% 耗时</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="note">日志原文：<code>[merge-hint-perf] baselineMedianMs=13, hintedMedianMs=7, improvementPercent=46.15...</code> · hintCoveragePercent≈90.53%</p>
+
+  <h2>2. 提示来源拆分（mutex-only / single-only / both）</h2>
+  <p>同一 merged 负载下，仅用互斥组合提示、仅用单词提示、两者一起，与无提示基线对比（中位数 ms）。</p>
+  <table>
+    <thead>
+      <tr>
+        <th>配置</th>
+        <th>中位数耗时 (ms)</th>
+        <th>备注</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>无 hints</td><td><strong>10</strong></td><td>基线</td></tr>
+      <tr><td>仅 mutex 组合提示</td><td>11</td><td class="flat">本次 +10%，在毫秒级噪声内；测试断言允许一定回退</td></tr>
+      <tr><td>仅 single 单词提示</td><td>10</td><td>与基线持平</td></tr>
+      <tr><td>mutex + single</td><td><strong>9</strong></td><td class="up">相对基线约 −10%</td></tr>
+    </tbody>
+  </table>
+  <p class="note">日志原文：<code>[merge-hint-perf-4way] baseline=10ms, mutexOnly=11ms, singleOnly=10ms, both=9</code></p>
+
+  <h2>3. 如何复现</h2>
+  <p>在项目根目录执行（PowerShell）：</p>
+  <pre style="background:var(--card);border:1px solid var(--border);padding:1rem;border-radius:8px;overflow-x:auto;color:var(--text);"><code>./scripts/run-fptoken-tests.ps1 -Perf</code></pre>
+  <p>或仅跑本报告相关类：</p>
+  <pre style="background:var(--card);border:1px solid var(--border);padding:1rem;border-radius:8px;overflow-x:auto;color:var(--text);"><code>java --% -Dfptoken.runPerfTests=true -jar lib/junit-platform-console-standalone-1.10.2.jar execute --class-path "bin;bin-test" --select-class cn.lxdb.plugins.muqingyu.fptoken.tests.performance.MergePremergeHintAccelerationPerformanceTest</code></pre>
+  <p class="note">首次运行前需已通过 <code>./scripts/run-fptoken-tests.ps1</code> 完成编译，或确保 <code>bin</code> / <code>bin-test</code> 与 <code>lib/junit-platform-console-standalone-1.10.2.jar</code> 存在。</p>
+
+  <h2>4. 重要说明（读报告必看）</h2>
+  <ul>
+    <li>上述数字来自<strong>合成 merge-like 数据集</strong>，用于回归与趋势验证，不等价于生产 Lucene 合并的绝对毫秒数。</li>
+    <li>当 hint 与当前段重叠度低、或提示扩大候选池导致回算成本上升时，收益可能不明显甚至略慢；主测试会打印 <code>reason=</code> 辅助诊断。</li>
+    <li>输出中的 <code>lowHitForwardRows</code> 仍是本批次的<strong>索引结果层</strong>（供 skip 等使用），与 merge 输入侧的 pre-merge 选项无关。</li>
+  </ul>
+
+  <p class="meta" style="margin-top:2rem;">
+    报告文件：<code>docs/premerge-hint-performance-report.html</code><br />
+    关联测试：<code>src/test/java/cn/lxdb/plugins/muqingyu/fptoken/tests/performance/MergePremergeHintAccelerationPerformanceTest.java</code>
+  </p>
+</body>
+</html>

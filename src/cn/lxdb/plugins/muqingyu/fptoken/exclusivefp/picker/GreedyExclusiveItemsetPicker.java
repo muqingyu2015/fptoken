@@ -30,6 +30,7 @@ public final class GreedyExclusiveItemsetPicker {
             Comparator.comparingInt(CandidateItemset::length)
                     .reversed()
                     .thenComparing(Comparator.comparingInt(CandidateItemset::getEstimatedSaving).reversed())
+                    .thenComparing(Comparator.comparingInt(CandidateItemset::getPriorityBoost).reversed())
                     .thenComparing(Comparator.comparingInt(CandidateItemset::getSupport).reversed())
                     .thenComparingInt(
                             c -> {

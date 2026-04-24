@@ -11,13 +11,17 @@ import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResu
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.FrequentItemsetMiningResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.picker.TwoPhaseExclusiveItemsetPicker;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * 互斥频繁项集选择的门面(Facade):对调用方屏蔽索引、挖掘与挑选的实现细节。
@@ -338,8 +342,34 @@ public final class ExclusiveFrequentItemsetSelector {
             int maxItemsetSize,
             int maxCandidateCount
     ) {
+        return selectExclusiveBestItemsetsWithStats(
+                rows,
+                minSupport,
+                minItemsetSize,
+                maxItemsetSize,
+                maxCandidateCount,
+                Collections.<PremergeHintCandidate>emptyList(),
+                0
+        );
+    }
+
+    /**
+     * merge 场景扩展入口：可传入前置高频提示候选，提示会在本轮全量数据上二次回算后再参与互斥挑选。
+     */
+    public static ExclusiveSelectionResult selectExclusiveBestItemsetsWithStats(
+            List<DocTerms> rows,
+            int minSupport,
+            int minItemsetSize,
+            int maxItemsetSize,
+            int maxCandidateCount,
+            List<PremergeHintCandidate> premergeHints,
+            int hintBoostWeight
+    ) {
         if (rows == null || rows.isEmpty()) {
             return emptyResult(maxCandidateCount);
+        }
+        if (hintBoostWeight < 0) {
+            throw new IllegalArgumentException("hintBoostWeight must be >= 0");
         }
 
         // 参数统一走 SelectorConfig 校验，确保异常语义与历史一致。
@@ -386,13 +416,18 @@ public final class ExclusiveFrequentItemsetSelector {
         MiningPlan sampledPlan = buildMiningPlan(sampledConfig, sampleSize, termVocabulary.size());
         FrequentItemsetMiningResult miningStats = mineCandidates(sampledTidsets, sampledPlan);
         List<CandidateItemset> minedCandidates = miningStats.getCandidates();
-        if (minedCandidates.isEmpty()) {
+        List<CandidateItemset> hintCandidates = mapHintCandidatesToTermIds(premergeHints, termVocabulary);
+        List<CandidateItemset> mergedCandidates = mergeAndDedupCandidates(minedCandidates, hintCandidates);
+        if (mergedCandidates.isEmpty()) {
             return buildResult(Collections.<SelectedGroup>emptyList(), miningStats, maxCandidateCount);
         }
         // 6) 回算：在全量 tidsets 上重新计算候选组合的完整 doclist
         //    挖掘阶段得到的 termIds 就是全量索引的 termId，无需映射
         List<CandidateItemset> recomputed = recomputeOnFullData(
-                minedCandidates, fullTidsets, minSupport);
+                mergedCandidates, fullTidsets, minSupport);
+        if (!hintCandidates.isEmpty() && hintBoostWeight > 0) {
+            recomputed = applyHintBoost(recomputed, hintCandidates, hintBoostWeight);
+        }
         if (recomputed.isEmpty()) {
             return buildResult(Collections.<SelectedGroup>emptyList(), miningStats, maxCandidateCount);
         }
@@ -650,6 +685,129 @@ public final class ExclusiveFrequentItemsetSelector {
         return Math.min(300, candidateCount / 20);
     }
 
+    private static List<CandidateItemset> mapHintCandidatesToTermIds(
+            List<PremergeHintCandidate> hints,
+            List<ByteRef> termVocabulary
+    ) {
+        if (hints == null || hints.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<IntArrayKey, CandidateItemset> out = new HashMap<>();
+        for (int i = 0; i < hints.size(); i++) {
+            PremergeHintCandidate hint = hints.get(i);
+            if (hint == null || hint.getTermRefs().isEmpty()) {
+                continue;
+            }
+            int[] termIds = mapHintTermsToTermIds(hint.getTermRefs(), termVocabulary);
+            if (termIds.length == 0) {
+                continue;
+            }
+            IntArrayKey key = new IntArrayKey(termIds);
+            if (!out.containsKey(key)) {
+                out.put(key, CandidateItemset.trusted(termIds, new BitSet(), 0));
+            }
+        }
+        return new ArrayList<>(out.values());
+    }
+
+    private static int[] mapHintTermsToTermIds(List<ByteRef> hintTerms, List<ByteRef> termVocabulary) {
+        int[] mapped = new int[hintTerms.size()];
+        int used = 0;
+        for (int i = 0; i < hintTerms.size(); i++) {
+            ByteRef hint = hintTerms.get(i);
+            int termId = findTermIdInVocabulary(hint, termVocabulary);
+            if (termId >= 0) {
+                mapped[used++] = termId;
+            }
+        }
+        if (used == 0) {
+            return new int[0];
+        }
+        int[] termIds = Arrays.copyOf(mapped, used);
+        Arrays.sort(termIds);
+        int uniqueCount = 1;
+        for (int i = 1; i < termIds.length; i++) {
+            if (termIds[i] != termIds[i - 1]) {
+                termIds[uniqueCount++] = termIds[i];
+            }
+        }
+        return Arrays.copyOf(termIds, uniqueCount);
+    }
+
+    private static int findTermIdInVocabulary(ByteRef hint, List<ByteRef> termVocabulary) {
+        for (int i = 0; i < termVocabulary.size(); i++) {
+            if (equalsRef(hint, termVocabulary.get(i))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static boolean equalsRef(ByteRef a, ByteRef b) {
+        if (a.getLength() != b.getLength()) {
+            return false;
+        }
+        byte[] as = a.getSourceUnsafe();
+        byte[] bs = b.getSourceUnsafe();
+        int ao = a.getOffset();
+        int bo = b.getOffset();
+        for (int i = 0; i < a.getLength(); i++) {
+            if (as[ao + i] != bs[bo + i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static List<CandidateItemset> mergeAndDedupCandidates(
+            List<CandidateItemset> mined,
+            List<CandidateItemset> hinted
+    ) {
+        if ((mined == null || mined.isEmpty()) && (hinted == null || hinted.isEmpty())) {
+            return Collections.emptyList();
+        }
+        Map<IntArrayKey, CandidateItemset> merged = new HashMap<>();
+        if (mined != null) {
+            for (int i = 0; i < mined.size(); i++) {
+                CandidateItemset c = mined.get(i);
+                merged.put(new IntArrayKey(c.getTermIdsUnsafe()), c);
+            }
+        }
+        if (hinted != null) {
+            for (int i = 0; i < hinted.size(); i++) {
+                CandidateItemset c = hinted.get(i);
+                IntArrayKey key = new IntArrayKey(c.getTermIdsUnsafe());
+                if (!merged.containsKey(key)) {
+                    merged.put(key, c);
+                }
+            }
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    private static List<CandidateItemset> applyHintBoost(
+            List<CandidateItemset> recomputed,
+            List<CandidateItemset> hintCandidates,
+            int hintBoostWeight
+    ) {
+        Set<IntArrayKey> hintKeys = new HashSet<>();
+        for (int i = 0; i < hintCandidates.size(); i++) {
+            hintKeys.add(new IntArrayKey(hintCandidates.get(i).getTermIdsUnsafe()));
+        }
+        List<CandidateItemset> out = new ArrayList<>(recomputed.size());
+        for (int i = 0; i < recomputed.size(); i++) {
+            CandidateItemset c = recomputed.get(i);
+            IntArrayKey key = new IntArrayKey(c.getTermIdsUnsafe());
+            if (hintKeys.contains(key)) {
+                int boost = hintBoostWeight * Math.max(1, c.length());
+                out.add(c.withPriorityBoost(boost));
+            } else {
+                out.add(c);
+            }
+        }
+        return out;
+    }
+
     public static LookupRoute routeLookupByHitRate(double estimatedHitRate) {
         if (estimatedHitRate <= EngineTuningConfig.LOOKUP_LOW_HIT_RATE_THRESHOLD) {
             return LookupRoute.DATA_SKIPPING;
@@ -784,6 +942,45 @@ public final class ExclusiveFrequentItemsetSelector {
             this.beamWidth = beamWidth;
             this.maxIdleLevels = maxIdleLevels;
             this.maxRuntimeMillis = maxRuntimeMillis;
+        }
+    }
+
+    /** merge 阶段前置提示：仅词项序列。 */
+    public static final class PremergeHintCandidate {
+        private final List<ByteRef> termRefs;
+
+        public PremergeHintCandidate(List<ByteRef> termRefs) {
+            this.termRefs = Collections.unmodifiableList(new ArrayList<>(termRefs));
+        }
+
+        public List<ByteRef> getTermRefs() {
+            return termRefs;
+        }
+    }
+
+    private static final class IntArrayKey {
+        private final int[] values;
+        private final int hash;
+
+        private IntArrayKey(int[] values) {
+            this.values = Arrays.copyOf(values, values.length);
+            this.hash = Arrays.hashCode(this.values);
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof IntArrayKey)) {
+                return false;
+            }
+            return Arrays.equals(values, ((IntArrayKey) obj).values);
         }
     }
 }

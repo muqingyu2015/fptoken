@@ -20,6 +20,7 @@ public final class CandidateItemset {
     private final BitSet docBits;
     private final int support;
     private final int estimatedSaving;
+    private final int priorityBoost;
 
     /**
      * @param termIds 非 null；长度可为 0（用于鲁棒性测试场景）
@@ -35,10 +36,16 @@ public final class CandidateItemset {
      * @param support 预先算好的支持度，避免重复 cardinality()
      */
     public CandidateItemset(int[] termIds, BitSet docBits, int support) {
-        this(termIds, docBits, support, false);
+        this(termIds, docBits, support, 0, false);
     }
 
-    private CandidateItemset(int[] termIds, BitSet docBits, int support, boolean trustedReferences) {
+    private CandidateItemset(
+            int[] termIds,
+            BitSet docBits,
+            int support,
+            int priorityBoost,
+            boolean trustedReferences
+    ) {
         Objects.requireNonNull(termIds, "termIds");
         Objects.requireNonNull(docBits, "docBits");
         if (trustedReferences) {
@@ -50,13 +57,24 @@ public final class CandidateItemset {
         }
         this.support = support;
         this.estimatedSaving = computeEstimatedSaving(this.termIds.length, support);
+        this.priorityBoost = Math.max(0, priorityBoost);
     }
 
     /**
      * 高性能内部路径：调用方保证 {@code termIds/docBits} 后续只读，不再修改引用内容。
      */
     public static CandidateItemset trusted(int[] termIds, BitSet docBits, int support) {
-        return new CandidateItemset(termIds, docBits, support, true);
+        return new CandidateItemset(termIds, docBits, support, 0, true);
+    }
+
+    /** 高性能内部路径（含优先级加权）。 */
+    public static CandidateItemset trusted(
+            int[] termIds,
+            BitSet docBits,
+            int support,
+            int priorityBoost
+    ) {
+        return new CandidateItemset(termIds, docBits, support, priorityBoost, true);
     }
 
     public int[] getTermIds() {
@@ -83,6 +101,19 @@ public final class CandidateItemset {
 
     public int getEstimatedSaving() {
         return estimatedSaving;
+    }
+
+    /** 候选优先级附加分（用于 merge hint 场景）。 */
+    public int getPriorityBoost() {
+        return priorityBoost;
+    }
+
+    /** 返回带优先级附加分的新实例。 */
+    public CandidateItemset withPriorityBoost(int boost) {
+        if (boost <= 0) {
+            return this;
+        }
+        return new CandidateItemset(termIds, docBits, support, boost, true);
     }
 
     /** 项集中词的个数。 */

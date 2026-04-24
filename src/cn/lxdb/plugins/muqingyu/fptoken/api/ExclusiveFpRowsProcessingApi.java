@@ -238,12 +238,16 @@ public final class ExclusiveFpRowsProcessingApi {
                 options.getNgramStart(),
                 options.getNgramEnd()
         );
+        List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> selectorPremergeHints =
+                buildSelectorPremergeHints(options);
         ExclusiveSelectionResult result = selectWithDefaultSelectorTuning(
                 tokenizedRows,
                 options.getMinSupport(),
                 options.getMinItemsetSize(),
                 options.getMaxItemsetSize(),
-                options.getMaxCandidateCount()
+                options.getMaxCandidateCount(),
+                selectorPremergeHints,
+                options.getHintBoostWeight()
         );
         LineFileProcessingResult.DerivedData derived =
                 buildDerivedData(tokenizedRows, result, options.getHotTermThresholdExclusive());
@@ -287,6 +291,17 @@ public final class ExclusiveFpRowsProcessingApi {
         if (options.getPickerCoverageRewardPerTerm() < 0) {
             throw new IllegalArgumentException("pickerCoverageRewardPerTerm must be >= 0");
         }
+        if (options.getHintBoostWeight() < 0) {
+            throw new IllegalArgumentException("hintBoostWeight must be >= 0");
+        }
+        validatePremergeHints(
+                options.getPremergeMutexGroupHints(),
+                "premergeMutexGroupHints",
+                options.getHintValidationMode());
+        validatePremergeHints(
+                options.getPremergeSingleTermHints(),
+                "premergeSingleTermHints",
+                options.getHintValidationMode());
         validateNgramRange(options.getNgramStart(), options.getNgramEnd());
         validateSkipHashGramRange(options.getSkipHashMinGram(), options.getSkipHashMaxGram());
     }
@@ -298,6 +313,80 @@ public final class ExclusiveFpRowsProcessingApi {
         if (skipHashMaxGram < skipHashMinGram) {
             throw new IllegalArgumentException("skipHashMaxGram must be >= skipHashMinGram");
         }
+    }
+
+    private static void validatePremergeHints(
+            List<PremergeHint> hints,
+            String listLabel,
+            HintValidationMode mode
+    ) {
+        if (hints == null || hints.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < hints.size(); i++) {
+            PremergeHint hint = hints.get(i);
+            if (hint == null) {
+                if (mode == HintValidationMode.STRICT) {
+                    throw new IllegalArgumentException(listLabel + "[" + i + "] must not be null");
+                }
+                continue;
+            }
+            if (hint.getTermRefs().isEmpty() && mode == HintValidationMode.STRICT) {
+                throw new IllegalArgumentException(listLabel + "[" + i + "].termRefs must not be empty");
+            }
+        }
+    }
+
+    private static List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> buildSelectorPremergeHints(
+            ProcessingOptions options
+    ) {
+        List<PremergeHint> mutexHints = options.getPremergeMutexGroupHints();
+        List<PremergeHint> singleHints = options.getPremergeSingleTermHints();
+        if (mutexHints.isEmpty() && singleHints.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> out =
+                new ArrayList<>(mutexHints.size() + singleHints.size());
+        appendPremergeHintCandidates(options, mutexHints, "premergeMutexGroupHints", out);
+        appendPremergeHintCandidates(options, singleHints, "premergeSingleTermHints", out);
+        return out;
+    }
+
+    private static void appendPremergeHintCandidates(
+            ProcessingOptions options,
+            List<PremergeHint> hints,
+            String listLabel,
+            List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> out
+    ) {
+        for (int i = 0; i < hints.size(); i++) {
+            PremergeHint hint = hints.get(i);
+            if (hint == null) {
+                if (options.getHintValidationMode() == HintValidationMode.STRICT) {
+                    throw new IllegalArgumentException(listLabel + "[" + i + "] must not be null");
+                }
+                continue;
+            }
+            List<ByteRef> refs = normalizeHintTermRefs(hint.getTermRefs());
+            if (refs.isEmpty()) {
+                if (options.getHintValidationMode() == HintValidationMode.STRICT) {
+                    throw new IllegalArgumentException(listLabel + "[" + i + "] has no valid terms");
+                }
+                continue;
+            }
+            out.add(new ExclusiveFrequentItemsetSelector.PremergeHintCandidate(refs));
+        }
+    }
+
+    private static List<ByteRef> normalizeHintTermRefs(List<ByteRef> termRefs) {
+        List<ByteRef> out = new ArrayList<>(termRefs.size());
+        for (int i = 0; i < termRefs.size(); i++) {
+            ByteRef ref = termRefs.get(i);
+            if (ref == null || ref.getLength() == 0) {
+                continue;
+            }
+            out.add(new ByteRef(ref.getSourceUnsafe(), ref.getOffset(), ref.getLength()));
+        }
+        return ByteArrayUtils.normalizeTermRefs(out);
     }
 
     private static void applySamplingConfig(ProcessingOptions options) {
@@ -318,14 +407,18 @@ public final class ExclusiveFpRowsProcessingApi {
             int minSupport,
             int minItemsetSize,
             int maxItemsetSize,
-            int maxCandidateCount
+            int maxCandidateCount,
+            List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> premergeHints,
+            int hintBoostWeight
     ) {
         return ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
                 rows,
                 minSupport,
                 minItemsetSize,
                 maxItemsetSize,
-                maxCandidateCount
+                maxCandidateCount,
+                premergeHints,
+                hintBoostWeight
         );
     }
 
@@ -519,6 +612,24 @@ public final class ExclusiveFpRowsProcessingApi {
         return out;
     }
 
+    public enum HintValidationMode {
+        STRICT,
+        FILTER_ONLY
+    }
+
+    /** merge 阶段前置高频提示：仅词项序列；支持度由当前批次全量回算。 */
+    public static final class PremergeHint {
+        private final List<ByteRef> termRefs;
+
+        public PremergeHint(List<ByteRef> termRefs) {
+            this.termRefs = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(termRefs, "termRefs")));
+        }
+
+        public List<ByteRef> getTermRefs() {
+            return termRefs;
+        }
+    }
+
     /**
      * 中间步骤测试入口：用于对 copy/tokenize/derive 各步骤做独立断言。
      *
@@ -592,6 +703,16 @@ public final class ExclusiveFpRowsProcessingApi {
         private final int pickerMinNetGain;
         private final int pickerEstimatedBytesPerTerm;
         private final int pickerCoverageRewardPerTerm;
+        /**
+         * 与 {@code highFreqMutexGroupPostings} 同源：每条 hint 对应一个互斥词组（多为多个 term）。
+         */
+        private final List<PremergeHint> premergeMutexGroupHints;
+        /**
+         * 与 {@code highFreqSingleTermPostings} 同源：每条 hint 通常只含一个 term。
+         */
+        private final List<PremergeHint> premergeSingleTermHints;
+        private final int hintBoostWeight;
+        private final HintValidationMode hintValidationMode;
 
         private ProcessingOptions(
                 int minSupport,
@@ -610,6 +731,50 @@ public final class ExclusiveFpRowsProcessingApi {
                 int pickerEstimatedBytesPerTerm,
                 int pickerCoverageRewardPerTerm
         ) {
+            this(
+                    minSupport,
+                    minItemsetSize,
+                    maxItemsetSize,
+                    maxCandidateCount,
+                    hotTermThresholdExclusive,
+                    ngramStart,
+                    ngramEnd,
+                    skipHashMinGram,
+                    skipHashMaxGram,
+                    sampleRatio,
+                    minSampleCount,
+                    samplingSupportScale,
+                    pickerMinNetGain,
+                    pickerEstimatedBytesPerTerm,
+                    pickerCoverageRewardPerTerm,
+                    Collections.<PremergeHint>emptyList(),
+                    Collections.<PremergeHint>emptyList(),
+                    0,
+                    HintValidationMode.FILTER_ONLY
+            );
+        }
+
+        private ProcessingOptions(
+                int minSupport,
+                int minItemsetSize,
+                int maxItemsetSize,
+                int maxCandidateCount,
+                int hotTermThresholdExclusive,
+                int ngramStart,
+                int ngramEnd,
+                int skipHashMinGram,
+                int skipHashMaxGram,
+                double sampleRatio,
+                int minSampleCount,
+                double samplingSupportScale,
+                int pickerMinNetGain,
+                int pickerEstimatedBytesPerTerm,
+                int pickerCoverageRewardPerTerm,
+                List<PremergeHint> premergeMutexGroupHints,
+                List<PremergeHint> premergeSingleTermHints,
+                int hintBoostWeight,
+                HintValidationMode hintValidationMode
+        ) {
             this.minSupport = minSupport;
             this.minItemsetSize = minItemsetSize;
             this.maxItemsetSize = maxItemsetSize;
@@ -625,6 +790,12 @@ public final class ExclusiveFpRowsProcessingApi {
             this.pickerMinNetGain = pickerMinNetGain;
             this.pickerEstimatedBytesPerTerm = pickerEstimatedBytesPerTerm;
             this.pickerCoverageRewardPerTerm = pickerCoverageRewardPerTerm;
+            this.premergeMutexGroupHints = Collections.unmodifiableList(new ArrayList<>(
+                    Objects.requireNonNull(premergeMutexGroupHints, "premergeMutexGroupHints")));
+            this.premergeSingleTermHints = Collections.unmodifiableList(new ArrayList<>(
+                    Objects.requireNonNull(premergeSingleTermHints, "premergeSingleTermHints")));
+            this.hintBoostWeight = hintBoostWeight;
+            this.hintValidationMode = Objects.requireNonNull(hintValidationMode, "hintValidationMode");
         }
 
         public static ProcessingOptions defaults() {
@@ -672,7 +843,8 @@ public final class ExclusiveFpRowsProcessingApi {
                     value, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
                     ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
                     sampleRatio, minSampleCount, samplingSupportScale,
-                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, premergeSingleTermHints, hintBoostWeight, hintValidationMode
             );
         }
 
@@ -681,7 +853,8 @@ public final class ExclusiveFpRowsProcessingApi {
                     minSupport, value, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
                     ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
                     sampleRatio, minSampleCount, samplingSupportScale,
-                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, premergeSingleTermHints, hintBoostWeight, hintValidationMode
             );
         }
 
@@ -690,7 +863,8 @@ public final class ExclusiveFpRowsProcessingApi {
                     minSupport, minItemsetSize, value, maxCandidateCount, hotTermThresholdExclusive,
                     ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
                     sampleRatio, minSampleCount, samplingSupportScale,
-                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, premergeSingleTermHints, hintBoostWeight, hintValidationMode
             );
         }
 
@@ -699,7 +873,8 @@ public final class ExclusiveFpRowsProcessingApi {
                     minSupport, minItemsetSize, maxItemsetSize, value, hotTermThresholdExclusive,
                     ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
                     sampleRatio, minSampleCount, samplingSupportScale,
-                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, premergeSingleTermHints, hintBoostWeight, hintValidationMode
             );
         }
 
@@ -708,7 +883,8 @@ public final class ExclusiveFpRowsProcessingApi {
                     minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, value,
                     ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
                     sampleRatio, minSampleCount, samplingSupportScale,
-                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, premergeSingleTermHints, hintBoostWeight, hintValidationMode
             );
         }
 
@@ -717,7 +893,8 @@ public final class ExclusiveFpRowsProcessingApi {
                     minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
                     start, end, skipHashMinGram, skipHashMaxGram,
                     sampleRatio, minSampleCount, samplingSupportScale,
-                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, premergeSingleTermHints, hintBoostWeight, hintValidationMode
             );
         }
 
@@ -726,7 +903,8 @@ public final class ExclusiveFpRowsProcessingApi {
                     minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
                     ngramStart, ngramEnd, minGram, maxGram,
                     sampleRatio, minSampleCount, samplingSupportScale,
-                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, premergeSingleTermHints, hintBoostWeight, hintValidationMode
             );
         }
 
@@ -735,7 +913,8 @@ public final class ExclusiveFpRowsProcessingApi {
                     minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
                     ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
                     value, minSampleCount, samplingSupportScale,
-                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, premergeSingleTermHints, hintBoostWeight, hintValidationMode
             );
         }
 
@@ -744,7 +923,8 @@ public final class ExclusiveFpRowsProcessingApi {
                     minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
                     ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
                     sampleRatio, value, samplingSupportScale,
-                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, premergeSingleTermHints, hintBoostWeight, hintValidationMode
             );
         }
 
@@ -753,7 +933,8 @@ public final class ExclusiveFpRowsProcessingApi {
                     minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
                     ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
                     sampleRatio, minSampleCount, value,
-                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, premergeSingleTermHints, hintBoostWeight, hintValidationMode
             );
         }
 
@@ -762,7 +943,8 @@ public final class ExclusiveFpRowsProcessingApi {
                     minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
                     ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
                     sampleRatio, minSampleCount, samplingSupportScale,
-                    value, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm
+                    value, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, premergeSingleTermHints, hintBoostWeight, hintValidationMode
             );
         }
 
@@ -771,7 +953,8 @@ public final class ExclusiveFpRowsProcessingApi {
                     minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
                     ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
                     sampleRatio, minSampleCount, samplingSupportScale,
-                    pickerMinNetGain, value, pickerCoverageRewardPerTerm
+                    pickerMinNetGain, value, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, premergeSingleTermHints, hintBoostWeight, hintValidationMode
             );
         }
 
@@ -780,7 +963,54 @@ public final class ExclusiveFpRowsProcessingApi {
                     minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
                     ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
                     sampleRatio, minSampleCount, samplingSupportScale,
-                    pickerMinNetGain, pickerEstimatedBytesPerTerm, value
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, value,
+                    premergeMutexGroupHints, premergeSingleTermHints, hintBoostWeight, hintValidationMode
+            );
+        }
+
+        /**
+         * 历史段 {@code highFreqMutexGroupPostings} 映射为 pre-merge 提示（每条 hint 对应一个互斥词组）。
+         */
+        public ProcessingOptions withPremergeMutexGroupHints(List<PremergeHint> value) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, minSampleCount, samplingSupportScale,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    value, premergeSingleTermHints, hintBoostWeight, hintValidationMode
+            );
+        }
+
+        /**
+         * 历史段 {@code highFreqSingleTermPostings} 映射为 pre-merge 提示（每条 hint 通常只含 1 个 term）。
+         */
+        public ProcessingOptions withPremergeSingleTermHints(List<PremergeHint> value) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, minSampleCount, samplingSupportScale,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, value, hintBoostWeight, hintValidationMode
+            );
+        }
+
+        public ProcessingOptions withHintBoostWeight(int value) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, minSampleCount, samplingSupportScale,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, premergeSingleTermHints, value, hintValidationMode
+            );
+        }
+
+        public ProcessingOptions withHintValidationMode(HintValidationMode value) {
+            return new ProcessingOptions(
+                    minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
+                    ngramStart, ngramEnd, skipHashMinGram, skipHashMaxGram,
+                    sampleRatio, minSampleCount, samplingSupportScale,
+                    pickerMinNetGain, pickerEstimatedBytesPerTerm, pickerCoverageRewardPerTerm,
+                    premergeMutexGroupHints, premergeSingleTermHints, hintBoostWeight, value
             );
         }
 
@@ -842,6 +1072,22 @@ public final class ExclusiveFpRowsProcessingApi {
 
         public int getPickerCoverageRewardPerTerm() {
             return pickerCoverageRewardPerTerm;
+        }
+
+        public List<PremergeHint> getPremergeMutexGroupHints() {
+            return premergeMutexGroupHints;
+        }
+
+        public List<PremergeHint> getPremergeSingleTermHints() {
+            return premergeSingleTermHints;
+        }
+
+        public int getHintBoostWeight() {
+            return hintBoostWeight;
+        }
+
+        public HintValidationMode getHintValidationMode() {
+            return hintValidationMode;
         }
     }
 }

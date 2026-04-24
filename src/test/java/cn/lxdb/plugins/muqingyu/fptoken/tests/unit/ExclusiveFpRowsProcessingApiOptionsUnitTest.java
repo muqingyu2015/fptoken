@@ -4,11 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import cn.lxdb.plugins.muqingyu.fptoken.api.ExclusiveFpRowsProcessingApi;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -34,6 +36,10 @@ class ExclusiveFpRowsProcessingApiOptionsUnitTest {
         assertEquals(EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM, options.getPickerEstimatedBytesPerTerm());
         assertEquals(EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM,
                 options.getPickerCoverageRewardPerTerm());
+        assertEquals(0, options.getHintBoostWeight());
+        assertEquals(ExclusiveFpRowsProcessingApi.HintValidationMode.FILTER_ONLY, options.getHintValidationMode());
+        assertEquals(0, options.getPremergeMutexGroupHints().size());
+        assertEquals(0, options.getPremergeSingleTermHints().size());
     }
 
     @Test
@@ -51,7 +57,12 @@ class ExclusiveFpRowsProcessingApiOptionsUnitTest {
                 .withSamplingSupportScale(0.7d)
                 .withPickerMinNetGain(2)
                 .withPickerEstimatedBytesPerTerm(1)
-                .withPickerCoverageRewardPerTerm(5);
+                .withPickerCoverageRewardPerTerm(5)
+                .withHintBoostWeight(9)
+                .withHintValidationMode(ExclusiveFpRowsProcessingApi.HintValidationMode.STRICT)
+                .withPremergeSingleTermHints(Arrays.asList(
+                        new ExclusiveFpRowsProcessingApi.PremergeHint(
+                                Arrays.asList(new ByteRef(bytes("A"), 0, 1)))));
 
         assertEquals(EngineTuningConfig.DEFAULT_RUNNER_MIN_SUPPORT, base.getMinSupport());
         assertEquals(EngineTuningConfig.DEFAULT_RUNNER_MIN_ITEMSET_SIZE, base.getMinItemsetSize());
@@ -65,6 +76,10 @@ class ExclusiveFpRowsProcessingApiOptionsUnitTest {
         assertEquals(EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM, base.getPickerEstimatedBytesPerTerm());
         assertEquals(EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM,
                 base.getPickerCoverageRewardPerTerm());
+        assertEquals(0, base.getHintBoostWeight());
+        assertEquals(ExclusiveFpRowsProcessingApi.HintValidationMode.FILTER_ONLY, base.getHintValidationMode());
+        assertEquals(0, base.getPremergeMutexGroupHints().size());
+        assertEquals(0, base.getPremergeSingleTermHints().size());
 
         assertEquals(99, changed.getMinSupport());
         assertEquals(3, changed.getMinItemsetSize());
@@ -80,6 +95,10 @@ class ExclusiveFpRowsProcessingApiOptionsUnitTest {
         assertEquals(2, changed.getPickerMinNetGain());
         assertEquals(1, changed.getPickerEstimatedBytesPerTerm());
         assertEquals(5, changed.getPickerCoverageRewardPerTerm());
+        assertEquals(9, changed.getHintBoostWeight());
+        assertEquals(ExclusiveFpRowsProcessingApi.HintValidationMode.STRICT, changed.getHintValidationMode());
+        assertEquals(0, changed.getPremergeMutexGroupHints().size());
+        assertEquals(1, changed.getPremergeSingleTermHints().size());
     }
 
     @Test
@@ -158,6 +177,20 @@ class ExclusiveFpRowsProcessingApiOptionsUnitTest {
                 IllegalArgumentException.class,
                 () -> ExclusiveFpRowsProcessingApi.IntermediateSteps.validateProcessingOptions(
                         ExclusiveFpRowsProcessingApi.defaultOptions().withPickerCoverageRewardPerTerm(-1))
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExclusiveFpRowsProcessingApi.IntermediateSteps.validateProcessingOptions(
+                        ExclusiveFpRowsProcessingApi.defaultOptions().withHintBoostWeight(-1))
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExclusiveFpRowsProcessingApi.IntermediateSteps.validateProcessingOptions(
+                        ExclusiveFpRowsProcessingApi.defaultOptions()
+                                .withHintValidationMode(ExclusiveFpRowsProcessingApi.HintValidationMode.STRICT)
+                                .withPremergeMutexGroupHints(Arrays.asList(
+                                        new ExclusiveFpRowsProcessingApi.PremergeHint(
+                                                Collections.emptyList()))))
         );
     }
 

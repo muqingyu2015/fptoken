@@ -62,6 +62,20 @@
 
 对应 API：`cn.lxdb.plugins.muqingyu.fptoken.api.BinarySlidingWindowApi`
 
+### 2.5 Pre-merge Hint 设计理念（Lucene merge 场景）
+
+索引合并会反复触发同一套计算。前一轮段里的高频信息，通常对下一轮仍有参考价值。  
+因此这里采用“**先提示、再核验**”的设计，不直接信任历史结果。
+
+核心原则：
+
+- **可复用**：允许把历史段里“可能高频”的 term 先喂进来，减少盲目搜索空间
+- **可校验**：提示候选和普通候选一样，最终都要在当前全量数据上回算支持度
+- **可降级**：提示不准也不会污染结果，最多是没有提速；正确性不受影响
+- **可调权重**：通过 `hintBoostWeight` 控制“优先尝试”的力度，而不是强制入选
+
+这样做的本质是：把历史信息当“导航”，不是当“真相”。
+
 ---
 
 ## 3. 处理流程（代码视角）
@@ -111,6 +125,20 @@
 - `processRows(List<DocTerms> rows, int minSupport, int minItemsetSize, int hotTermThresholdExclusive)`
 - `processRowsWithNgram(...)`
 - `processRows(List<DocTerms> rows, ProcessingOptions options)`
+
+merge 加速扩展（Lucene merge 场景）：
+
+- `ProcessingOptions.withPremergeMutexGroupHints(...)`：对应历史段 `highFreqMutexGroupPostings` 的 pre-merge 提示（仅 term 序列）
+- `ProcessingOptions.withPremergeSingleTermHints(...)`：对应历史段 `highFreqSingleTermPostings` 的 pre-merge 提示（支持度仍由当前段回算）
+- `ProcessingOptions.withHintBoostWeight(...)`：提示候选优先级加权
+- `ProcessingOptions.withHintValidationMode(...)`：`STRICT` / `FILTER_ONLY`
+
+设计说明（与实现策略对应）：
+
+- 你提供的 hint 可以有重复、不完整、甚至跨段冲突信息，系统会先做去重与映射
+- hint 只影响“候选优先级”，不会绕过频率与互斥选择规则
+- 最终入选仍依赖当前批次真实数据，不满足阈值会被淘汰
+- `STRICT` 适合强约束场景（输入不合法直接失败），`FILTER_ONLY` 适合线上鲁棒场景（跳过坏 hint 继续跑）
 
 ### B. 底层选择器入口
 
