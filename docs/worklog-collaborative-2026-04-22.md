@@ -85,7 +85,7 @@
 - 采样质量：完全恢复（Groups diff=0）
 - 索引构建：buildWithSupportBounds 过滤低频词，大词表场景 200ms vs 旧版 9.3s
 - 配置化：采样参数可通过配置文件调整
-- 文档：docs/1.md（改进意见），docs/2.md（工作日志）
+- 文档：`optimization-summary-collaborative.md`（改进意见），`worklog-collaborative-2026-04-22.md`（工作日志）
 
 ---
 

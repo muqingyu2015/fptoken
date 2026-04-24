@@ -25,7 +25,19 @@
       <h1>fptoken 文档导航</h1>
       <p class="desc">本页及下列 HTML 已按当前代码状态统一刷新（Eclipse 项目结构、采样配置化、两阶段索引、全量测试通过）。</p>
       <p class="meta">文档版本：2026-04-22</p>
-      <div class="tip">当前项目最近一次验证结果：<code>452 found / 298 started / 298 passed / 0 failed</code>（默认执行集；其余按性能/规模开关跳过）。</div>
+      <div class="tip">验证：在仓库根执行 <code>scripts/run-fptoken-tests.ps1</code>（可加 <code>-ExcludePerfTag</code> 排除 <code>@Tag(&quot;performance&quot;)</code>）。HTML 汇总：<code>scripts/run-fptoken-tests.ps1 -HtmlReport -ExcludePerfTag</code>。</div>
+    </section>
+
+    <section class="card">
+      <h2>Markdown 索引</h2>
+      <p class="desc"><a href="./README.md">docs/README.md</a> — 全目录表格索引（协作稿、测试矩阵、JMH 说明等）。</p>
+    </section>
+
+    <section class="card">
+      <h2>LXDB 接入</h2>
+      <ul>
+        <li><a href="./lxdb-integration-derived-data-and-selection-result.html">DerivedData 与 selectionResult：双索引职责拆分</a><div class="desc">高频压缩索引 vs skip index 输入边界。</div></li>
+      </ul>
     </section>
 
     <section class="card">

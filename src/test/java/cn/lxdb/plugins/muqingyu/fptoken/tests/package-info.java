@@ -15,6 +15,7 @@
  *   <li>{@code .smoke}: very fast sanity suite</li>
  * </ul>
  *
- * <p>Run all tests with {@code scripts/run-fptoken-tests.ps1}.
+ * <p>Run all tests with {@code scripts/run-fptoken-tests.ps1}. HTML summary:
+ * {@code scripts/run-fptoken-tests.ps1 -HtmlReport -ExcludePerfTag} (output under {@code build/test-results/}).
  */
 package cn.lxdb.plugins.muqingyu.fptoken.tests;

@@ -29,7 +29,7 @@
 16:50 确定最终方案：buildWithSupportBounds 过滤低频词
 17:00 采样质量最终验证通过（全规模一致）
 17:10 收到老板指令：各角色写文档
-17:20-17:50 创建 docs/1.md ~ docs/5.md
+17:20-17:50 创建协作文档（现名见 docs/README.md「协作草稿」）
 ```
 
 ### 具体行动
@@ -152,11 +152,11 @@ public static void setSamplingSupportScale(double scale) { ... }
 #### 行动 8：文档编写
 
 按老板要求创建 5 个文档：
-- `docs/1.md` — 各角色改进意见
-- `docs/2.md` — 今日工作日志（思考过程）
-- `docs/3.md` — 未来展望（重点膨胀率和检索）
-- `docs/4.md` — 测试规划
-- `docs/5.md` — 今日行动记录（本文档）
+- `docs/optimization-summary-collaborative.md` — 各角色改进意见
+- `docs/worklog-collaborative-2026-04-22.md` — 今日工作日志（思考过程）
+- `docs/future-directions-collaborative.md` — 未来展望（重点膨胀率和检索）
+- `docs/testing-plan-collaborative.md` — 测试规划
+- `docs/action-log-collaborative-2026-04-22.md` — 今日行动记录（本文档）
 
 ---
 
@@ -195,7 +195,7 @@ public static void setSamplingSupportScale(double scale) { ... }
 
 #### 行动 4：文档输出
 
-将架构分析结论写入 docs/1.md、docs/2.md、docs/3.md、docs/4.md、docs/5.md。
+将架构分析结论写入上述协作 Markdown 文件。
 
 ---
 

@@ -136,7 +136,7 @@
   <pre style="background:var(--card);border:1px solid var(--border);padding:1rem;border-radius:8px;overflow-x:auto;color:var(--text);"><code>./scripts/run-fptoken-tests.ps1 -Perf</code></pre>
   <p>或仅跑本报告相关类：</p>
   <pre style="background:var(--card);border:1px solid var(--border);padding:1rem;border-radius:8px;overflow-x:auto;color:var(--text);"><code>java --% -Dfptoken.runPerfTests=true -jar lib/junit-platform-console-standalone-1.10.2.jar execute --class-path "bin;bin-test" --select-class cn.lxdb.plugins.muqingyu.fptoken.tests.performance.MergePremergeHintAccelerationPerformanceTest</code></pre>
-  <p class="note">首次运行前需已通过 <code>./scripts/run-fptoken-tests.ps1</code> 完成编译，或确保 <code>bin</code> / <code>bin-test</code> 与 <code>lib/junit-platform-console-standalone-1.10.2.jar</code> 存在。</p>
+  <p class="note">首次运行前需已通过 <code>./scripts/run-fptoken-tests.ps1</code> 完成编译，或确保 <code>bin</code> / <code>bin-test</code> 与 <code>lib/junit-platform-console-standalone-1.10.2.jar</code> 存在。生成 HTML 测试汇总：<code>./scripts/run-fptoken-tests.ps1 -HtmlReport -ExcludePerfTag</code>（或 <code>./scripts/run-tests-html-report.ps1</code>）。</p>
 
   <h2>4. 重要说明（读报告必看）</h2>
   <ul>

@@ -2,3 +2,6 @@
 /bin
 /target
 /build
+
+# Legacy / ad-hoc artifacts under archive (keep tree clean if compiled by mistake)
+archive/**/*.class
