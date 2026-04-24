@@ -250,6 +250,24 @@ class TermTidsetIndexTest {
         }
     }
 
+    @Test
+    void buildWithSupportBounds_shouldOrderTermsByAscendingDocumentFrequency() {
+        byte[] low = new byte[] {0x21};
+        byte[] mid = new byte[] {0x22};
+        byte[] high = new byte[] {0x23};
+        List<DocTerms> rows = new ArrayList<>();
+        rows.add(ByteArrayTestSupport.doc(0, low, mid, high));
+        rows.add(ByteArrayTestSupport.doc(1, mid, high));
+        rows.add(ByteArrayTestSupport.doc(2, high));
+
+        TermTidsetIndex idx = TermTidsetIndex.buildWithSupportBounds(rows, 1, 1.0d);
+        List<byte[]> dict = idx.getIdToTerm();
+        assertEquals(3, dict.size());
+        assertTrue(Arrays.equals(low, dict.get(0)));
+        assertTrue(Arrays.equals(mid, dict.get(1)));
+        assertTrue(Arrays.equals(high, dict.get(2)));
+    }
+
     private static int findTermId(TermTidsetIndex idx, byte[] term) {
         List<byte[]> dict = idx.getIdToTerm();
         for (int i = 0; i < dict.size(); i++) {

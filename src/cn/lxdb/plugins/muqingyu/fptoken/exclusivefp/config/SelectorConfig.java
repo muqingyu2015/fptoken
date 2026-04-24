@@ -1,5 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config;
 
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * 挖掘与后续阶段共用的数值边界：在构造时一次性校验，避免各层重复判参。
  *
@@ -13,6 +15,7 @@ package cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config;
  * @author muqingyu
  */
 public final class SelectorConfig {
+    private static final ConcurrentHashMap<ConfigKey, SelectorConfig> CACHE = new ConcurrentHashMap<>();
     private final int minSupport;
     private final int minItemsetSize;
     private final int maxItemsetSize;
@@ -26,6 +29,26 @@ public final class SelectorConfig {
      * @throws IllegalArgumentException 参数不合法时
      */
     public SelectorConfig(int minSupport, int minItemsetSize, int maxItemsetSize, int maxCandidateCount) {
+        validate(minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount);
+        this.minSupport = minSupport;
+        this.minItemsetSize = minItemsetSize;
+        this.maxItemsetSize = maxItemsetSize;
+        this.maxCandidateCount = maxCandidateCount;
+    }
+
+    /** 高频参数组合的静态工厂：复用不可变实例，避免重复构造。 */
+    public static SelectorConfig of(int minSupport, int minItemsetSize, int maxItemsetSize, int maxCandidateCount) {
+        validate(minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount);
+        ConfigKey key = new ConfigKey(minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount);
+        return CACHE.computeIfAbsent(key, ignored -> new SelectorConfig(
+                minSupport,
+                minItemsetSize,
+                maxItemsetSize,
+                maxCandidateCount
+        ));
+    }
+
+    private static void validate(int minSupport, int minItemsetSize, int maxItemsetSize, int maxCandidateCount) {
         if (minSupport <= 0) {
             throw new IllegalArgumentException("minSupport must be > 0");
         }
@@ -38,10 +61,6 @@ public final class SelectorConfig {
         if (maxCandidateCount <= 0) {
             throw new IllegalArgumentException("maxCandidateCount must be > 0");
         }
-        this.minSupport = minSupport;
-        this.minItemsetSize = minItemsetSize;
-        this.maxItemsetSize = maxItemsetSize;
-        this.maxCandidateCount = maxCandidateCount;
     }
 
     public int getMinSupport() {
@@ -119,12 +138,50 @@ public final class SelectorConfig {
         }
 
         public SelectorConfig build() {
-            return new SelectorConfig(
+            return SelectorConfig.of(
                     minimumRequiredSupport,
                     minimumPatternLength,
                     maximumPatternLength,
                     maximumIntermediateResults
             );
+        }
+    }
+
+    private static final class ConfigKey {
+        private final int minSupport;
+        private final int minItemsetSize;
+        private final int maxItemsetSize;
+        private final int maxCandidateCount;
+
+        private ConfigKey(int minSupport, int minItemsetSize, int maxItemsetSize, int maxCandidateCount) {
+            this.minSupport = minSupport;
+            this.minItemsetSize = minItemsetSize;
+            this.maxItemsetSize = maxItemsetSize;
+            this.maxCandidateCount = maxCandidateCount;
+        }
+
+        @Override
+        public int hashCode() {
+            int h = minSupport;
+            h = 31 * h + minItemsetSize;
+            h = 31 * h + maxItemsetSize;
+            h = 31 * h + maxCandidateCount;
+            return h;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof ConfigKey)) {
+                return false;
+            }
+            ConfigKey other = (ConfigKey) obj;
+            return minSupport == other.minSupport
+                    && minItemsetSize == other.minItemsetSize
+                    && maxItemsetSize == other.maxItemsetSize
+                    && maxCandidateCount == other.maxCandidateCount;
         }
     }
 }

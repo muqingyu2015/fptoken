@@ -222,22 +222,14 @@ public final class LineRecordDatasetLoader {
 
     private static List<Path> collectFiles(Path dataDir) throws IOException {
         List<Path> files = new ArrayList<Path>();
-        java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(dataDir);
-        try {
+        try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(dataDir)) {
             for (Path file : stream) {
                 if (Files.isRegularFile(file)) {
                     files.add(file);
                 }
             }
-        } finally {
-            stream.close();
         }
-        Collections.sort(files, new Comparator<Path>() {
-            @Override
-            public int compare(Path a, Path b) {
-                return a.getFileName().toString().compareTo(b.getFileName().toString());
-            }
-        });
+        Collections.sort(files, Comparator.comparing(a -> a.getFileName().toString()));
         return files;
     }
 

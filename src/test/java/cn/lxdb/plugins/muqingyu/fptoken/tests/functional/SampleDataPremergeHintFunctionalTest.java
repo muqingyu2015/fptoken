@@ -181,6 +181,54 @@ class SampleDataPremergeHintFunctionalTest {
         assertThreeLayerCoverage(split.merged, withHint.getFinalIndexData());
     }
 
+    @Test
+    void realDocs_samplingAndHints_combinedMode_shouldKeepValidPartitionAndComparableHighLayerCoverage() throws Exception {
+        Path file = SampleDataPremergeHintTestSupport.REAL_DOCS_AWESOME_PYTHON;
+        Assumptions.assumeTrue(Files.isRegularFile(file), () -> "missing: " + file);
+
+        LineRecordDatasetLoader.LoadedDataset loaded =
+                LineRecordDatasetLoader.loadSingleFile(file, 2, 4);
+        List<DocTerms> rows = loaded.getRows();
+        Assumptions.assumeTrue(rows.size() >= 400, () -> "too few rows: " + rows.size());
+
+        FiveWaySplit split = SampleDataPremergeHintTestSupport.splitFiveWay(rows);
+        ExclusiveFpRowsProcessingApi.ProcessingOptions full = SampleDataPremergeHintTestSupport.mergeScenarioBaseOptions()
+                .withSampleRatio(1.0d)
+                .withSamplingSupportScale(1.0d)
+                .withHintBoostWeight(0);
+        ExclusiveFpRowsProcessingApi.ProcessingOptions sampled = full
+                .withSampleRatio(0.35d)
+                .withSamplingSupportScale(0.0d)
+                .withHintBoostWeight(0);
+
+        HintsFromSegments hints = SampleDataPremergeHintTestSupport.buildHintsFromSegments(
+                sampled, split.segA, split.segB, split.segC, true, true);
+        Assumptions.assumeFalse(hints.mutexGroupHints.isEmpty() && hints.singleTermHints.isEmpty(),
+                "need sampled historical hints");
+        ExclusiveFpRowsProcessingApi.ProcessingOptions sampledHint = sampled
+                .withPremergeMutexGroupHints(hints.mutexGroupHints)
+                .withPremergeSingleTermHints(hints.singleTermHints)
+                .withHintBoostWeight(8)
+                .withHintValidationMode(ExclusiveFpRowsProcessingApi.HintValidationMode.FILTER_ONLY);
+
+        LineFileProcessingResult fullRes = ExclusiveFpRowsProcessingApi.processRows(split.merged, full);
+        LineFileProcessingResult sampledRes = ExclusiveFpRowsProcessingApi.processRows(split.merged, sampled);
+        LineFileProcessingResult sampledHintRes = ExclusiveFpRowsProcessingApi.processRows(split.merged, sampledHint);
+
+        assertThreeLayerCoverage(split.merged, fullRes.getFinalIndexData());
+        assertThreeLayerCoverage(split.merged, sampledRes.getFinalIndexData());
+        assertThreeLayerCoverage(split.merged, sampledHintRes.getFinalIndexData());
+
+        Set<ByteArrayKey> fullHigh = collectHighLayerTerms(fullRes.getFinalIndexData());
+        Set<ByteArrayKey> sampledHigh = collectHighLayerTerms(sampledRes.getFinalIndexData());
+        Set<ByteArrayKey> sampledHintHigh = collectHighLayerTerms(sampledHintRes.getFinalIndexData());
+        double sampledRecall = overlapRatio(fullHigh, sampledHigh);
+        double sampledHintRecall = overlapRatio(fullHigh, sampledHintHigh);
+        assertTrue(sampledHintRecall >= sampledRecall * 0.5d,
+                () -> "sampled+hint high-layer overlap dropped too much, sampledRecall="
+                        + sampledRecall + ", sampledHintRecall=" + sampledHintRecall);
+    }
+
     private static void assertThreeLayerCoverage(
             List<DocTerms> sourceRows,
             LineFileProcessingResult.FinalIndexData finalData
@@ -229,5 +277,18 @@ class SampleDataPremergeHintFunctionalTest {
                 assertTrue(ref.getLength() > 0);
             }
         }
+    }
+
+    private static double overlapRatio(Set<ByteArrayKey> expected, Set<ByteArrayKey> actual) {
+        if (expected.isEmpty()) {
+            return 1.0d;
+        }
+        int hit = 0;
+        for (ByteArrayKey key : expected) {
+            if (actual.contains(key)) {
+                hit++;
+            }
+        }
+        return hit / (double) expected.size();
     }
 }

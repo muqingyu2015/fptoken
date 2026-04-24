@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.CandidateItemset;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.picker.GreedyExclusiveItemsetPicker;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.picker.TwoPhaseExclusiveItemsetPicker;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -91,13 +92,19 @@ class GreedyExclusiveItemsetPickerTest {
     }
 
     @Test
-    void sortPrefersLongerFirst() {
+    void sortPrefersHigherObjectiveOverLongerLength() {
         List<CandidateItemset> c = new ArrayList<>();
         c.add(CandidateFixture.itemset(new int[] {0}, 0, 1, 2, 3));
         c.add(CandidateFixture.itemset(new int[] {0, 1}, 0, 1, 2));
-        List<CandidateItemset> out = picker.pick(c, 4);
+        List<CandidateItemset> out = picker.pick(
+                c,
+                4,
+                1,
+                0,
+                new TwoPhaseExclusiveItemsetPicker.ScoringWeights(0L, 1L, 0L, 0L, 0L, 0L)
+        );
         assertEquals(1, out.size());
-        assertEquals(2, out.get(0).length());
+        assertEquals(1, out.get(0).length());
     }
 
     @Test

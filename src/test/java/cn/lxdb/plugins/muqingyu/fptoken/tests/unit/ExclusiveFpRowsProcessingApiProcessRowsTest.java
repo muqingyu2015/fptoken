@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
 import cn.lxdb.plugins.muqingyu.fptoken.api.ExclusiveFpRowsProcessingApi;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
@@ -27,6 +28,44 @@ import org.junit.jupiter.api.Test;
  * {@link ExclusiveFpRowsProcessingApi#processRows(List, int, int, int)} 接口级契约测试。
  */
 class ExclusiveFpRowsProcessingApiProcessRowsTest {
+
+    @Test
+    void processRows_shouldNotMutateGlobalSelectorRuntimeTuning() {
+        double oldRatio = ExclusiveFrequentItemsetSelector.getSampleRatio();
+        int oldMinSample = ExclusiveFrequentItemsetSelector.getMinSampleCount();
+        double oldScale = ExclusiveFrequentItemsetSelector.getSamplingSupportScale();
+        int oldMinNetGain = ExclusiveFrequentItemsetSelector.getPickerMinNetGain();
+        int oldEstimatedBytes = ExclusiveFrequentItemsetSelector.getPickerEstimatedBytesPerTerm();
+        int oldCoverageReward = ExclusiveFrequentItemsetSelector.getPickerCoverageRewardPerTerm();
+        try {
+            List<DocTerms> rows = new ArrayList<DocTerms>();
+            rows.add(new DocTerms(0, Arrays.asList(bytes("ABCD"))));
+            rows.add(new DocTerms(1, Arrays.asList(bytes("ABCE"))));
+            rows.add(new DocTerms(2, Arrays.asList(bytes("ABCF"))));
+            ExclusiveFpRowsProcessingApi.ProcessingOptions options =
+                    ExclusiveFpRowsProcessingApi.defaultOptions()
+                            .withSampleRatio(0.17d)
+                            .withMinSampleCount(7)
+                            .withSamplingSupportScale(0.25d)
+                            .withPickerMinNetGain(9)
+                            .withPickerEstimatedBytesPerTerm(3)
+                            .withPickerCoverageRewardPerTerm(11);
+            ExclusiveFpRowsProcessingApi.processRows(rows, options);
+            assertEquals(oldRatio, ExclusiveFrequentItemsetSelector.getSampleRatio(), 0.000001d);
+            assertEquals(oldMinSample, ExclusiveFrequentItemsetSelector.getMinSampleCount());
+            assertEquals(oldScale, ExclusiveFrequentItemsetSelector.getSamplingSupportScale(), 0.000001d);
+            assertEquals(oldMinNetGain, ExclusiveFrequentItemsetSelector.getPickerMinNetGain());
+            assertEquals(oldEstimatedBytes, ExclusiveFrequentItemsetSelector.getPickerEstimatedBytesPerTerm());
+            assertEquals(oldCoverageReward, ExclusiveFrequentItemsetSelector.getPickerCoverageRewardPerTerm());
+        } finally {
+            ExclusiveFrequentItemsetSelector.setSampleRatio(oldRatio);
+            ExclusiveFrequentItemsetSelector.setMinSampleCount(oldMinSample);
+            ExclusiveFrequentItemsetSelector.setSamplingSupportScale(oldScale);
+            ExclusiveFrequentItemsetSelector.setPickerMinNetGain(oldMinNetGain);
+            ExclusiveFrequentItemsetSelector.setPickerEstimatedBytesPerTerm(oldEstimatedBytes);
+            ExclusiveFrequentItemsetSelector.setPickerCoverageRewardPerTerm(oldCoverageReward);
+        }
+    }
 
     @Test
     void processRows_defaultsOverload_shouldMatchLegacyDefaultParameterCall() {

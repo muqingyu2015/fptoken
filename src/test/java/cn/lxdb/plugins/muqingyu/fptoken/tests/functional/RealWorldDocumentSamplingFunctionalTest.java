@@ -10,10 +10,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 /**
  * 使用真实文档来源的规范化样本做抽样稳定性回归。
  */
+@ResourceLock(value = "ExclusiveFrequentItemsetSelector.runtimeTuning", mode = ResourceAccessMode.READ_WRITE)
 class RealWorldDocumentSamplingFunctionalTest {
 
     @Test

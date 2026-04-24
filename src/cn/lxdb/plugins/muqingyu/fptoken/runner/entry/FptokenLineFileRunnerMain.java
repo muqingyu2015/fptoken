@@ -30,6 +30,10 @@ public final class FptokenLineFileRunnerMain {
             EngineTuningConfig.DEFAULT_HOT_TERM_THRESHOLD_EXCLUSIVE;
     private static final int DEFAULT_MIN_SUPPORT = EngineTuningConfig.DEFAULT_RUNNER_MIN_SUPPORT;
     private static final int DEFAULT_MIN_ITEMSET_SIZE = EngineTuningConfig.DEFAULT_RUNNER_MIN_ITEMSET_SIZE;
+    // Heuristic guardrails for hint-effect diagnosis in console output.
+    private static final double HINT_MERGE_COST_PERCENT_WARN = 25.0d;
+    private static final double LOW_SAVING_PERCENT_WARN = 55.0d;
+    private static final double MAPPED_HINT_RATIO_WARN = 20.0d;
 
     private FptokenLineFileRunnerMain() {
     }
@@ -81,6 +85,17 @@ public final class FptokenLineFileRunnerMain {
         System.out.println("intersectionCount=" + statsView.getIntersectionCount());
         System.out.println("truncatedByLimit=" + statsView.isTruncatedByCandidateLimit());
         System.out.println("selectedGroups=" + statsView.getSelectedGroupCount());
+        System.out.println("selectedGroupTotalSupport=" + statsView.getSelectedGroupTotalSupport());
+        System.out.println("selectedGroupTotalEstimatedSaving=" + statsView.getSelectedGroupTotalEstimatedSaving());
+        System.out.println("selectedGroupAverageEstimatedSaving=" + statsView.getSelectedGroupAverageEstimatedSaving());
+        System.out.println("selectedGroupLowSavingPercent=" + statsView.getSelectedGroupLowSavingPercent());
+        System.out.println("premergeHintInputCount=" + statsView.getPremergeHintInputCount());
+        System.out.println("mappedHintCandidateCount=" + statsView.getMappedHintCandidateCount());
+        System.out.println("mergedDistinctCandidateCount=" + statsView.getMergedDistinctCandidateCount());
+        System.out.println("hintMergeMs=" + statsView.getHintMergeMs());
+        System.out.println("totalPipelineMs=" + statsView.getTotalPipelineMs());
+        System.out.println("hintMergeMsPercent=" + statsView.getHintMergeMsPercent());
+        printHintEffectAssessment(statsView);
 
         System.out.println();
         System.out.println("=== Derived Data Stats ===");
@@ -152,5 +167,39 @@ public final class FptokenLineFileRunnerMain {
         }
         sb.append(']');
         return sb.toString();
+    }
+
+    private static void printHintEffectAssessment(LineFileProcessingResult.ProcessingStats statsView) {
+        int hintInput = statsView.getPremergeHintInputCount();
+        if (hintInput <= 0) {
+            System.out.println("hintEffectAssessment=NO_HINTS");
+            return;
+        }
+        double mappedRatio = percent(statsView.getMappedHintCandidateCount(), hintInput);
+        boolean highMergeCost = statsView.getHintMergeMsPercent() >= HINT_MERGE_COST_PERCENT_WARN;
+        boolean highLowSaving = statsView.getSelectedGroupLowSavingPercent() >= LOW_SAVING_PERCENT_WARN;
+        boolean lowHintMapping = mappedRatio <= MAPPED_HINT_RATIO_WARN;
+        String assessment;
+        String action;
+        if (highMergeCost && (highLowSaving || lowHintMapping)) {
+            assessment = "DEGRADE_RISK";
+            action = "建议先降低 hintBoostWeight 或关闭 single-term hints，再观察";
+        } else if (highLowSaving || lowHintMapping) {
+            assessment = "NEED_TUNING";
+            action = "建议优化 hints 质量（清理过时提示、提升 mutex hints 占比）";
+        } else {
+            assessment = "HEALTHY";
+            action = "提示效果稳定，可继续按当前配置运行";
+        }
+        System.out.println("hintMappedRatioPercent=" + mappedRatio);
+        System.out.println("hintEffectAssessment=" + assessment);
+        System.out.println("hintSuggestedAction=" + action);
+    }
+
+    private static double percent(int numerator, int denominator) {
+        if (denominator <= 0) {
+            return 0d;
+        }
+        return (numerator * 100.0d) / denominator;
     }
 }

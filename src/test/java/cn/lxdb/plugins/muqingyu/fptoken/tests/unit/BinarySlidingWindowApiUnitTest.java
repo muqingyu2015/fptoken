@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import cn.lxdb.plugins.muqingyu.fptoken.api.BinarySlidingWindowApi;
-import cn.lxdb.plugins.muqingyu.fptoken.api.BinarySlidingWindowApi.WindowTerm;
+import cn.lxdb.plugins.muqingyu.fptoken.api.WindowTerm;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
 import java.util.List;
 import org.junit.jupiter.api.Test;

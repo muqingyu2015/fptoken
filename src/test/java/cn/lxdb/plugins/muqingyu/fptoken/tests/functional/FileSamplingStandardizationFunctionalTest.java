@@ -11,10 +11,13 @@ import cn.lxdb.plugins.muqingyu.fptoken.tests.support.FileDatasetTestSupport;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 /**
  * 标准化文件输入 + 抽样稳定性功能回归（默认执行）。
  */
+@ResourceLock(value = "ExclusiveFrequentItemsetSelector.runtimeTuning", mode = ResourceAccessMode.READ_WRITE)
 class FileSamplingStandardizationFunctionalTest {
 
     @Test
@@ -63,7 +66,7 @@ class FileSamplingStandardizationFunctionalTest {
 
     private static void assertSamplingMatrixPerFile(Path file) throws Exception {
         LineRecordDatasetLoader.LoadedDataset loaded = LineRecordDatasetLoader.loadSingleFile(file, 2, 4);
-        ExclusiveSelectionResult baseline = runWithConfig(loaded, 1.0d, 1, 1.0d);
+        runWithConfig(loaded, 1.0d, 1, 1.0d);
 
         ExclusiveSelectionResult ratioZeroFallback = runWithConfig(loaded, 0.0d, 50, 10.0d);
         assertSamplingResultHealthy(ratioZeroFallback);

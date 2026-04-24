@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.lxdb.plugins.muqingyu.fptoken.api.ExclusiveFpRowsProcessingApi;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
-import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayKey;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.result.LineFileProcessingResult;
@@ -120,10 +119,6 @@ class LxdbDualIndexBuildPerformanceTest {
             docs.addAll(hotTerm.getDocIds());
         }
         return out;
-    }
-
-    private static Map<ByteArrayKey, LinkedHashSet<Integer>> buildSkipIndex(List<DocTerms> rows) {
-        return buildSkipIndex(rows, java.util.Collections.<ByteArrayKey>emptySet());
     }
 
     private static Map<ByteArrayKey, LinkedHashSet<Integer>> buildSkipIndex(

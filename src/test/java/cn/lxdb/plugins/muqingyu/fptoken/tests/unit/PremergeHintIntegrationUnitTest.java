@@ -1,6 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken.tests.unit;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -18,6 +19,11 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.lang.reflect.Method;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 
 class PremergeHintIntegrationUnitTest {
@@ -132,6 +138,140 @@ class PremergeHintIntegrationUnitTest {
         assertTrue(hasHighFreqTerm(result.getFinalIndexData(), "A"));
         assertTrue(hasHighFreqTerm(result.getFinalIndexData(), "B"));
     }
+
+    @Test
+    void processRows_staleOneOffHint_shouldBeFilteredByCurrentSegmentSupportGate() {
+        List<DocTerms> rows = new ArrayList<>();
+        rows.add(doc(0, "A", "B", "D"));
+        rows.add(doc(1, "A", "B", "D"));
+        rows.add(doc(2, "A", "D"));
+        rows.add(doc(3, "A", "D"));
+
+        ExclusiveFpRowsProcessingApi.PremergeHint staleHint =
+                new ExclusiveFpRowsProcessingApi.PremergeHint(Arrays.asList(ref("A"), ref("B")));
+        ExclusiveFpRowsProcessingApi.ProcessingOptions options = ExclusiveFpRowsProcessingApi.defaultOptions()
+                .withMinSupport(2)
+                .withMinItemsetSize(2)
+                .withMaxItemsetSize(2)
+                .withMaxCandidateCount(1000)
+                .withPremergeMutexGroupHints(Collections.singletonList(staleHint))
+                .withHintBoostWeight(20)
+                .withHintValidationMode(ExclusiveFpRowsProcessingApi.HintValidationMode.FILTER_ONLY);
+
+        LineFileProcessingResult result = ExclusiveFpRowsProcessingApi.processRows(rows, options);
+        assertTrue(hasHighFreqTerm(result.getFinalIndexData(), "D"));
+        assertFalse(hasMutexGroup(result.getFinalIndexData(), "A", "B"));
+    }
+
+    @Test
+    void buildSelectorPremergeHints_conflictedMutexHints_shouldResolveByQualityNotUnion() throws Exception {
+        List<DocTerms> rows = new ArrayList<>();
+        rows.add(doc(0, "A", "B"));
+        rows.add(doc(1, "A", "B"));
+        rows.add(doc(2, "A", "B"));
+        rows.add(doc(3, "A", "B"));
+        rows.add(doc(4, "A", "C"));
+        rows.add(doc(5, "A", "C"));
+
+        ExclusiveFpRowsProcessingApi.ProcessingOptions options = ExclusiveFpRowsProcessingApi.defaultOptions()
+                .withMinSupport(1)
+                .withHintValidationMode(ExclusiveFpRowsProcessingApi.HintValidationMode.FILTER_ONLY)
+                .withPremergeMutexGroupHints(Arrays.asList(
+                        new ExclusiveFpRowsProcessingApi.PremergeHint(Arrays.asList(ref("A"), ref("B"))),
+                        new ExclusiveFpRowsProcessingApi.PremergeHint(Arrays.asList(ref("A"), ref("B"))),
+                        new ExclusiveFpRowsProcessingApi.PremergeHint(Arrays.asList(ref("A"), ref("C")))
+                ));
+
+        Method m = ExclusiveFpRowsProcessingApi.class.getDeclaredMethod(
+                "buildSelectorPremergeHints",
+                ExclusiveFpRowsProcessingApi.ProcessingOptions.class,
+                List.class,
+                int.class
+        );
+        m.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> resolved =
+                (List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate>) m.invoke(null, options, rows, 1);
+
+        assertEquals(1, resolved.size());
+        assertTrue(hasTerms(resolved.get(0), "A", "B"));
+        assertEquals(5, resolved.get(0).getQualityScore());
+    }
+
+    @Test
+    void buildSelectorPremergeHints_whenMutexExists_shouldTightenSingleHintAdmission() throws Exception {
+        List<DocTerms> rows = new ArrayList<>();
+        rows.add(doc(0, "A", "B", "S"));
+        rows.add(doc(1, "A", "B", "S"));
+        rows.add(doc(2, "A", "B"));
+        rows.add(doc(3, "A", "B"));
+
+        ExclusiveFpRowsProcessingApi.ProcessingOptions options = ExclusiveFpRowsProcessingApi.defaultOptions()
+                .withMinSupport(2)
+                .withHintValidationMode(ExclusiveFpRowsProcessingApi.HintValidationMode.FILTER_ONLY)
+                .withPremergeMutexGroupHints(Collections.singletonList(
+                        new ExclusiveFpRowsProcessingApi.PremergeHint(Arrays.asList(ref("A"), ref("B")))))
+                .withPremergeSingleTermHints(Collections.singletonList(
+                        new ExclusiveFpRowsProcessingApi.PremergeHint(Collections.singletonList(ref("S")))));
+
+        Method m = ExclusiveFpRowsProcessingApi.class.getDeclaredMethod(
+                "buildSelectorPremergeHints",
+                ExclusiveFpRowsProcessingApi.ProcessingOptions.class,
+                List.class,
+                int.class
+        );
+        m.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> resolved =
+                (List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate>) m.invoke(null, options, rows, 2);
+
+        assertEquals(1, resolved.size());
+        assertTrue(hasTerms(resolved.get(0), "A", "B"));
+    }
+
+    @Test
+    void processRows_concurrentSharedHints_shouldHitLockFreeAggregateCache() throws Exception {
+        ExclusiveFpRowsProcessingApi.IntermediateSteps.clearPremergeHintAggregateCache();
+        List<DocTerms> rows = new ArrayList<>();
+        for (int i = 0; i < 120; i++) {
+            rows.add(doc(i, "A", "B", "S" + (i % 5)));
+        }
+        List<ExclusiveFpRowsProcessingApi.PremergeHint> mutexHints = Arrays.asList(
+                new ExclusiveFpRowsProcessingApi.PremergeHint(Arrays.asList(ref("A"), ref("B"))),
+                new ExclusiveFpRowsProcessingApi.PremergeHint(Arrays.asList(ref("A"), ref("S1")))
+        );
+        List<ExclusiveFpRowsProcessingApi.PremergeHint> singleHints = Arrays.asList(
+                new ExclusiveFpRowsProcessingApi.PremergeHint(Collections.singletonList(ref("A"))),
+                new ExclusiveFpRowsProcessingApi.PremergeHint(Collections.singletonList(ref("B")))
+        );
+        ExclusiveFpRowsProcessingApi.ProcessingOptions options = ExclusiveFpRowsProcessingApi.defaultOptions()
+                .withMinSupport(2)
+                .withMinItemsetSize(2)
+                .withPremergeMutexGroupHints(mutexHints)
+                .withPremergeSingleTermHints(singleHints)
+                .withHintBoostWeight(8)
+                .withHintValidationMode(ExclusiveFpRowsProcessingApi.HintValidationMode.FILTER_ONLY);
+
+        int workers = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(workers);
+        try {
+            List<Callable<LineFileProcessingResult>> tasks = new ArrayList<>();
+            for (int i = 0; i < workers * 3; i++) {
+                tasks.add(() -> ExclusiveFpRowsProcessingApi.processRows(rows, options));
+            }
+            List<Future<LineFileProcessingResult>> futures = pool.invokeAll(tasks);
+            for (int i = 0; i < futures.size(); i++) {
+                assertTrue(futures.get(i).get().getSelectionResult().getCandidateCount() >= 0);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        long hits = ExclusiveFpRowsProcessingApi.IntermediateSteps.premergeHintAggregateCacheHitCount();
+        long misses = ExclusiveFpRowsProcessingApi.IntermediateSteps.premergeHintAggregateCacheMissCount();
+        assertTrue(misses >= 1L);
+        assertTrue(hits >= 1L, "concurrent shared hints should reuse aggregate cache");
+    }
+
 
     private static boolean containsGroup(List<SelectedGroup> groups, String... terms) {
         byte[][] expect = new byte[terms.length][];
@@ -281,4 +421,28 @@ class PremergeHintIntegrationUnitTest {
         }
         return false;
     }
+
+    private static boolean hasMutexGroup(
+            LineFileProcessingResult.FinalIndexData finalData,
+            String... terms
+    ) {
+        return containsGroup(finalData.getHighFreqMutexGroupPostings(), terms);
+    }
+
+    private static boolean hasTerms(
+            ExclusiveFrequentItemsetSelector.PremergeHintCandidate candidate,
+            String... terms
+    ) {
+        List<ByteRef> refs = candidate.getTermRefs();
+        if (refs.size() != terms.length) {
+            return false;
+        }
+        for (int i = 0; i < terms.length; i++) {
+            if (!Arrays.equals(terms[i].getBytes(), refs.get(i).copyBytes())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
 }

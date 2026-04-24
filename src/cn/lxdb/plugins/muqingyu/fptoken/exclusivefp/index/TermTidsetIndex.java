@@ -2,6 +2,7 @@ package cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.index;
 
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ByteRef;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.protocol.ModuleDataContracts;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.OpenHashTable;
 import java.util.ArrayList;
@@ -121,20 +122,8 @@ public final class TermTidsetIndex {
         double safeMaxCoverage = maxDocCoverageRatio <= 0d ? 1d : Math.min(1d, maxDocCoverageRatio);
         int maxSupport = safeMaxCoverage >= 1d ? Integer.MAX_VALUE : (int) Math.floor(docCount * safeMaxCoverage);
 
-        if (safeMinSupport <= 1 && maxSupport >= docCount) {
-            // 没有过滤条件，退化为原始的 build()（单次扫描，立即分配 BitSet）
-            TermTidsetIndex index = build(rows);
-            if (timings != null) {
-                timings.firstPassMillis = 0L;
-                timings.filterPrepareMillis = 0L;
-                timings.secondPassMillis = 0L;
-                timings.totalMillis = nanosToMillis(System.nanoTime() - t0);
-            }
-            return index;
-        }
-
-        FrequencyScanResult scan = scanTermFrequencies(rows, timings);
-        if (scan.termTypeCount == 0) {
+        FrequencyIndexStage frequencyStage = buildFrequencyIndexStage(rows, timings);
+        if (frequencyStage.termTypeCount == 0) {
             if (timings != null) {
                 timings.filterPrepareMillis = 0L;
                 timings.secondPassMillis = 0L;
@@ -145,9 +134,12 @@ public final class TermTidsetIndex {
                     Collections.<BitSet>emptyList());
         }
 
-        // === 按频率过滤 + 分配 BitSet + 第二次扫描设位图 ===
-        FilteredIndexPreparation prepared = prepareFilteredIndex(scan, safeMinSupport, maxSupport, timings);
-        if (prepared.idToTerm.isEmpty()) {
+        SupportFilteredStage filteredStage = buildSupportFilteredStage(
+                frequencyStage,
+                safeMinSupport,
+                maxSupport,
+                timings);
+        if (filteredStage.idToTerm.isEmpty()) {
             if (timings != null) {
                 timings.secondPassMillis = 0L;
                 timings.totalMillis = nanosToMillis(System.nanoTime() - t0);
@@ -157,15 +149,17 @@ public final class TermTidsetIndex {
                     Collections.<BitSet>emptyList());
         }
 
-        // 第二次扫描：使用 forLookup 设位图
-        fillFilteredTidsets(rows, scan.rowTermIds, prepared, timings);
+        BitsetStageResult bitsetStage = buildBitsetStage(
+                frequencyStage,
+                filteredStage,
+                timings);
         if (timings != null) {
             timings.totalMillis = nanosToMillis(System.nanoTime() - t0);
         }
 
         return new TermTidsetIndex(
-                Collections.unmodifiableList(prepared.idToTerm),
-                Collections.unmodifiableList(prepared.tidsetsByTermId));
+                Collections.unmodifiableList(bitsetStage.idToTerm),
+                Collections.unmodifiableList(bitsetStage.tidsetsByTermId));
     }
 
     public static final class BuildWithSupportBoundsTimings {
@@ -207,7 +201,10 @@ public final class TermTidsetIndex {
         return row;
     }
 
-    private static FrequencyScanResult scanTermFrequencies(
+    /**
+     * 阶段 1：基于输入 rows 构建词频索引（termId、support、按行 termId 缓存、按行 docId 缓存）。
+     */
+    private static FrequencyIndexStage buildFrequencyIndexStage(
             List<DocTerms> rows,
             BuildWithSupportBoundsTimings timings
     ) {
@@ -216,8 +213,10 @@ public final class TermTidsetIndex {
         int[] supports = new int[16];
         int termTypeCount = 0;
         List<int[]> rowTermIds = new ArrayList<int[]>(rows.size());
+        int[] docIdsByRow = new int[rows.size()];
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             DocTerms row = requireValidRow(rows, rowIndex);
+            docIdsByRow[rowIndex] = row.getDocId();
             List<ByteRef> rowTerms = row.getTermRefsUnsafe();
             int[] ids = new int[rowTerms.size()];
             int used = 0;
@@ -250,7 +249,7 @@ public final class TermTidsetIndex {
         if (timings != null) {
             timings.firstPassMillis = nanosToMillis(System.nanoTime() - firstPassStart);
         }
-        return new FrequencyScanResult(freqTable, supports, termTypeCount, rowTermIds);
+        return new FrequencyIndexStage(freqTable, supports, termTypeCount, rowTermIds, docIdsByRow);
     }
 
     private static int[] growSupportsArray(int[] current, int targetTermId) {
@@ -263,8 +262,11 @@ public final class TermTidsetIndex {
         return grown;
     }
 
-    private static FilteredIndexPreparation prepareFilteredIndex(
-            FrequencyScanResult scan,
+    /**
+     * 阶段 2：按支持度边界筛选 termId，并建立 originTermId -> filteredTermId 映射。
+     */
+    private static SupportFilteredStage buildSupportFilteredStage(
+            FrequencyIndexStage scan,
             int safeMinSupport,
             int maxSupport,
             BuildWithSupportBoundsTimings timings
@@ -275,7 +277,10 @@ public final class TermTidsetIndex {
         int[] originTermIdToFiltered = new int[scan.termTypeCount];
         Arrays.fill(originTermIdToFiltered, -1);
 
-        for (int termId = 0; termId < scan.termTypeCount; termId++) {
+        long[] supportAndTermIds = buildSupportAndTermIdOrder(scan.supports, scan.termTypeCount);
+
+        for (int i = 0; i < supportAndTermIds.length; i++) {
+            int termId = (int) supportAndTermIds[i];
             int support = scan.supports[termId];
             if (support >= safeMinSupport && support <= maxSupport) {
                 int filteredTermId = idToTerm.size();
@@ -287,58 +292,79 @@ public final class TermTidsetIndex {
         if (timings != null) {
             timings.filterPrepareMillis = nanosToMillis(System.nanoTime() - filterPrepareStart);
         }
-        return new FilteredIndexPreparation(idToTerm, tidsetsByTermId, originTermIdToFiltered);
+        return new SupportFilteredStage(idToTerm, tidsetsByTermId, originTermIdToFiltered);
     }
 
-    private static void fillFilteredTidsets(
-            List<DocTerms> rows,
-            List<int[]> rowTermIds,
-            FilteredIndexPreparation prepared,
+    private static long[] buildSupportAndTermIdOrder(int[] supports, int termTypeCount) {
+        long[] ordered = new long[termTypeCount];
+        for (int termId = 0; termId < termTypeCount; termId++) {
+            long supportBits = ((long) supports[termId]) << 32;
+            long termBits = termId & 0xffffffffL;
+            ordered[termId] = supportBits | termBits;
+        }
+        Arrays.sort(ordered);
+        return ordered;
+    }
+
+    /**
+     * 阶段 3：将筛选后的 term 映射转换为最终位图索引（term -> docId bitset）。
+     */
+    private static BitsetStageResult buildBitsetStage(
+            FrequencyIndexStage frequencyStage,
+            SupportFilteredStage filteredStage,
             BuildWithSupportBoundsTimings timings
     ) {
         long secondPassStart = System.nanoTime();
-        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
-            DocTerms row = rows.get(rowIndex);
-            int docId = row.getDocId();
+        int[] docIdsByRow = frequencyStage.docIdsByRow;
+        List<int[]> rowTermIds = frequencyStage.rowTermIds;
+        int[] originTermIdToFiltered = filteredStage.originTermIdToFiltered;
+        BitSet[] filteredTidsets = filteredStage.tidsetsByTermId.toArray(
+                new BitSet[filteredStage.tidsetsByTermId.size()]);
+        for (int rowIndex = 0; rowIndex < rowTermIds.size(); rowIndex++) {
+            int docId = docIdsByRow[rowIndex];
             int[] termIdsInRow = rowTermIds.get(rowIndex);
             for (int i = 0; i < termIdsInRow.length; i++) {
                 int originTermId = termIdsInRow[i];
-                int filteredTermId = prepared.originTermIdToFiltered[originTermId];
+                int filteredTermId = originTermIdToFiltered[originTermId];
                 if (filteredTermId >= 0) {
-                    prepared.tidsetsByTermId.get(filteredTermId).set(docId);
+                    filteredTidsets[filteredTermId].set(docId);
                 }
             }
         }
         if (timings != null) {
             timings.secondPassMillis = nanosToMillis(System.nanoTime() - secondPassStart);
         }
+        return new BitsetStageResult(filteredStage.idToTerm, filteredStage.tidsetsByTermId);
     }
 
-    private static final class FrequencyScanResult {
+    private static final class FrequencyIndexStage {
         private final OpenHashTable freqTable;
         private final int[] supports;
         private final int termTypeCount;
         private final List<int[]> rowTermIds;
+        private final int[] docIdsByRow;
 
-        private FrequencyScanResult(
+        private FrequencyIndexStage(
                 OpenHashTable freqTable,
                 int[] supports,
                 int termTypeCount,
-                List<int[]> rowTermIds
+                List<int[]> rowTermIds,
+                int[] docIdsByRow
         ) {
             this.freqTable = freqTable;
             this.supports = supports;
             this.termTypeCount = termTypeCount;
             this.rowTermIds = rowTermIds;
+            this.docIdsByRow = docIdsByRow;
         }
     }
 
-    private static final class FilteredIndexPreparation {
+    private static final class SupportFilteredStage {
         private final List<byte[]> idToTerm;
         private final List<BitSet> tidsetsByTermId;
         private final int[] originTermIdToFiltered;
 
-        private FilteredIndexPreparation(
+        private SupportFilteredStage(
                 List<byte[]> idToTerm,
                 List<BitSet> tidsetsByTermId,
                 int[] originTermIdToFiltered
@@ -346,6 +372,16 @@ public final class TermTidsetIndex {
             this.idToTerm = idToTerm;
             this.tidsetsByTermId = tidsetsByTermId;
             this.originTermIdToFiltered = originTermIdToFiltered;
+        }
+    }
+
+    private static final class BitsetStageResult {
+        private final List<byte[]> idToTerm;
+        private final List<BitSet> tidsetsByTermId;
+
+        private BitsetStageResult(List<byte[]> idToTerm, List<BitSet> tidsetsByTermId) {
+            this.idToTerm = idToTerm;
+            this.tidsetsByTermId = tidsetsByTermId;
         }
     }
 
@@ -395,5 +431,14 @@ public final class TermTidsetIndex {
     /** 仅供性能敏感内部路径;调用方不得修改列表及其中元素。 */
     public List<BitSet> getTidsetsByTermIdUnsafe() {
         return tidsetsByTermId;
+    }
+
+    /**
+     * index -> miner 协议输出：只暴露 termId 对齐的 tidset 视图。
+     *
+     * <p>调用方可将该对象直接传给 miner，避免跨模块传递额外上下文导致耦合。</p>
+     */
+    public ModuleDataContracts.TidsetMiningInput toMiningInputProtocol() {
+        return new ModuleDataContracts.TidsetMiningInput(tidsetsByTermId);
     }
 }

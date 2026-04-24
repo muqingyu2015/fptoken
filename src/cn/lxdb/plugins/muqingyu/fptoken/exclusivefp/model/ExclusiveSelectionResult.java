@@ -26,6 +26,7 @@ public final class ExclusiveSelectionResult {
     private final int intersectionCount;
     private final int maxCandidateCount;
     private final boolean truncatedByCandidateLimit;
+    private final SelectionDiagnostics diagnostics;
 
     /**
      * @param groups 最终互斥词组，可为空列表
@@ -43,12 +44,33 @@ public final class ExclusiveSelectionResult {
             int maxCandidateCount,
             boolean truncatedByCandidateLimit
     ) {
+        this(
+                groups,
+                frequentTermCount,
+                candidateCount,
+                intersectionCount,
+                maxCandidateCount,
+                truncatedByCandidateLimit,
+                SelectionDiagnostics.empty()
+        );
+    }
+
+    public ExclusiveSelectionResult(
+            List<SelectedGroup> groups,
+            int frequentTermCount,
+            int candidateCount,
+            int intersectionCount,
+            int maxCandidateCount,
+            boolean truncatedByCandidateLimit,
+            SelectionDiagnostics diagnostics
+    ) {
         this.groups = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(groups, "groups")));
         this.frequentTermCount = frequentTermCount;
         this.candidateCount = candidateCount;
         this.intersectionCount = intersectionCount;
         this.maxCandidateCount = maxCandidateCount;
         this.truncatedByCandidateLimit = truncatedByCandidateLimit;
+        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
     }
 
     public List<SelectedGroup> getGroups() {
@@ -73,5 +95,170 @@ public final class ExclusiveSelectionResult {
 
     public boolean isTruncatedByCandidateLimit() {
         return truncatedByCandidateLimit;
+    }
+
+    public SelectionDiagnostics getDiagnostics() {
+        return diagnostics;
+    }
+
+    public static final class SelectionDiagnostics {
+        private final boolean samplingRequested;
+        private final boolean sampledExecutionUsed;
+        private final boolean sampledInputBuildFallbackToFull;
+        private final boolean sampledMiningFallbackToFull;
+        private final int targetSampleSize;
+        private final int actualSampleSize;
+        private final long indexBuildMs;
+        private final long miningInputBuildMs;
+        private final long miningMs;
+        private final long hintMergeMs;
+        private final long recomputeMs;
+        private final long pickMs;
+        private final long totalMs;
+        private final int premergeHintInputCount;
+        private final int mappedHintCandidateCount;
+        private final int mergedDistinctCandidateCount;
+
+        private SelectionDiagnostics(
+                boolean samplingRequested,
+                boolean sampledExecutionUsed,
+                boolean sampledInputBuildFallbackToFull,
+                boolean sampledMiningFallbackToFull,
+                int targetSampleSize,
+                int actualSampleSize,
+                long indexBuildMs,
+                long miningInputBuildMs,
+                long miningMs,
+                long hintMergeMs,
+                long recomputeMs,
+                long pickMs,
+                long totalMs,
+                int premergeHintInputCount,
+                int mappedHintCandidateCount,
+                int mergedDistinctCandidateCount
+        ) {
+            this.samplingRequested = samplingRequested;
+            this.sampledExecutionUsed = sampledExecutionUsed;
+            this.sampledInputBuildFallbackToFull = sampledInputBuildFallbackToFull;
+            this.sampledMiningFallbackToFull = sampledMiningFallbackToFull;
+            this.targetSampleSize = targetSampleSize;
+            this.actualSampleSize = actualSampleSize;
+            this.indexBuildMs = indexBuildMs;
+            this.miningInputBuildMs = miningInputBuildMs;
+            this.miningMs = miningMs;
+            this.hintMergeMs = hintMergeMs;
+            this.recomputeMs = recomputeMs;
+            this.pickMs = pickMs;
+            this.totalMs = totalMs;
+            this.premergeHintInputCount = premergeHintInputCount;
+            this.mappedHintCandidateCount = mappedHintCandidateCount;
+            this.mergedDistinctCandidateCount = mergedDistinctCandidateCount;
+        }
+
+        public static SelectionDiagnostics empty() {
+            return new SelectionDiagnostics(false, false, false, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        }
+
+        public static SelectionDiagnostics of(
+                boolean samplingRequested,
+                boolean sampledExecutionUsed,
+                boolean sampledInputBuildFallbackToFull,
+                boolean sampledMiningFallbackToFull,
+                int targetSampleSize,
+                int actualSampleSize,
+                long indexBuildMs,
+                long miningInputBuildMs,
+                long miningMs,
+                long hintMergeMs,
+                long recomputeMs,
+                long pickMs,
+                long totalMs,
+                int premergeHintInputCount,
+                int mappedHintCandidateCount,
+                int mergedDistinctCandidateCount
+        ) {
+            return new SelectionDiagnostics(
+                    samplingRequested,
+                    sampledExecutionUsed,
+                    sampledInputBuildFallbackToFull,
+                    sampledMiningFallbackToFull,
+                    targetSampleSize,
+                    actualSampleSize,
+                    indexBuildMs,
+                    miningInputBuildMs,
+                    miningMs,
+                    hintMergeMs,
+                    recomputeMs,
+                    pickMs,
+                    totalMs,
+                    premergeHintInputCount,
+                    mappedHintCandidateCount,
+                    mergedDistinctCandidateCount
+            );
+        }
+
+        public boolean isSamplingRequested() {
+            return samplingRequested;
+        }
+
+        public boolean isSampledExecutionUsed() {
+            return sampledExecutionUsed;
+        }
+
+        public boolean isSampledInputBuildFallbackToFull() {
+            return sampledInputBuildFallbackToFull;
+        }
+
+        public boolean isSampledMiningFallbackToFull() {
+            return sampledMiningFallbackToFull;
+        }
+
+        public int getTargetSampleSize() {
+            return targetSampleSize;
+        }
+
+        public int getActualSampleSize() {
+            return actualSampleSize;
+        }
+
+        public long getIndexBuildMs() {
+            return indexBuildMs;
+        }
+
+        public long getMiningInputBuildMs() {
+            return miningInputBuildMs;
+        }
+
+        public long getMiningMs() {
+            return miningMs;
+        }
+
+        public long getHintMergeMs() {
+            return hintMergeMs;
+        }
+
+        public long getRecomputeMs() {
+            return recomputeMs;
+        }
+
+        public long getPickMs() {
+            return pickMs;
+        }
+
+        public long getTotalMs() {
+            return totalMs;
+        }
+
+        public int getPremergeHintInputCount() {
+            return premergeHintInputCount;
+        }
+
+        public int getMappedHintCandidateCount() {
+            return mappedHintCandidateCount;
+        }
+
+        public int getMergedDistinctCandidateCount() {
+            return mergedDistinctCandidateCount;
+        }
     }
 }

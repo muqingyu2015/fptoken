@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>buildWithSupportBounds 性能优化复盘</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      background: #f6f8fb;
+      color: #111827;
+      line-height: 1.75;
+    }
+    .wrap {
+      max-width: 980px;
+      margin: 24px auto;
+      padding: 0 14px 28px;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 12px;
+    }
+    h1, h2, h3 { margin: 0 0 10px; }
+    h1 { color: #1d4ed8; }
+    h2 { color: #1e3a8a; }
+    ul { margin: 0 0 0 20px; }
+    li { margin: 6px 0; }
+    .k { color: #1d4ed8; font-weight: 700; }
+    .ok { color: #065f46; font-weight: 700; }
+    .warn { color: #92400e; font-weight: 700; }
+    .code {
+      background: #0b1020;
+      color: #e5ecff;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: Consolas, "JetBrains Mono", monospace;
+      font-size: 13px;
+      overflow: auto;
+      border: 1px solid #233059;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+    th, td {
+      border: 1px solid #e5e7eb;
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #f3f6fd; }
+    .meta {
+      color: #6b7280;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <h1>buildWithSupportBounds 性能优化复盘</h1>
+      <p>针对性能报告中 “<span class="k">TermTidsetIndex.buildWithSupportBounds 占热路径约 72%</span>” 的专项优化说明。</p>
+      <p class="meta">项目：fptoken · 文档日期：2026-04-24</p>
+    </section>
+
+    <section class="card">
+      <h2>1. 问题背景</h2>
+      <ul>
+        <li>热点审计显示：`buildWithSupportBounds` 是主瓶颈，明显高于 miner/picker。</li>
+        <li>该方法本身包含三段：first pass（频次扫描）/ filter prepare（筛选映射）/ second pass（位图设位）。</li>
+        <li>在词项规模上来后，排序与内层访问开销会被放大。</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>2. 本次已落地改进</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>优化点</th>
+            <th>改动前</th>
+            <th>改动后</th>
+            <th>收益预期</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>支持度排序算法</td>
+            <td>按 `(support, termId)` 的 <span class="warn">插入排序 O(n²)</span></td>
+            <td>构造 `long` 复合键 + `Arrays.sort(long[])`（<span class="ok">O(n log n)</span>）</td>
+            <td>词项数上来时明显降耗</td>
+          </tr>
+          <tr>
+            <td>second pass 内层访问</td>
+            <td>循环中频繁 `List.get()` 与多次间接寻址</td>
+            <td>提前缓存 `originTermIdToFiltered` 和 `BitSet[]` 数组</td>
+            <td>减少热点分支与边界检查开销</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>3. 关键代码思路（简化）</h2>
+      <h3>3.1 排序由 O(n²) 改为 O(n log n)</h3>
+      <div class="code">long key = (((long) support) &lt;&lt; 32) | (termId &amp; 0xffffffffL);
+keys[termId] = key;
+Arrays.sort(keys);</div>
+
+      <h3>3.2 位图设位内层使用数组直达</h3>
+      <div class="code">int[] map = filteredStage.originTermIdToFiltered;
+BitSet[] tidsets = filteredStage.tidsetsByTermId.toArray(new BitSet[filteredSize]);
+...
+int filteredId = map[originTermId];
+if (filteredId &gt;= 0) { tidsets[filteredId].set(docId); }</div>
+    </section>
+
+    <section class="card">
+      <h2>4. 验证与稳定性</h2>
+      <ul>
+        <li>变更后已执行项目回归测试：<span class="ok">通过（0 failed）</span>。</li>
+        <li>功能语义保持不变：仍按支持度边界过滤 + 构建 term-&gt;doc 位图。</li>
+        <li>风险控制：本次改动不涉及协议变更、不改业务输出结构。</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>5. 结果解读（为什么报告里 first pass 仍高）</h2>
+      <ul>
+        <li>报告显示 first pass 依旧占比较高，这是符合预期的：它承担了最重的词项扫描与哈希映射工作。</li>
+        <li>这次优化主要先消除了<span class="k">可确定的次优实现</span>（O(n²) 排序与内层间接访问）。</li>
+        <li>下一阶段若继续压缩 first pass，需要更深层方案（如批次局部去重结构、哈希布局优化、流水化扫描）。</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>6. 后续可继续做的 P1/P2</h2>
+      <ul>
+        <li><span class="k">P1</span>：`buildDerivedData` 减少重复遍历（目前在报告中也占高比重）。</li>
+        <li><span class="k">P1</span>：first pass 的哈希路径做批次去重与局部缓存，降低重复 hash 开销。</li>
+        <li><span class="k">P2</span>：按数据集特征分层参数模板，减少极端场景的无效提示词放大效应。</li>
+      </ul>
+      <p class="meta">建议节奏：先“热点可确定优化”再“结构性重构”，避免一次性大改带来风险。</p>
+    </section>
+  </main>
+</body>
+</html>

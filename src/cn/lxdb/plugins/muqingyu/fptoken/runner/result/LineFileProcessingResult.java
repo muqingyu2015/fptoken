@@ -240,6 +240,18 @@ public final class LineFileProcessingResult {
         private final double highFreqSingleTermMovedToMutexGroupPercent;
         private final double lowHitForwardRowsPercent;
         private final double lowHitForwardTermsPercent;
+        private final long selectedGroupTotalSupport;
+        private final long selectedGroupTotalEstimatedSaving;
+        private final double selectedGroupAverageSupport;
+        private final double selectedGroupAverageEstimatedSaving;
+        private final int selectedGroupLowSavingCount;
+        private final double selectedGroupLowSavingPercent;
+        private final int premergeHintInputCount;
+        private final int mappedHintCandidateCount;
+        private final int mergedDistinctCandidateCount;
+        private final long hintMergeMs;
+        private final long totalPipelineMs;
+        private final double hintMergeMsPercent;
 
         private ProcessingStats(
                 int inputRowCount,
@@ -262,7 +274,19 @@ public final class LineFileProcessingResult {
                 int highFreqSingleTermMovedToMutexGroupCount,
                 double highFreqSingleTermMovedToMutexGroupPercent,
                 double lowHitForwardRowsPercent,
-                double lowHitForwardTermsPercent
+                double lowHitForwardTermsPercent,
+                long selectedGroupTotalSupport,
+                long selectedGroupTotalEstimatedSaving,
+                double selectedGroupAverageSupport,
+                double selectedGroupAverageEstimatedSaving,
+                int selectedGroupLowSavingCount,
+                double selectedGroupLowSavingPercent,
+                int premergeHintInputCount,
+                int mappedHintCandidateCount,
+                int mergedDistinctCandidateCount,
+                long hintMergeMs,
+                long totalPipelineMs,
+                double hintMergeMsPercent
         ) {
             this.inputRowCount = inputRowCount;
             this.selectedGroupCount = selectedGroupCount;
@@ -285,6 +309,18 @@ public final class LineFileProcessingResult {
             this.highFreqSingleTermMovedToMutexGroupPercent = highFreqSingleTermMovedToMutexGroupPercent;
             this.lowHitForwardRowsPercent = lowHitForwardRowsPercent;
             this.lowHitForwardTermsPercent = lowHitForwardTermsPercent;
+            this.selectedGroupTotalSupport = selectedGroupTotalSupport;
+            this.selectedGroupTotalEstimatedSaving = selectedGroupTotalEstimatedSaving;
+            this.selectedGroupAverageSupport = selectedGroupAverageSupport;
+            this.selectedGroupAverageEstimatedSaving = selectedGroupAverageEstimatedSaving;
+            this.selectedGroupLowSavingCount = selectedGroupLowSavingCount;
+            this.selectedGroupLowSavingPercent = selectedGroupLowSavingPercent;
+            this.premergeHintInputCount = premergeHintInputCount;
+            this.mappedHintCandidateCount = mappedHintCandidateCount;
+            this.mergedDistinctCandidateCount = mergedDistinctCandidateCount;
+            this.hintMergeMs = hintMergeMs;
+            this.totalPipelineMs = totalPipelineMs;
+            this.hintMergeMsPercent = hintMergeMsPercent;
         }
 
         private static ProcessingStats from(
@@ -301,6 +337,9 @@ public final class LineFileProcessingResult {
             int loadedRowsCount = loadedRows.size();
             int totalInputTerms = countTerms(loadedRows);
             int lowHitTerms = countTerms(finalIndexData.getLowHitForwardRows());
+            SelectedGroupValueStats groupValueStats =
+                    computeSelectedGroupValueStats(finalIndexData.getHighFreqMutexGroupPostings());
+            ExclusiveSelectionResult.SelectionDiagnostics diagnostics = selectionResult.getDiagnostics();
             return new ProcessingStats(
                     loadedRowsCount,
                     finalIndexData.getHighFreqMutexGroupPostings().size(),
@@ -322,7 +361,19 @@ public final class LineFileProcessingResult {
                     mergeStats.movedIntoMutexGroups,
                     ratioPercent(mergeStats.movedIntoMutexGroups, mergeStats.totalHighFreqSingleTermsBeforeDedup),
                     ratioPercent(lowHitRows, loadedRowsCount),
-                    ratioPercent(lowHitTerms, totalInputTerms)
+                    ratioPercent(lowHitTerms, totalInputTerms),
+                    groupValueStats.totalSupport,
+                    groupValueStats.totalEstimatedSaving,
+                    groupValueStats.averageSupport,
+                    groupValueStats.averageEstimatedSaving,
+                    groupValueStats.lowSavingCount,
+                    ratioPercent(groupValueStats.lowSavingCount, finalIndexData.getHighFreqMutexGroupPostings().size()),
+                    diagnostics.getPremergeHintInputCount(),
+                    diagnostics.getMappedHintCandidateCount(),
+                    diagnostics.getMergedDistinctCandidateCount(),
+                    diagnostics.getHintMergeMs(),
+                    diagnostics.getTotalMs(),
+                    ratioPercent(diagnostics.getHintMergeMs(), Math.max(1L, diagnostics.getTotalMs()))
             );
         }
 
@@ -378,6 +429,39 @@ public final class LineFileProcessingResult {
                 return 0.0d;
             }
             return (numerator * 100.0d) / denominator;
+        }
+
+        private static double ratioPercent(long numerator, long denominator) {
+            if (denominator <= 0L) {
+                return 0.0d;
+            }
+            return (numerator * 100.0d) / denominator;
+        }
+
+        private static SelectedGroupValueStats computeSelectedGroupValueStats(List<SelectedGroup> groups) {
+            if (groups.isEmpty()) {
+                return new SelectedGroupValueStats(0L, 0L, 0.0d, 0.0d, 0);
+            }
+            long totalSupport = 0L;
+            long totalEstimatedSaving = 0L;
+            int lowSavingCount = 0;
+            for (int i = 0; i < groups.size(); i++) {
+                SelectedGroup group = groups.get(i);
+                totalSupport += group.getSupport();
+                totalEstimatedSaving += group.getEstimatedSaving();
+                if (group.getEstimatedSaving() <= 0) {
+                    lowSavingCount++;
+                }
+            }
+            double averageSupport = totalSupport / (double) groups.size();
+            double averageEstimatedSaving = totalEstimatedSaving / (double) groups.size();
+            return new SelectedGroupValueStats(
+                    totalSupport,
+                    totalEstimatedSaving,
+                    averageSupport,
+                    averageEstimatedSaving,
+                    lowSavingCount
+            );
         }
 
         public int getInputRowCount() {
@@ -481,6 +565,56 @@ public final class LineFileProcessingResult {
             return lowHitForwardTermsPercent;
         }
 
+        /** 组合层支持度总和，可用于衡量新增组是否带来真实覆盖。 */
+        public long getSelectedGroupTotalSupport() {
+            return selectedGroupTotalSupport;
+        }
+
+        /** 组合层 estimatedSaving 总和，可用于区分“高价值新增”与“低质量膨胀”。 */
+        public long getSelectedGroupTotalEstimatedSaving() {
+            return selectedGroupTotalEstimatedSaving;
+        }
+
+        public double getSelectedGroupAverageSupport() {
+            return selectedGroupAverageSupport;
+        }
+
+        public double getSelectedGroupAverageEstimatedSaving() {
+            return selectedGroupAverageEstimatedSaving;
+        }
+
+        public int getSelectedGroupLowSavingCount() {
+            return selectedGroupLowSavingCount;
+        }
+
+        public double getSelectedGroupLowSavingPercent() {
+            return selectedGroupLowSavingPercent;
+        }
+
+        public int getPremergeHintInputCount() {
+            return premergeHintInputCount;
+        }
+
+        public int getMappedHintCandidateCount() {
+            return mappedHintCandidateCount;
+        }
+
+        public int getMergedDistinctCandidateCount() {
+            return mergedDistinctCandidateCount;
+        }
+
+        public long getHintMergeMs() {
+            return hintMergeMs;
+        }
+
+        public long getTotalPipelineMs() {
+            return totalPipelineMs;
+        }
+
+        public double getHintMergeMsPercent() {
+            return hintMergeMsPercent;
+        }
+
         private static final class HighFreqTermMergeStats {
             private final int totalHighFreqSingleTermsBeforeDedup;
             private final int movedIntoMutexGroups;
@@ -488,6 +622,28 @@ public final class LineFileProcessingResult {
             private HighFreqTermMergeStats(int totalHighFreqSingleTermsBeforeDedup, int movedIntoMutexGroups) {
                 this.totalHighFreqSingleTermsBeforeDedup = totalHighFreqSingleTermsBeforeDedup;
                 this.movedIntoMutexGroups = movedIntoMutexGroups;
+            }
+        }
+
+        private static final class SelectedGroupValueStats {
+            private final long totalSupport;
+            private final long totalEstimatedSaving;
+            private final double averageSupport;
+            private final double averageEstimatedSaving;
+            private final int lowSavingCount;
+
+            private SelectedGroupValueStats(
+                    long totalSupport,
+                    long totalEstimatedSaving,
+                    double averageSupport,
+                    double averageEstimatedSaving,
+                    int lowSavingCount
+            ) {
+                this.totalSupport = totalSupport;
+                this.totalEstimatedSaving = totalEstimatedSaving;
+                this.averageSupport = averageSupport;
+                this.averageEstimatedSaving = averageEstimatedSaving;
+                this.lowSavingCount = lowSavingCount;
             }
         }
     }

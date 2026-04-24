@@ -17,6 +17,8 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 /**
  * 上限文件（64B/行 + 32000 行上限）性能基准。
@@ -24,6 +26,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 @Tag("performance")
 @EnabledIfSystemProperty(named = "fptoken.runPerfTests", matches = "true")
 @Timeout(value = 90, unit = TimeUnit.SECONDS)
+@ResourceLock(value = "ExclusiveFrequentItemsetSelector.runtimeTuning", mode = ResourceAccessMode.READ_WRITE)
 class MaxLengthFilePerformanceTest {
 
     @Test

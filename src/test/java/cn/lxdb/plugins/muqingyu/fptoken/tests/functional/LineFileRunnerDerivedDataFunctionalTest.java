@@ -2,7 +2,6 @@ package cn.lxdb.plugins.muqingyu.fptoken.tests.functional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;

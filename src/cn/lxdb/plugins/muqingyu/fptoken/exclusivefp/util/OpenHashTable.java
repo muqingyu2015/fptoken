@@ -56,7 +56,6 @@ public final class OpenHashTable {
      */
     public int getOrPut(byte[] rawTerm, int hash, boolean insertIfMissing) {
         int idx = hash & mask;
-        int firstTombstone = -1;
 
         while (true) {
             byte[] k = keys[idx];

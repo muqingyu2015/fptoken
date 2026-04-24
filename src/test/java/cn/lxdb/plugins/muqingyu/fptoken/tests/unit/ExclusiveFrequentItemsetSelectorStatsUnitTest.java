@@ -94,4 +94,64 @@ class ExclusiveFrequentItemsetSelectorStatsUnitTest {
         assertTrue(r.isTruncatedByCandidateLimit());
         assertEquals(1, r.getMaxCandidateCount());
     }
+
+    @Test
+    void diagnostics_shouldExposeSamplingAndStageTimingMetrics() {
+        List<DocTerms> rows = new ArrayList<>();
+        byte[] a = ByteArrayTestSupport.hex("AA");
+        byte[] b = ByteArrayTestSupport.hex("BB");
+        byte[] c = ByteArrayTestSupport.hex("CC");
+        for (int i = 0; i < 120; i++) {
+            rows.add(ByteArrayTestSupport.doc(i, a, b, c, new byte[] {(byte) (i % 9)}));
+        }
+
+        ExclusiveSelectionResult result = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
+                rows, 10, 2, 4, 20_000);
+        ExclusiveSelectionResult.SelectionDiagnostics diagnostics = result.getDiagnostics();
+
+        assertNotNull(diagnostics);
+        assertTrue(diagnostics.getTargetSampleSize() >= diagnostics.getActualSampleSize());
+        assertTrue(diagnostics.getIndexBuildMs() >= 0);
+        assertTrue(diagnostics.getMiningInputBuildMs() >= 0);
+        assertTrue(diagnostics.getMiningMs() >= 0);
+        assertTrue(diagnostics.getHintMergeMs() >= 0);
+        assertTrue(diagnostics.getRecomputeMs() >= 0);
+        assertTrue(diagnostics.getPickMs() >= 0);
+        assertTrue(diagnostics.getTotalMs() >= 0);
+        assertFalse(diagnostics.isSampledInputBuildFallbackToFull());
+        assertFalse(diagnostics.isSampledMiningFallbackToFull());
+    }
+
+    @Test
+    void selectionRequest_shouldCarryExecutionTuningAsImmutableConfigBoundary() {
+        List<DocTerms> rows = new ArrayList<>();
+        byte[] a = ByteArrayTestSupport.hex("AA");
+        byte[] b = ByteArrayTestSupport.hex("BB");
+        for (int i = 0; i < 80; i++) {
+            rows.add(ByteArrayTestSupport.doc(i, a, b));
+        }
+        ExclusiveFrequentItemsetSelector.ExecutionTuning tuning =
+                new ExclusiveFrequentItemsetSelector.ExecutionTuning(
+                        0.2d,
+                        8,
+                        0.1d,
+                        0,
+                        1,
+                        0,
+                        1.0d,
+                        cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.picker.TwoPhaseExclusiveItemsetPicker.ScoringWeights.defaults()
+                );
+        ExclusiveFrequentItemsetSelector.SelectionRequest request =
+                ExclusiveFrequentItemsetSelector.SelectionRequest.builder(rows)
+                        .minSupport(3)
+                        .minItemsetSize(2)
+                        .maxItemsetSize(4)
+                        .maxCandidateCount(10_000)
+                        .executionTuning(tuning)
+                        .build();
+
+        ExclusiveSelectionResult result = ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(request);
+        assertNotNull(result);
+        assertNotNull(result.getDiagnostics());
+    }
 }

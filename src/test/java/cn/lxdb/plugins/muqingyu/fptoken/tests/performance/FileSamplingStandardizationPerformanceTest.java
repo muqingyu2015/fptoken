@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 /**
  * 标准化文件输入 + 抽样参数矩阵性能测试（仅 Perf 开关开启时执行）。
@@ -20,6 +22,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 @Tag("performance")
 @EnabledIfSystemProperty(named = "fptoken.runPerfTests", matches = "true")
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
+@ResourceLock(value = "ExclusiveFrequentItemsetSelector.runtimeTuning", mode = ResourceAccessMode.READ_WRITE)
 class FileSamplingStandardizationPerformanceTest {
 
     @Test

@@ -11,8 +11,12 @@ import cn.lxdb.plugins.muqingyu.fptoken.tests.ByteArrayTestSupport;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
+@ResourceLock(value = "ExclusiveFrequentItemsetSelector.runtimeTuning", mode = ResourceAccessMode.READ_WRITE)
 class ExclusiveFrequentItemsetSelectorSamplingUnitTest {
+    private static final String PROP_TESTING_FAIL_SAMPLING_PATH = "fptoken.selector.testing.failSamplingPath";
 
     @Test
     void sampleRatioZero_shouldStillBeDeterministicWithMinSampleFallback() {
@@ -102,11 +106,40 @@ class ExclusiveFrequentItemsetSelectorSamplingUnitTest {
         }
     }
 
+    @Test
+    void samplingPathFailure_shouldGracefullyFallbackToFullPath() {
+        List<DocTerms> rows = buildRowsWithStableFrequentPattern(420);
+        String old = System.getProperty(PROP_TESTING_FAIL_SAMPLING_PATH);
+        try {
+            ExclusiveFrequentItemsetSelector.setSampleRatio(0.30d);
+            ExclusiveFrequentItemsetSelector.setMinSampleCount(50);
+            ExclusiveFrequentItemsetSelector.setSamplingSupportScale(0.0d);
+            System.setProperty(PROP_TESTING_FAIL_SAMPLING_PATH, "true");
+
+            ExclusiveSelectionResult result =
+                    ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(rows, 120, 2, 4, 100_000);
+
+            assertTrue(result.getCandidateCount() >= 0);
+            assertTrue(!result.getGroups().isEmpty());
+        } finally {
+            restoreSystemProperty(PROP_TESTING_FAIL_SAMPLING_PATH, old);
+            restoreSamplingDefaults();
+        }
+    }
+
     private static void restoreSamplingDefaults() {
         // restore defaults to avoid leaking static config to other tests
         ExclusiveFrequentItemsetSelector.setSampleRatio(EngineTuningConfig.DEFAULT_SAMPLE_RATIO);
         ExclusiveFrequentItemsetSelector.setMinSampleCount(EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT);
         ExclusiveFrequentItemsetSelector.setSamplingSupportScale(EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE);
+    }
+
+    private static void restoreSystemProperty(String key, String originalValue) {
+        if (originalValue == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, originalValue);
+        }
     }
 
     private static List<DocTerms> buildRowsWithStableFrequentPattern(int count) {

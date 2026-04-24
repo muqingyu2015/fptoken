@@ -23,22 +23,6 @@ import java.util.List;
 public final class GreedyExclusiveItemsetPicker {
 
     /**
-     * 排序键（优先级从高到低）：长度降序；{@link CandidateItemset#getEstimatedSaving()} 降序；{@link CandidateItemset#getSupport()} 降序；首 termId
-     * 升序（空 {@code termIds} 在该键上为 {@link Integer#MAX_VALUE}）。
-     */
-    private static final Comparator<CandidateItemset> CANDIDATE_ORDER =
-            Comparator.comparingInt(CandidateItemset::length)
-                    .reversed()
-                    .thenComparing(Comparator.comparingInt(CandidateItemset::getEstimatedSaving).reversed())
-                    .thenComparing(Comparator.comparingInt(CandidateItemset::getPriorityBoost).reversed())
-                    .thenComparing(Comparator.comparingInt(CandidateItemset::getSupport).reversed())
-                    .thenComparingInt(
-                            c -> {
-                                int[] termIds = c.getTermIdsUnsafe();
-                                return termIds.length > 0 ? termIds[0] : Integer.MAX_VALUE;
-                            });
-
-    /**
      * 从候选项中选出互斥子集（尽量不共享 termId）。
      *
      * @param candidates 候选项列表；本方法会拷贝后再排序，不修改调用方传入的列表顺序
@@ -46,6 +30,22 @@ public final class GreedyExclusiveItemsetPicker {
      * @return 按排序顺序接受的互斥项集列表
      */
     public List<CandidateItemset> pick(List<CandidateItemset> candidates, int dictionarySize) {
+        return pick(
+                candidates,
+                dictionarySize,
+                cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM,
+                cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM,
+                TwoPhaseExclusiveItemsetPicker.getRuntimeScoringWeights()
+        );
+    }
+
+    public List<CandidateItemset> pick(
+            List<CandidateItemset> candidates,
+            int dictionarySize,
+            int estimatedBytesPerTerm,
+            int coverageRewardPerTerm,
+            TwoPhaseExclusiveItemsetPicker.ScoringWeights scoringWeights
+    ) {
         if (candidates == null) {
             throw new IllegalArgumentException("candidates must not be null");
         }
@@ -55,10 +55,19 @@ public final class GreedyExclusiveItemsetPicker {
         if (dictionarySize <= 0) {
             throw new IllegalArgumentException("dictionarySize must be > 0");
         }
+        if (estimatedBytesPerTerm <= 0) {
+            throw new IllegalArgumentException("estimatedBytesPerTerm must be > 0");
+        }
+        if (coverageRewardPerTerm < 0) {
+            throw new IllegalArgumentException("coverageRewardPerTerm must be >= 0");
+        }
+        if (scoringWeights == null) {
+            throw new IllegalArgumentException("scoringWeights must not be null");
+        }
         validateCandidates(candidates);
 
         List<CandidateItemset> sorted = new ArrayList<>(candidates);
-        sorted.sort(CANDIDATE_ORDER);
+        sorted.sort(buildCandidateOrder(estimatedBytesPerTerm, coverageRewardPerTerm, scoringWeights));
 
         int maxTermId = computeMaxTermId(sorted);
         int effectiveSize = Math.max(dictionarySize, maxTermId + 1);
@@ -90,6 +99,54 @@ public final class GreedyExclusiveItemsetPicker {
             }
         }
         return out;
+    }
+
+    private static Comparator<CandidateItemset> buildCandidateOrder(
+            int estimatedBytesPerTerm,
+            int coverageRewardPerTerm,
+            TwoPhaseExclusiveItemsetPicker.ScoringWeights scoringWeights
+    ) {
+        return (a, b) -> {
+            long sa = objective(a, estimatedBytesPerTerm, coverageRewardPerTerm, scoringWeights);
+            long sb = objective(b, estimatedBytesPerTerm, coverageRewardPerTerm, scoringWeights);
+            int scoreCompare = Long.compare(sb, sa);
+            if (scoreCompare != 0) {
+                return scoreCompare;
+            }
+            int savingCompare = Integer.compare(b.getEstimatedSaving(), a.getEstimatedSaving());
+            if (savingCompare != 0) {
+                return savingCompare;
+            }
+            int supportCompare = Integer.compare(b.getSupport(), a.getSupport());
+            if (supportCompare != 0) {
+                return supportCompare;
+            }
+            int[] ta = a.getTermIdsUnsafe();
+            int[] tb = b.getTermIdsUnsafe();
+            int firstA = ta.length > 0 ? ta[0] : Integer.MAX_VALUE;
+            int firstB = tb.length > 0 ? tb[0] : Integer.MAX_VALUE;
+            return Integer.compare(firstA, firstB);
+        };
+    }
+
+    private static long objective(
+            CandidateItemset c,
+            int estimatedBytesPerTerm,
+            int coverageRewardPerTerm,
+            TwoPhaseExclusiveItemsetPicker.ScoringWeights scoringWeights
+    ) {
+        long len = c.length();
+        long support = c.getSupport();
+        long businessValue = c.getEstimatedSaving();
+        long cost = len * (long) estimatedBytesPerTerm;
+        long priorityBoost = c.getPriorityBoost();
+        long coverage = ((long) coverageRewardPerTerm) * len;
+        return businessValue * scoringWeights.getBusinessValueWeight()
+                - cost * scoringWeights.getCostWeight()
+                + support * scoringWeights.getSupportWeight()
+                + len * scoringWeights.getLengthWeight()
+                + priorityBoost * scoringWeights.getPriorityBoostWeight()
+                + coverage * scoringWeights.getCoverageWeight();
     }
 
     /** 扫描全部候选项中的词 id，求最大值并校验非负。 */

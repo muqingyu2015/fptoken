@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FPToken 完整使用手册（Quickstart 到生产）</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: #101a36;
+      --line: #2a3b6e;
+      --text: #e8eeff;
+      --sub: #aebde6;
+      --pri: #86a8ff;
+      --ok: #4ade80;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 20% 0%, #1a2a56 0%, var(--bg) 45%, #070b18 100%);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      line-height: 1.7;
+    }
+    .wrap { width: min(1180px, 92vw); margin: 24px auto 32px; display: grid; gap: 14px; }
+    .card {
+      background: linear-gradient(160deg, var(--card), #0d1530);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px 22px;
+    }
+    h1, h2, h3 { margin: 0 0 10px; line-height: 1.35; }
+    h1 { font-size: clamp(32px, 5vw, 50px); color: #d5e2ff; }
+    h2 { font-size: clamp(24px, 3.4vw, 34px); color: #c5d7ff; }
+    h3 { font-size: 20px; color: #bbceff; margin-top: 10px; }
+    p { margin: 8px 0; color: var(--sub); }
+    ul, ol { margin: 8px 0 0 22px; padding: 0; }
+    li { margin: 6px 0; color: #d7e2ff; }
+    .k { color: var(--pri); font-weight: 700; }
+    .ok { color: var(--ok); font-weight: 700; }
+    .warn { color: var(--warn); font-weight: 700; }
+    .grid { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+    .panel {
+      border: 1px solid #324780;
+      border-radius: 10px;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+    pre {
+      margin: 10px 0 0;
+      padding: 12px;
+      border: 1px solid #324780;
+      border-radius: 10px;
+      background: #0a1227;
+      color: #d7e3ff;
+      overflow: auto;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    code { font-family: "Consolas", "JetBrains Mono", monospace; }
+    .toc a { color: #bcd0ff; text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    .foot { color: #8fa4db; font-size: 13px; margin-top: 8px; border-top: 1px solid #2b3e75; padding-top: 8px; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <h1>FPToken 完整使用手册</h1>
+      <p>从 <span class="k">Quickstart</span> 开始，到 <span class="k">提示词/采样/统计观测</span> 的生产级用法，按复杂度递进。</p>
+      <div class="foot">适配当前代码版本（2026-04）。推荐入口：<code>ExclusiveFpRowsProcessingApi</code>。</div>
+    </section>
+
+    <section class="card toc">
+      <h2>目录</h2>
+      <ol>
+        <li><a href="#qs">Quickstart：5 分钟跑通</a></li>
+        <li><a href="#ex1">示例 1：基础参数控制</a></li>
+        <li><a href="#ex2">示例 2：带 n-gram 与 skip-hash 的完整调用</a></li>
+        <li><a href="#ex3">示例 3：预合并提示（Pre-merge hints）</a></li>
+        <li><a href="#ex4">示例 4：采样 + 提示 + 效果统计</a></li>
+        <li><a href="#prod">生产落地建议与排障清单</a></li>
+      </ol>
+    </section>
+
+    <section id="qs" class="card">
+      <h2>1) Quickstart：5 分钟跑通</h2>
+      <div class="grid">
+        <div class="panel">
+          <h3>步骤 A：准备输入</h3>
+          <ul>
+            <li>每条记录是 <code>DocTerms(docId, termRefs)</code></li>
+            <li>term 用 <code>ByteRef</code>（字节视图）</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>步骤 B：调用 API</h3>
+          <ul>
+            <li><code>ExclusiveFpRowsProcessingApi.processRows(rows)</code></li>
+            <li>从 <code>result.getFinalIndexData()</code> 读取三层结果</li>
+          </ul>
+        </div>
+      </div>
+<pre><code>List&lt;DocTerms&gt; rows = new ArrayList&lt;&gt;();
+rows.add(new DocTerms(0, Arrays.asList(ref("A"), ref("B"), ref("C"))));
+rows.add(new DocTerms(1, Arrays.asList(ref("A"), ref("B"))));
+rows.add(new DocTerms(2, Arrays.asList(ref("D"), ref("E"))));
+
+LineFileProcessingResult result = ExclusiveFpRowsProcessingApi.processRows(rows);
+
+LineFileProcessingResult.FinalIndexData finalData = result.getFinalIndexData();
+List&lt;SelectedGroup&gt; groups = finalData.getHighFreqMutexGroupPostings();
+List&lt;LineFileProcessingResult.HotTermDocList&gt; hotTerms = finalData.getHighFreqSingleTermPostings();
+List&lt;DocTerms&gt; lowHitRows = finalData.getLowHitForwardRows();</code></pre>
+      <p class="ok">你至少能拿到：高频组合层 + 高频单词层 + 低频残差层。</p>
+    </section>
+
+    <section id="ex1" class="card">
+      <h2>2) 示例 1：基础参数控制</h2>
+      <p>当你要控制支持度、项集长度、候选上限时，优先用 <code>ProcessingOptions</code>。</p>
+<pre><code>ExclusiveFpRowsProcessingApi.ProcessingOptions options =
+    ExclusiveFpRowsProcessingApi.defaultOptions()
+        .withMinSupport(3)
+        .withMinItemsetSize(2)
+        .withMaxItemsetSize(6)
+        .withMaxCandidateCount(200_000)
+        .withHotTermThresholdExclusive(4);
+
+LineFileProcessingResult result = ExclusiveFpRowsProcessingApi.processRows(rows, options);</code></pre>
+      <ul>
+        <li><code>minSupport</code> 越大，结果越“保守”，性能通常更稳。</li>
+        <li><code>maxCandidateCount</code> 是保护阀，防止极端数据打爆耗时。</li>
+      </ul>
+    </section>
+
+    <section id="ex2" class="card">
+      <h2>3) 示例 2：带 n-gram 与 skip-hash 的完整调用</h2>
+      <p>输入是原始行字节时，建议显式设置分词区间与 skip-hash 区间。</p>
+<pre><code>ExclusiveFpRowsProcessingApi.ProcessingOptions options =
+    ExclusiveFpRowsProcessingApi.defaultOptions()
+        .withNgramRange(2, 4)
+        .withSkipHashGramRange(2, 6)
+        .withMinSupport(80)
+        .withMinItemsetSize(2)
+        .withHotTermThresholdExclusive(16);
+
+LineFileProcessingResult result = ExclusiveFpRowsProcessingApi.processRows(rawRows, options);</code></pre>
+      <p class="warn">若 rows 已经是“多 term 结构”，请避免重复切词。</p>
+    </section>
+
+    <section id="ex3" class="card">
+      <h2>4) 示例 3：预合并提示（Pre-merge hints）</h2>
+      <p>典型场景：Lucene merge。先从历史段抽 hints，再用于当前合并段。</p>
+<pre><code>// 历史段提取（通常来自上一批 result 的高频层）
+List&lt;ExclusiveFpRowsProcessingApi.PremergeHint&gt; mutexHints = ...;
+List&lt;ExclusiveFpRowsProcessingApi.PremergeHint&gt; singleHints = ...;
+
+ExclusiveFpRowsProcessingApi.ProcessingOptions hintedOptions =
+    baseOptions
+        .withPremergeMutexGroupHints(mutexHints)
+        .withPremergeSingleTermHints(singleHints)
+        .withHintBoostWeight(8)
+        .withHintValidationMode(ExclusiveFpRowsProcessingApi.HintValidationMode.FILTER_ONLY);
+
+LineFileProcessingResult hinted = ExclusiveFpRowsProcessingApi.processRows(mergedRows, hintedOptions);</code></pre>
+      <ul>
+        <li>优先使用 mutex hints，single hints 作为补充。</li>
+        <li>如果 single hints 导致回退，先降权/限流再评估。</li>
+      </ul>
+    </section>
+
+    <section id="ex4" class="card">
+      <h2>5) 示例 4：采样 + 提示 + 效果统计</h2>
+      <p>这是你最关心的“算完就看效果”。</p>
+<pre><code>LineFileProcessingResult result = ExclusiveFpRowsProcessingApi.processRows(rows, options);
+LineFileProcessingResult.ProcessingStats s = result.getProcessingStats();
+
+System.out.println("candidateCount=" + s.getCandidateCount());
+System.out.println("selectedGroups=" + s.getSelectedGroupCount());
+System.out.println("selectedGroupTotalEstimatedSaving=" + s.getSelectedGroupTotalEstimatedSaving());
+System.out.println("selectedGroupLowSavingPercent=" + s.getSelectedGroupLowSavingPercent());
+
+// 预先提示词效果统计（新增）
+System.out.println("premergeHintInputCount=" + s.getPremergeHintInputCount());
+System.out.println("mappedHintCandidateCount=" + s.getMappedHintCandidateCount());
+System.out.println("mergedDistinctCandidateCount=" + s.getMergedDistinctCandidateCount());
+System.out.println("hintMergeMs=" + s.getHintMergeMs());
+System.out.println("totalPipelineMs=" + s.getTotalPipelineMs());
+System.out.println("hintMergeMsPercent=" + s.getHintMergeMsPercent());</code></pre>
+      <p class="ok">建议上线判据：不仅看组数量，还要看 <code>AvgSavingPerGroup</code> 和 <code>LowSavingGroupPercent</code>。</p>
+    </section>
+
+    <section id="prod" class="card">
+      <h2>6) 生产落地建议与排障清单</h2>
+      <div class="grid">
+        <div class="panel">
+          <h3>上线前</h3>
+          <ul>
+            <li>先跑 baseline 与 hinted A/B</li>
+            <li>记录 hint 构建成本与收益成本比</li>
+            <li>配置好回滚开关（可直接关 hints）</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>回退判据</h3>
+          <ul>
+            <li><code>hintMergeMsPercent</code> 持续升高</li>
+            <li><code>selectedGroupLowSavingPercent</code> 过高</li>
+            <li>整体耗时回退但收益不增</li>
+          </ul>
+        </div>
+      </div>
+      <h3>推荐流程</h3>
+      <ol>
+        <li>先启用 mutex hints。</li>
+        <li>再小流量打开 single hints。</li>
+        <li>若回退，先关 single-only，再评估是否关全部 hints。</li>
+      </ol>
+      <div class="foot">
+        相关文档：<code>docs/premerge-hint-contract.md</code> ·
+        示例代码：<code>demo/PremergeHintUsageExample.java</code>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

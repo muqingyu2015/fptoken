@@ -33,6 +33,11 @@ public final class BinarySlidingWindowApi {
      * - 若 {@code length == 0}，返回空列表；
      * - 尾部不足一个完整窗口时，仍保留最后一个“短窗口”；
      * - 输出顺序严格按偏移从小到大。
+     *
+     * <p><b>前置条件</b>：
+     * {@code source != null}、{@code offset >= 0}、{@code length >= 0}、
+     * {@code windowSize > 0}、{@code stepSize > 0}，并且
+     * {@code offset + length <= source.length}。</p>
      */
     public static List<WindowTerm> slidingWindows(
             byte[] source,
@@ -67,7 +72,12 @@ public final class BinarySlidingWindowApi {
         return out;
     }
 
-    /** TermVector：32B 一段，无重叠。 */
+    /**
+     * TermVector：32B 一段，无重叠。
+     *
+     * <p><b>前置条件</b>：{@code source != null}、{@code offset >= 0}、
+     * {@code length >= 0}、{@code offset + length <= source.length}。</p>
+     */
     public static List<WindowTerm> termVectors32(
             byte[] source,
             int offset,
@@ -76,7 +86,12 @@ public final class BinarySlidingWindowApi {
         return slidingWindows(source, offset, length, TERM_VECTOR_WINDOW_SIZE, TERM_VECTOR_STEP_SIZE);
     }
 
-    /** BitSet 逻辑窗口：64B 窗口，步长 32B（交叉）。 */
+    /**
+     * BitSet 逻辑窗口：64B 窗口，步长 32B（交叉）。
+     *
+     * <p><b>前置条件</b>：{@code source != null}、{@code offset >= 0}、
+     * {@code length >= 0}、{@code offset + length <= source.length}。</p>
+     */
     public static List<WindowTerm> bitsetWindows64Step32(
             byte[] source,
             int offset,
@@ -120,30 +135,4 @@ public final class BinarySlidingWindowApi {
         return Math.max(1, estimated);
     }
 
-    /**
-     * 滑窗结果：包含窗口字节和其在原始输入中的范围信息。
-     */
-    public static final class WindowTerm {
-        private final byte[] windowBytes;
-        private final ByteRef sourceRef;
-
-        public WindowTerm(byte[] windowBytes, ByteRef sourceRef) {
-            if (windowBytes == null) {
-                throw new IllegalArgumentException("windowBytes must not be null");
-            }
-            if (sourceRef == null) {
-                throw new IllegalArgumentException("sourceRef must not be null");
-            }
-            this.windowBytes = Arrays.copyOf(windowBytes, windowBytes.length);
-            this.sourceRef = sourceRef;
-        }
-
-        public byte[] getWindowBytes() {
-            return Arrays.copyOf(windowBytes, windowBytes.length);
-        }
-
-        public ByteRef getSourceRef() {
-            return sourceRef;
-        }
-    }
 }

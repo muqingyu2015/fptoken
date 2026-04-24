@@ -12,11 +12,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 /**
  * Legacy root benchmarks emphasized "sampling keeps high-frequency quality".
  * This integration test codifies that expectation into stable assertions.
  */
+@ResourceLock(value = "ExclusiveFrequentItemsetSelector.runtimeTuning", mode = ResourceAccessMode.READ_WRITE)
 class SamplingVsFullQualityIntegrationTest {
 
     @Test

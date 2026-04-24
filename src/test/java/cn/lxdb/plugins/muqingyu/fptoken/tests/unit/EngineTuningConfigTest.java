@@ -40,7 +40,7 @@ class EngineTuningConfigTest {
         assertTrue(EngineTuningConfig.MINER_FALLBACK_BEAM_WIDTH > 0);
         assertTrue(EngineTuningConfig.BEAM_WIDTH_DIVISOR_1 >= 1);
         assertTrue(EngineTuningConfig.BEAM_WIDTH_DIVISOR_2 >= EngineTuningConfig.BEAM_WIDTH_DIVISOR_1);
-        assertTrue(EngineTuningConfig.BITS_PER_WORD == 64);
+        assertEquals(64, EngineTuningConfig.BITS_PER_WORD);
         assertTrue(EngineTuningConfig.MIN_BITSET_CAPACITY > 0);
         assertTrue(EngineTuningConfig.TIMEOUT_CHECK_INTERVAL > 0);
         assertTrue(EngineTuningConfig.MAX_INITIAL_CANDIDATE_CAPACITY > 0);

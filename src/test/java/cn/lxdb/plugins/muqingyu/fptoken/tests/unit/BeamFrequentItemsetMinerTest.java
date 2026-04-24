@@ -9,12 +9,14 @@ import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.SelectorConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.miner.BeamFrequentItemsetMiner;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.CandidateItemset;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.FrequentItemsetMiningResult;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.lang.reflect.Method;
 import org.junit.jupiter.api.Test;
 
 class BeamFrequentItemsetMinerTest {
@@ -174,6 +176,33 @@ class BeamFrequentItemsetMinerTest {
             }
         }
         assertTrue(ok, () -> "expected 3-itemset {0,1,2} support 3: " + r.getCandidates());
+    }
+
+    @Test
+    void minItemsetSizeGreaterThan2_shouldSkipShortCandidatesAndFindTriplet() {
+        List<BitSet> tid = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            BitSet b = new BitSet();
+            b.set(0);
+            b.set(1);
+            b.set(2);
+            tid.add(b);
+        }
+        BeamFrequentItemsetMiner miner = new BeamFrequentItemsetMiner();
+        SelectorConfig cfg = new SelectorConfig(3, 3, 4, 5000);
+        FrequentItemsetMiningResult r = miner.mineWithStats(tid, cfg, 0, 16, 32);
+
+        boolean hasTriplet = false;
+        for (CandidateItemset c : r.getCandidates()) {
+            assertTrue(c.length() >= 3, () -> "unexpected short candidate when minItemsetSize=3: " + c);
+            if (c.length() == 3 && c.getSupport() == 3) {
+                int[] ids = c.getTermIds();
+                if (ids[0] == 0 && ids[1] == 1 && ids[2] == 2) {
+                    hasTriplet = true;
+                }
+            }
+        }
+        assertTrue(hasTriplet);
     }
 
     @Test
@@ -483,6 +512,160 @@ class BeamFrequentItemsetMinerTest {
             }
         }
         assertTrue(hasPair, () -> "constant scorer should still discover {0,1} pair: " + r.getCandidates());
+    }
+
+    @Test
+    void longValueBiasedScore_shouldNotBePrunedTooEarlyByBeamFrontier() {
+        List<BitSet> tid = new ArrayList<>();
+        BitSet t0 = new BitSet();
+        t0.set(0);
+        t0.set(1);
+        t0.set(2);
+        t0.set(3);
+        BitSet t1 = new BitSet();
+        t1.set(0);
+        t1.set(1);
+        t1.set(2);
+        BitSet t2 = new BitSet();
+        t2.set(0);
+        t2.set(1);
+        t2.set(2);
+        BitSet t3 = new BitSet();
+        t3.set(0);
+        t3.set(1);
+        t3.set(2);
+        BitSet distractor = new BitSet();
+        for (int d = 0; d < 20; d++) {
+            distractor.set(100 + d);
+        }
+        tid.add(t0);
+        tid.add(t1);
+        tid.add(t2);
+        tid.add(t3);
+        tid.add(distractor);
+
+        BeamFrequentItemsetMiner lengthBiasedMiner =
+                new BeamFrequentItemsetMiner((len, sup) -> len * 10_000 + sup);
+        SelectorConfig cfg = new SelectorConfig(3, 2, 4, 10_000);
+        FrequentItemsetMiningResult r = lengthBiasedMiner.mineWithStats(tid, cfg, 0, 8, 1);
+
+        boolean hasLong = false;
+        for (CandidateItemset c : r.getCandidates()) {
+            if (c.length() == 4 && c.getSupport() == 3) {
+                int[] ids = c.getTermIds();
+                if (ids[0] == 0 && ids[1] == 1 && ids[2] == 2 && ids[3] == 3) {
+                    hasLong = true;
+                    break;
+                }
+            }
+        }
+        assertTrue(hasLong, () -> "expected long high-value itemset {0,1,2,3}: " + r.getCandidates());
+    }
+
+    @Test
+    void suffixMaxSupportBound_shouldBeComputedForEarlySupersetPruning() throws Exception {
+        BeamFrequentItemsetMiner miner = new BeamFrequentItemsetMiner();
+        Method method = BeamFrequentItemsetMiner.class.getDeclaredMethod(
+                "buildSuffixMaxSupportByPos",
+                int[].class,
+                int[].class
+        );
+        method.setAccessible(true);
+
+        int[] frequentTermIds = new int[] {2, 5, 7};
+        int[] supportsByTermId = new int[10];
+        supportsByTermId[2] = 6;
+        supportsByTermId[5] = 4;
+        supportsByTermId[7] = 9;
+
+        int[] suffixMax = (int[]) method.invoke(miner, frequentTermIds, supportsByTermId);
+        assertEquals(9, suffixMax[0]);
+        assertEquals(9, suffixMax[1]);
+        assertEquals(9, suffixMax[2]);
+        assertEquals(0, suffixMax[3]);
+    }
+
+    @Test
+    void softTidsetCache_shouldReduceRepeatedIntersectionWorkAcrossRuns() {
+        List<BitSet> tid = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            BitSet b = new BitSet();
+            for (int d = 0; d < 20; d++) {
+                b.set(d);
+            }
+            tid.add(b);
+        }
+        BeamFrequentItemsetMiner miner = new BeamFrequentItemsetMiner();
+        SelectorConfig cfg = new SelectorConfig(8, 2, 5, 20_000);
+        String prop = "fptoken.miner.reuseTidsetCacheAcrossCalls";
+        String old = System.getProperty(prop);
+        try {
+            System.setProperty(prop, "true");
+            FrequentItemsetMiningResult first = miner.mineWithStats(tid, cfg, 0, 32, 64);
+            FrequentItemsetMiningResult second = miner.mineWithStats(tid, cfg, 0, 32, 64);
+            assertTrue(second.getIntersectionCount() <= first.getIntersectionCount());
+        } finally {
+            restoreSystemProperty(prop, old);
+        }
+    }
+
+    @Test
+    void scratchBitSetCapacity_shouldGrowAndShrinkWithExpectedScale() throws Exception {
+        BeamFrequentItemsetMiner miner = new BeamFrequentItemsetMiner();
+        Method getScratch = BeamFrequentItemsetMiner.class.getDeclaredMethod("getScratchBitSet", int.class);
+        getScratch.setAccessible(true);
+
+        getScratch.invoke(miner, 8192);
+        int expanded = readScratchCapacityBits(miner);
+        assertTrue(expanded >= 8192);
+
+        getScratch.invoke(miner, EngineTuningConfig.MIN_BITSET_CAPACITY);
+        int shrunk = readScratchCapacityBits(miner);
+        assertTrue(shrunk < expanded);
+        assertTrue(shrunk >= EngineTuningConfig.MIN_BITSET_CAPACITY);
+    }
+
+    @Test
+    void compactPathStack_shouldMaterializePrefixAndAppendTerm() throws Exception {
+        BeamFrequentItemsetMiner miner = new BeamFrequentItemsetMiner();
+        Class<?> prefixClass = Class.forName(
+                "cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.miner.BeamFrequentItemsetMiner$PrefixState"
+        );
+        java.lang.reflect.Constructor<?> ctor = prefixClass.getDeclaredConstructors()[0];
+        ctor.setAccessible(true);
+
+        BitSet b = new BitSet();
+        b.set(0);
+        Object p0 = ctor.newInstance(null, 3, (BitSet) b.clone(), 0, 1, 1, 1, 1);
+        Object p1 = ctor.newInstance(p0, 5, (BitSet) b.clone(), 1, 2, 1, 1, 1);
+
+        Method append = BeamFrequentItemsetMiner.class.getDeclaredMethod("appendTermId", prefixClass, int.class);
+        append.setAccessible(true);
+        int[] out = (int[]) append.invoke(miner, p1, 8);
+        assertEquals(3, out.length);
+        assertEquals(3, out[0]);
+        assertEquals(5, out[1]);
+        assertEquals(8, out[2]);
+    }
+
+    private static void restoreSystemProperty(String key, String oldValue) {
+        if (oldValue == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, oldValue);
+        }
+    }
+
+    private static int readScratchCapacityBits(BeamFrequentItemsetMiner miner) throws Exception {
+        java.lang.reflect.Field threadLocalField =
+                BeamFrequentItemsetMiner.class.getDeclaredField("threadLocalScratch");
+        threadLocalField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        ThreadLocal<Object> local = (ThreadLocal<Object>) threadLocalField.get(miner);
+        Object holder = local.get();
+        java.lang.reflect.Field capField = holder.getClass().getDeclaredField("capacityBits");
+        capField.setAccessible(true);
+        return ((Integer) capField.get(holder)).intValue();
     }
 
     private static BitSet bitsetFromDocIds(int... docIds) {

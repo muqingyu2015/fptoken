@@ -37,8 +37,11 @@
 | [test-factor-coverage-matrix.md](test-factor-coverage-matrix.md) | 因子覆盖矩阵 |
 | [method-coverage-checklist.md](method-coverage-checklist.md) | 方法覆盖清单 |
 | [premerge-hint-performance-report.html](premerge-hint-performance-report.html) | Pre-merge hint 性能说明 |
+| [premerge-hint-contract.md](premerge-hint-contract.md) | Pre-merge hint 调用契约（何时传、字段要求、回退责任） |
 | [performance-benchmark-report.md](performance-benchmark-report.md) | 性能基准记录 |
+| [service-level-objectives.md](service-level-objectives.md) | 服务等级指标（SLI/SLO）与架构决策量化门槛 |
 | [jmh-benchmark-usage.md](jmh-benchmark-usage.md) | JMH 使用说明（模板） |
+| [technical-debt-register.md](technical-debt-register.md) | 技术债务清单（工时与影响范围） |
 
 ## 协作草稿（多角色汇总）
 

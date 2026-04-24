@@ -2,6 +2,7 @@ package cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.picker;
 
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.CandidateItemset;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.protocol.ModuleDataContracts;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashSet;
@@ -26,6 +27,61 @@ import java.util.Set;
  * @author muqingyu
  */
 public final class TwoPhaseExclusiveItemsetPicker {
+    private static final String PROP_SCORE_LENGTH_WEIGHT = "fptoken.picker.score.lengthWeight";
+    private static final String PROP_SCORE_SUPPORT_WEIGHT = "fptoken.picker.score.supportWeight";
+    private static final String PROP_SCORE_BUSINESS_VALUE_WEIGHT = "fptoken.picker.score.businessValueWeight";
+    private static final String PROP_SCORE_COST_WEIGHT = "fptoken.picker.score.costWeight";
+    private static final String PROP_SCORE_PRIORITY_BOOST_WEIGHT = "fptoken.picker.score.priorityBoostWeight";
+    private static final String PROP_SCORE_COVERAGE_WEIGHT = "fptoken.picker.score.coverageWeight";
+    private static final String ENV_SCORE_LENGTH_WEIGHT = "FPTOKEN_PICKER_SCORE_LENGTH_WEIGHT";
+    private static final String ENV_SCORE_SUPPORT_WEIGHT = "FPTOKEN_PICKER_SCORE_SUPPORT_WEIGHT";
+    private static final String ENV_SCORE_BUSINESS_VALUE_WEIGHT = "FPTOKEN_PICKER_SCORE_BUSINESS_VALUE_WEIGHT";
+    private static final String ENV_SCORE_COST_WEIGHT = "FPTOKEN_PICKER_SCORE_COST_WEIGHT";
+    private static final String ENV_SCORE_PRIORITY_BOOST_WEIGHT = "FPTOKEN_PICKER_SCORE_PRIORITY_BOOST_WEIGHT";
+    private static final String ENV_SCORE_COVERAGE_WEIGHT = "FPTOKEN_PICKER_SCORE_COVERAGE_WEIGHT";
+    private static volatile ScoringWeights runtimeScoringWeights = ScoringWeights.defaults();
+
+    public static ScoringWeights getRuntimeScoringWeights() {
+        return runtimeScoringWeights;
+    }
+
+    public static void setRuntimeScoringWeights(ScoringWeights scoringWeights) {
+        if (scoringWeights == null) {
+            throw new IllegalArgumentException("scoringWeights must not be null");
+        }
+        runtimeScoringWeights = scoringWeights;
+    }
+
+    public static synchronized void reloadRuntimeScoringWeights() {
+        runtimeScoringWeights = loadScoringWeightsFromExternal(runtimeScoringWeights);
+    }
+
+    public static void resetRuntimeScoringWeightsToDefaults() {
+        runtimeScoringWeights = ScoringWeights.defaults();
+    }
+
+    /**
+     * 模块协议入口：消费 miner 输出协议（候选 + 词典大小）。
+     */
+    public List<CandidateItemset> pick(
+            ModuleDataContracts.PickerInput input,
+            int maxSwapTrials,
+            int minNetGain,
+            int estimatedBytesPerTerm,
+            int coverageRewardPerTerm
+    ) {
+        if (input == null) {
+            throw new IllegalArgumentException("input must not be null");
+        }
+        return pick(
+                input.getCandidates(),
+                input.getDictionarySize(),
+                maxSwapTrials,
+                minNetGain,
+                estimatedBytesPerTerm,
+                coverageRewardPerTerm
+        );
+    }
 
     /**
      * @param candidates 候选项（通常与挖掘输出顺序一致；影响第二阶段扫描次序）
@@ -89,6 +145,26 @@ public final class TwoPhaseExclusiveItemsetPicker {
             int estimatedBytesPerTerm,
             int coverageRewardPerTerm
     ) {
+        return pick(
+                candidates,
+                dictionarySize,
+                maxSwapTrials,
+                minNetGain,
+                estimatedBytesPerTerm,
+                coverageRewardPerTerm,
+                runtimeScoringWeights
+        );
+    }
+
+    public List<CandidateItemset> pick(
+            List<CandidateItemset> candidates,
+            int dictionarySize,
+            int maxSwapTrials,
+            int minNetGain,
+            int estimatedBytesPerTerm,
+            int coverageRewardPerTerm,
+            ScoringWeights scoringWeights
+    ) {
         if (candidates == null) {
             throw new IllegalArgumentException("candidates must not be null");
         }
@@ -107,6 +183,9 @@ public final class TwoPhaseExclusiveItemsetPicker {
         if (coverageRewardPerTerm < 0) {
             throw new IllegalArgumentException("coverageRewardPerTerm must be >= 0");
         }
+        if (scoringWeights == null) {
+            throw new IllegalArgumentException("scoringWeights must not be null");
+        }
         validateCandidates(candidates);
 
         int bitsetSize = effectiveBitsetSize(candidates, dictionarySize);
@@ -117,7 +196,13 @@ public final class TwoPhaseExclusiveItemsetPicker {
         }
 
         GreedyExclusiveItemsetPicker greedy = new GreedyExclusiveItemsetPicker();
-        List<CandidateItemset> selected = new ArrayList<>(greedy.pick(filteredCandidates, dictionarySize));
+        List<CandidateItemset> selected = new ArrayList<>(greedy.pick(
+                filteredCandidates,
+                dictionarySize,
+                estimatedBytesPerTerm,
+                coverageRewardPerTerm,
+                scoringWeights
+        ));
         if (selected.isEmpty() || maxSwapTrials <= 0) {
             return selected;
         }
@@ -125,11 +210,16 @@ public final class TwoPhaseExclusiveItemsetPicker {
         // 预计算分数，避免在双层循环中重复 objective()。
         long[] selectedScores = new long[selected.size()];
         for (int i = 0; i < selected.size(); i++) {
-            selectedScores[i] = objective(selected.get(i), estimatedBytesPerTerm, coverageRewardPerTerm);
+            selectedScores[i] = objective(selected.get(i), estimatedBytesPerTerm, coverageRewardPerTerm, scoringWeights);
         }
         long[] challengerScores = new long[filteredCandidates.size()];
         for (int i = 0; i < filteredCandidates.size(); i++) {
-            challengerScores[i] = objective(filteredCandidates.get(i), estimatedBytesPerTerm, coverageRewardPerTerm);
+            challengerScores[i] = objective(
+                    filteredCandidates.get(i),
+                    estimatedBytesPerTerm,
+                    coverageRewardPerTerm,
+                    scoringWeights
+            );
         }
         Set<CandidateItemset> selectedSet = new HashSet<>(selected);
 
@@ -266,18 +356,121 @@ public final class TwoPhaseExclusiveItemsetPicker {
      * 替换阶段使用的标量目标（越大越好）。主项为 {@link CandidateItemset#getEstimatedSaving()}，
      * 其次 {@link CandidateItemset#getSupport()}，再次项集长度；系数拉开量级避免比较歧义。
      */
-    private long objective(CandidateItemset c, int estimatedBytesPerTerm, int coverageRewardPerTerm) {
-        long coverageBonus = ((long) coverageRewardPerTerm) * ((long) c.length()) * 1000L;
-        long priorityBonus = ((long) c.getPriorityBoost()) * 1000L;
-        return ((long) netGain(c, estimatedBytesPerTerm)) * 1000000L
-                + ((long) c.getSupport()) * 1000L
-                + coverageBonus
-                + priorityBonus
-                + (long) c.length();
+    private long objective(
+            CandidateItemset c,
+            int estimatedBytesPerTerm,
+            int coverageRewardPerTerm,
+            ScoringWeights scoringWeights
+    ) {
+        long len = c.length();
+        long support = c.getSupport();
+        long businessValue = c.getEstimatedSaving();
+        long cost = len * (long) estimatedBytesPerTerm;
+        long priorityBoost = c.getPriorityBoost();
+        long coverage = ((long) coverageRewardPerTerm) * len;
+        return businessValue * scoringWeights.businessValueWeight
+                - cost * scoringWeights.costWeight
+                + support * scoringWeights.supportWeight
+                + len * scoringWeights.lengthWeight
+                + priorityBoost * scoringWeights.priorityBoostWeight
+                + coverage * scoringWeights.coverageWeight;
     }
 
     private static int netGain(CandidateItemset c, int estimatedBytesPerTerm) {
         int dictionaryCost = c.length() * estimatedBytesPerTerm;
         return c.getEstimatedSaving() - dictionaryCost;
+    }
+
+    private static ScoringWeights loadScoringWeightsFromExternal(ScoringWeights base) {
+        long lengthWeight = readLongExternal(PROP_SCORE_LENGTH_WEIGHT, ENV_SCORE_LENGTH_WEIGHT, base.lengthWeight);
+        long supportWeight = readLongExternal(PROP_SCORE_SUPPORT_WEIGHT, ENV_SCORE_SUPPORT_WEIGHT, base.supportWeight);
+        long businessValueWeight = readLongExternal(
+                PROP_SCORE_BUSINESS_VALUE_WEIGHT,
+                ENV_SCORE_BUSINESS_VALUE_WEIGHT,
+                base.businessValueWeight
+        );
+        long costWeight = readLongExternal(PROP_SCORE_COST_WEIGHT, ENV_SCORE_COST_WEIGHT, base.costWeight);
+        long priorityBoostWeight = readLongExternal(
+                PROP_SCORE_PRIORITY_BOOST_WEIGHT,
+                ENV_SCORE_PRIORITY_BOOST_WEIGHT,
+                base.priorityBoostWeight
+        );
+        long coverageWeight = readLongExternal(PROP_SCORE_COVERAGE_WEIGHT, ENV_SCORE_COVERAGE_WEIGHT, base.coverageWeight);
+        return new ScoringWeights(
+                lengthWeight,
+                supportWeight,
+                businessValueWeight,
+                costWeight,
+                priorityBoostWeight,
+                coverageWeight
+        );
+    }
+
+    private static long readLongExternal(String propKey, String envKey, long fallback) {
+        String raw = System.getProperty(propKey);
+        if (raw == null || raw.trim().isEmpty()) {
+            raw = System.getenv(envKey);
+        }
+        if (raw == null || raw.trim().isEmpty()) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException ignore) {
+            return fallback;
+        }
+    }
+
+    public static final class ScoringWeights {
+        private final long lengthWeight;
+        private final long supportWeight;
+        private final long businessValueWeight;
+        private final long costWeight;
+        private final long priorityBoostWeight;
+        private final long coverageWeight;
+
+        public ScoringWeights(
+                long lengthWeight,
+                long supportWeight,
+                long businessValueWeight,
+                long costWeight,
+                long priorityBoostWeight,
+                long coverageWeight
+        ) {
+            this.lengthWeight = lengthWeight;
+            this.supportWeight = supportWeight;
+            this.businessValueWeight = businessValueWeight;
+            this.costWeight = costWeight;
+            this.priorityBoostWeight = priorityBoostWeight;
+            this.coverageWeight = coverageWeight;
+        }
+
+        public static ScoringWeights defaults() {
+            return new ScoringWeights(1L, 1000L, 1_000_000L, 1_000_000L, 1000L, 1000L);
+        }
+
+        public long getLengthWeight() {
+            return lengthWeight;
+        }
+
+        public long getSupportWeight() {
+            return supportWeight;
+        }
+
+        public long getBusinessValueWeight() {
+            return businessValueWeight;
+        }
+
+        public long getCostWeight() {
+            return costWeight;
+        }
+
+        public long getPriorityBoostWeight() {
+            return priorityBoostWeight;
+        }
+
+        public long getCoverageWeight() {
+            return coverageWeight;
+        }
     }
 }

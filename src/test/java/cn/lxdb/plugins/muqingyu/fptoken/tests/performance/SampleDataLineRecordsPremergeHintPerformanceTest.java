@@ -66,6 +66,12 @@ class SampleDataLineRecordsPremergeHintPerformanceTest {
         runFourWayHintVariantBenchmark(SampleDataPremergeHintTestSupport.LINE_RECORDS_002, 800);
     }
 
+    @Test
+    @Timeout(value = 240, unit = TimeUnit.SECONDS)
+    void records002_samplingAndHints_combinedEffectBenchmark() throws Exception {
+        runSamplingHintInteractionBenchmark(SampleDataPremergeHintTestSupport.LINE_RECORDS_002, 800);
+    }
+
     private static void runRawMergePerf(Path sampleFile, int minRows) throws Exception {
         Assumptions.assumeTrue(Files.isRegularFile(sampleFile), () -> "missing: " + sampleFile);
 
@@ -83,8 +89,9 @@ class SampleDataLineRecordsPremergeHintPerformanceTest {
         ExclusiveFpRowsProcessingApi.ProcessingOptions baseOptions =
                 SampleDataPremergeHintTestSupport.mergeScenarioBaseOptions();
 
-        HintsFromSegments hints = SampleDataPremergeHintTestSupport.buildHintsFromSegments(
+        TimedHintBuild timedHints = timedBuildHints(
                 baseOptions, split.segA, split.segB, split.segC, true, true);
+        HintsFromSegments hints = timedHints.hints;
         List<ExclusiveFpRowsProcessingApi.PremergeHint> coverageHints = new ArrayList<>();
         coverageHints.addAll(hints.mutexGroupHints);
         coverageHints.addAll(hints.singleTermHints);
@@ -106,6 +113,10 @@ class SampleDataLineRecordsPremergeHintPerformanceTest {
         double improvementPercent = baseline.medianMs <= 0L
                 ? 0.0d
                 : ((baseline.medianMs - hinted.medianMs) * 100.0d) / baseline.medianMs;
+        long mergeSavedMs = Math.max(0L, baseline.medianMs - hinted.medianMs);
+        double benefitCostRatio = timedHints.hintBuildMs <= 0L
+                ? (mergeSavedMs > 0L ? Double.POSITIVE_INFINITY : 0.0d)
+                : (mergeSavedMs / (double) timedHints.hintBuildMs);
 
         System.out.println(
                 "[sample-data premerge-hint] file=" + sampleFile
@@ -115,13 +126,22 @@ class SampleDataLineRecordsPremergeHintPerformanceTest {
                         + ", mergedDocs=" + split.merged.size()
                         + ", mutexHints=" + hints.mutexGroupHints.size()
                         + ", singleHints=" + hints.singleTermHints.size()
+                        + ", hintBuildMs=" + timedHints.hintBuildMs
                         + ", baselineMedianMs=" + baseline.medianMs
                         + ", hintedMedianMs=" + hinted.medianMs
                         + ", improvementPercent=" + improvementPercent
+                        + ", mergeSavedMs=" + mergeSavedMs
+                        + ", benefitCostRatio=" + benefitCostRatio
                         + ", baselineCandidates=" + baseline.candidateCount
                         + ", hintedCandidates=" + hinted.candidateCount
                         + ", baselineGroups=" + baseline.groupCount
                         + ", hintedGroups=" + hinted.groupCount
+                        + ", baselineSavingTotal=" + baseline.totalEstimatedSaving
+                        + ", hintedSavingTotal=" + hinted.totalEstimatedSaving
+                        + ", baselineAvgSavingPerGroup=" + baseline.avgEstimatedSaving
+                        + ", hintedAvgSavingPerGroup=" + hinted.avgEstimatedSaving
+                        + ", baselineLowSavingGroupPercent=" + baseline.lowSavingPercent
+                        + ", hintedLowSavingGroupPercent=" + hinted.lowSavingPercent
                         + ", hintCoveragePercent=" + hintCoverage
         );
 
@@ -148,8 +168,8 @@ class SampleDataLineRecordsPremergeHintPerformanceTest {
 
         ExclusiveFpRowsProcessingApi.ProcessingOptions base =
                 SampleDataPremergeHintTestSupport.mergeScenarioBaseOptions();
-        HintsFromSegments fullHints = SampleDataPremergeHintTestSupport.buildHintsFromSegments(
-                base, split.segA, split.segB, split.segC, true, true);
+        TimedHintBuild timedFullHints = timedBuildHints(base, split.segA, split.segB, split.segC, true, true);
+        HintsFromSegments fullHints = timedFullHints.hints;
 
         Assumptions.assumeFalse(fullHints.mutexGroupHints.isEmpty(), "need non-empty mutex hints for 4-way benchmark");
         Assumptions.assumeFalse(fullHints.singleTermHints.isEmpty(), "need non-empty single-term hints for 4-way benchmark");
@@ -193,6 +213,7 @@ class SampleDataLineRecordsPremergeHintPerformanceTest {
                         + ", mergedDocs=" + split.merged.size()
                         + ", mutexHintCount=" + fullHints.mutexGroupHints.size()
                         + ", singleHintCount=" + fullHints.singleTermHints.size()
+                        + ", hintBuildMs=" + timedFullHints.hintBuildMs
                         + ", hintBoostWeight=" + boost
         );
         System.out.println(
@@ -213,6 +234,24 @@ class SampleDataLineRecordsPremergeHintPerformanceTest {
                         + ", mutexOnly=" + mutexM.candidateCount
                         + ", singleOnly=" + singleM.candidateCount
                         + ", both=" + bothM.candidateCount
+        );
+        System.out.println(
+                "[sample-data premerge-hint 4way] savingTotal: baseline=" + baseline.totalEstimatedSaving
+                        + ", mutexOnly=" + mutexM.totalEstimatedSaving
+                        + ", singleOnly=" + singleM.totalEstimatedSaving
+                        + ", both=" + bothM.totalEstimatedSaving
+        );
+        System.out.println(
+                "[sample-data premerge-hint 4way] avgSavingPerGroup: baseline=" + baseline.avgEstimatedSaving
+                        + ", mutexOnly=" + mutexM.avgEstimatedSaving
+                        + ", singleOnly=" + singleM.avgEstimatedSaving
+                        + ", both=" + bothM.avgEstimatedSaving
+        );
+        System.out.println(
+                "[sample-data premerge-hint 4way] lowSavingGroupPercent: baseline=" + baseline.lowSavingPercent
+                        + ", mutexOnly=" + mutexM.lowSavingPercent
+                        + ", singleOnly=" + singleM.lowSavingPercent
+                        + ", both=" + bothM.lowSavingPercent
         );
         System.out.println(
                 "[sample-data premerge-hint 4way] hintCoverageOnMergeTokenized%: all=" + coverageAll
@@ -237,6 +276,88 @@ class SampleDataLineRecordsPremergeHintPerformanceTest {
         return String.format(Locale.ROOT, "%.2f", pct);
     }
 
+    /**
+     * 评估 sampling 与 premerge hints 同时启用时的组合效果：
+     * full(no-sampling/no-hint) vs sampled(no-hint) vs sampled(with-hints)。
+     */
+    private static void runSamplingHintInteractionBenchmark(Path sampleFile, int minRows) throws Exception {
+        Assumptions.assumeTrue(Files.isRegularFile(sampleFile), () -> "missing: " + sampleFile);
+        LineRecordDatasetLoader.LoadOutcome outcome =
+                LineRecordDatasetLoader.loadSingleFileRawWithStats(sampleFile);
+        List<DocTerms> allRows = outcome.getLoadedDataset().getRows();
+        Assumptions.assumeTrue(allRows.size() >= minRows, () -> "too few rows: " + allRows.size());
+
+        FiveWaySplit split = SampleDataPremergeHintTestSupport.splitFiveWay(allRows);
+        int warmupRuns = PerfTestSupport.intProp("fptoken.perf.sampleData.warmupRuns", 1);
+        int measuredRuns = PerfTestSupport.intProp("fptoken.perf.sampleData.measuredRuns", 3);
+        double sampledRatio = Double.parseDouble(System.getProperty("fptoken.perf.sampleData.sampledRatio", "0.35"));
+
+        ExclusiveFpRowsProcessingApi.ProcessingOptions fullOptions = SampleDataPremergeHintTestSupport.mergeScenarioBaseOptions()
+                .withSampleRatio(1.0d)
+                .withSamplingSupportScale(1.0d)
+                .withHintBoostWeight(0);
+        ExclusiveFpRowsProcessingApi.ProcessingOptions sampledNoHint = fullOptions
+                .withSampleRatio(sampledRatio)
+                .withSamplingSupportScale(0.0d)
+                .withHintBoostWeight(0);
+
+        TimedHintBuild timedHints = timedBuildHints(
+                sampledNoHint, split.segA, split.segB, split.segC, true, true);
+        HintsFromSegments hints = timedHints.hints;
+        Assumptions.assumeFalse(
+                hints.mutexGroupHints.isEmpty() && hints.singleTermHints.isEmpty(),
+                "need non-empty hints to evaluate sampled+hint interaction");
+        ExclusiveFpRowsProcessingApi.ProcessingOptions sampledWithHints = sampledNoHint
+                .withPremergeMutexGroupHints(hints.mutexGroupHints)
+                .withPremergeSingleTermHints(hints.singleTermHints)
+                .withHintBoostWeight(8)
+                .withHintValidationMode(ExclusiveFpRowsProcessingApi.HintValidationMode.FILTER_ONLY);
+
+        RunMetrics full = measure(split.merged, fullOptions, warmupRuns, measuredRuns);
+        RunMetrics sampled = measure(split.merged, sampledNoHint, warmupRuns, measuredRuns);
+        RunMetrics sampledHint = measure(split.merged, sampledWithHints, warmupRuns, measuredRuns);
+        long sampledMergeSavedMs = Math.max(0L, sampled.medianMs - sampledHint.medianMs);
+        double sampledBenefitCostRatio = timedHints.hintBuildMs <= 0L
+                ? (sampledMergeSavedMs > 0L ? Double.POSITIVE_INFINITY : 0.0d)
+                : (sampledMergeSavedMs / (double) timedHints.hintBuildMs);
+
+        System.out.println(
+                "[sample-data sampling+hint] file=" + sampleFile
+                        + ", totalRows=" + split.totalRows
+                        + ", mergedRows=" + split.merged.size()
+                        + ", sampledRatio=" + sampledRatio
+                        + ", mutexHints=" + hints.mutexGroupHints.size()
+                        + ", singleHints=" + hints.singleTermHints.size()
+                        + ", hintBuildMs=" + timedHints.hintBuildMs
+                        + ", fullMedianMs=" + full.medianMs
+                        + ", sampledMedianMs=" + sampled.medianMs
+                        + ", sampledHintMedianMs=" + sampledHint.medianMs
+                        + ", sampledVsFullImprove%=" + formatImprovePercent(full.medianMs, sampled.medianMs)
+                        + ", sampledHintVsSampledImprove%=" + formatImprovePercent(sampled.medianMs, sampledHint.medianMs)
+                        + ", sampledHintVsFullImprove%=" + formatImprovePercent(full.medianMs, sampledHint.medianMs)
+                        + ", sampledMergeSavedMs=" + sampledMergeSavedMs
+                        + ", sampledBenefitCostRatio=" + sampledBenefitCostRatio
+                        + ", fullCandidates=" + full.candidateCount
+                        + ", sampledCandidates=" + sampled.candidateCount
+                        + ", sampledHintCandidates=" + sampledHint.candidateCount
+                        + ", fullSavingTotal=" + full.totalEstimatedSaving
+                        + ", sampledSavingTotal=" + sampled.totalEstimatedSaving
+                        + ", sampledHintSavingTotal=" + sampledHint.totalEstimatedSaving
+                        + ", fullAvgSavingPerGroup=" + full.avgEstimatedSaving
+                        + ", sampledAvgSavingPerGroup=" + sampled.avgEstimatedSaving
+                        + ", sampledHintAvgSavingPerGroup=" + sampledHint.avgEstimatedSaving
+                        + ", fullLowSavingGroupPercent=" + full.lowSavingPercent
+                        + ", sampledLowSavingGroupPercent=" + sampled.lowSavingPercent
+                        + ", sampledHintLowSavingGroupPercent=" + sampledHint.lowSavingPercent
+        );
+
+        long sampledFloorMs = Math.max(20L, sampled.medianMs);
+        // 该用例重点是观测组合效应，不对 sampled+hint 强制正收益，只拦截灾难性回退。
+        assertTrue(sampledHint.medianMs <= sampledFloorMs * 8.00d,
+                () -> "sampled+hint regressed too much vs sampled, sampled=" + sampled.medianMs
+                        + ", sampledHint=" + sampledHint.medianMs);
+    }
+
     private static RunMetrics measure(
             List<DocTerms> rows,
             ExclusiveFpRowsProcessingApi.ProcessingOptions options,
@@ -254,11 +375,30 @@ class SampleDataLineRecordsPremergeHintPerformanceTest {
             samples.add((System.nanoTime() - t0) / 1_000_000L);
         }
         long medianMs = PerfTestSupport.median(samples);
+        LineFileProcessingResult.ProcessingStats processingStats = last.getProcessingStats();
         return new RunMetrics(
                 medianMs,
                 last.getSelectionResult().getCandidateCount(),
-                last.getFinalIndexData().getHighFreqMutexGroupPostings().size()
+                last.getFinalIndexData().getHighFreqMutexGroupPostings().size(),
+                processingStats.getSelectedGroupTotalEstimatedSaving(),
+                processingStats.getSelectedGroupAverageEstimatedSaving(),
+                processingStats.getSelectedGroupLowSavingPercent()
         );
+    }
+
+    private static TimedHintBuild timedBuildHints(
+            ExclusiveFpRowsProcessingApi.ProcessingOptions options,
+            List<DocTerms> segA,
+            List<DocTerms> segB,
+            List<DocTerms> segC,
+            boolean includeMutexGroupPostings,
+            boolean includeSingleTermPostings
+    ) {
+        long t0 = System.nanoTime();
+        HintsFromSegments hints = SampleDataPremergeHintTestSupport.buildHintsFromSegments(
+                options, segA, segB, segC, includeMutexGroupPostings, includeSingleTermPostings);
+        long elapsedMs = (System.nanoTime() - t0) / 1_000_000L;
+        return new TimedHintBuild(hints, Math.max(0L, elapsedMs));
     }
 
     private static double estimateHintCoverage(
@@ -325,11 +465,34 @@ class SampleDataLineRecordsPremergeHintPerformanceTest {
         private final long medianMs;
         private final int candidateCount;
         private final int groupCount;
+        private final long totalEstimatedSaving;
+        private final double avgEstimatedSaving;
+        private final double lowSavingPercent;
 
-        private RunMetrics(long medianMs, int candidateCount, int groupCount) {
+        private RunMetrics(
+                long medianMs,
+                int candidateCount,
+                int groupCount,
+                long totalEstimatedSaving,
+                double avgEstimatedSaving,
+                double lowSavingPercent
+        ) {
             this.medianMs = medianMs;
             this.candidateCount = candidateCount;
             this.groupCount = groupCount;
+            this.totalEstimatedSaving = totalEstimatedSaving;
+            this.avgEstimatedSaving = avgEstimatedSaving;
+            this.lowSavingPercent = lowSavingPercent;
+        }
+    }
+
+    private static final class TimedHintBuild {
+        private final HintsFromSegments hints;
+        private final long hintBuildMs;
+
+        private TimedHintBuild(HintsFromSegments hints, long hintBuildMs) {
+            this.hints = hints;
+            this.hintBuildMs = hintBuildMs;
         }
     }
 }

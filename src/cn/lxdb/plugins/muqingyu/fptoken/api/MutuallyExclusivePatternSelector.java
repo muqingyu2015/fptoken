@@ -16,7 +16,12 @@ public final class MutuallyExclusivePatternSelector {
     private MutuallyExclusivePatternSelector() {
     }
 
-    /** 仅返回模式列表（使用默认最大模式长度与候选上限）。 */
+    /**
+     * 仅返回模式列表（使用默认最大模式长度与候选上限）。
+     *
+     * <p><b>前置条件</b>：{@code minSupport >= 1}、{@code minItemsetSize >= 1}。
+     * 当 {@code docs == null || docs.isEmpty()} 时返回空结果（与底层选择器保持一致）。</p>
+     */
     public static List<SelectedGroup> select(
             List<DocTerms> docs,
             int minSupport,
@@ -25,7 +30,13 @@ public final class MutuallyExclusivePatternSelector {
         return ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsets(docs, minSupport, minItemsetSize);
     }
 
-    /** 仅返回模式列表（显式指定最大模式长度与候选上限）。 */
+    /**
+     * 仅返回模式列表（显式指定最大模式长度与候选上限）。
+     *
+     * <p><b>前置条件</b>：{@code minSupport >= 1}、{@code minItemsetSize >= 1}、
+     * {@code maxItemsetSize >= minItemsetSize}、{@code maxCandidateCount >= 1}。
+     * 当 {@code docs == null || docs.isEmpty()} 时返回空结果（与底层选择器保持一致）。</p>
+     */
     public static List<SelectedGroup> select(
             List<DocTerms> docs,
             int minSupport,
@@ -37,7 +48,12 @@ public final class MutuallyExclusivePatternSelector {
                 docs, minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount);
     }
 
-    /** 返回模式与统计（使用默认最大模式长度与候选上限）。 */
+    /**
+     * 返回模式与统计（使用默认最大模式长度与候选上限）。
+     *
+     * <p><b>前置条件</b>：{@code minSupport >= 1}、{@code minItemsetSize >= 1}。
+     * 当 {@code docs == null || docs.isEmpty()} 时返回空结果（与底层选择器保持一致）。</p>
+     */
     public static ExclusiveSelectionResult selectWithStats(
             List<DocTerms> docs,
             int minSupport,
@@ -46,7 +62,13 @@ public final class MutuallyExclusivePatternSelector {
         return ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(docs, minSupport, minItemsetSize);
     }
 
-    /** 返回模式与统计。 */
+    /**
+     * 返回模式与统计。
+     *
+     * <p><b>前置条件</b>：{@code minSupport >= 1}、{@code minItemsetSize >= 1}、
+     * {@code maxItemsetSize >= minItemsetSize}、{@code maxCandidateCount >= 1}。
+     * 当 {@code docs == null || docs.isEmpty()} 时返回空结果（与底层选择器保持一致）。</p>
+     */
     public static ExclusiveSelectionResult selectWithStats(
             List<DocTerms> docs,
             int minSupport,

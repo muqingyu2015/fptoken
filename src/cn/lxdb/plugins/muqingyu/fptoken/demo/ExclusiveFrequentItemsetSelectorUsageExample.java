@@ -14,14 +14,15 @@ import java.util.List;
  * 演示 {@link ExclusiveFrequentItemsetSelector} 的典型用法。
  *
  * <p><b>本示例在做什么</b>：
- * 构造若干 {@link DocTerms}（docId + 词），调用 {@link ExclusiveFrequentItemsetSelector#selectExclusiveBestItemsetsWithStats(List, int, int)}，
+ * 构造若干 {@link DocTerms}（docId + 词），调用
+ * {@link ExclusiveFrequentItemsetSelector#selectExclusiveBestItemsetsWithStats(ExclusiveFrequentItemsetSelector.SelectionRequest)}，
  * 打印互斥词组与 {@link ExclusiveSelectionResult} 中的统计字段。
  *
- * <p><b>其他 API</b>：
+ * <p><b>其他 API</b>（兼容入口）：
  * <ul>
  *   <li>只要词组、不要统计：{@link ExclusiveFrequentItemsetSelector#selectExclusiveBestItemsets(List, int, int)} 或
  *       {@link ExclusiveFrequentItemsetSelector#selectExclusiveBestItemsets(List, int, int, int, int)}</li>
- *   <li>需要限制最大项集长度 / 候选上限：使用五参数 {@code selectExclusiveBestItemsets(...)} / {@code selectExclusiveBestItemsetsWithStats(...)}</li>
+ *   <li>需要限制最大项集长度 / 候选上限：建议优先用 {@code SelectionRequest.builder(...)} 明确配置。</li>
  * </ul>
  *
  * <p><b>注意</b>：{@code String#getBytes()} 使用平台默认编码；生产环境若词为固定编码（如 UTF-8），请使用
@@ -57,7 +58,12 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
             List<DocTerms> rows = buildSamplingDemoRows(320);
             ExclusiveSelectionResult result =
                     ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                            rows, 40, 2, 4, 100_000);
+                            ExclusiveFrequentItemsetSelector.SelectionRequest.builder(rows)
+                                    .minSupport(40)
+                                    .minItemsetSize(2)
+                                    .maxItemsetSize(4)
+                                    .maxCandidateCount(100_000)
+                                    .build());
             printResult("示例0：采样参数设置与调用", result.getGroups());
             printStats(result);
         } finally {
@@ -87,7 +93,10 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
 
         ExclusiveSelectionResult result =
                 ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                        input, minSupport, minItemsetSize);
+                        ExclusiveFrequentItemsetSelector.SelectionRequest.builder(input)
+                                .minSupport(minSupport)
+                                .minItemsetSize(minItemsetSize)
+                                .build());
 
         printResult("示例1：基础调用", result.getGroups());
         printStats(result);
@@ -114,7 +123,12 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
 
         ExclusiveSelectionResult result =
                 ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                        rows, minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount);
+                        ExclusiveFrequentItemsetSelector.SelectionRequest.builder(rows)
+                                .minSupport(minSupport)
+                                .minItemsetSize(minItemsetSize)
+                                .maxItemsetSize(maxItemsetSize)
+                                .maxCandidateCount(maxCandidateCount)
+                                .build());
 
         printResultHex("示例2：PCAP滑窗 1/2/3-byte token", result.getGroups());
         printStats(result);
@@ -147,11 +161,25 @@ public final class ExclusiveFrequentItemsetSelectorUsageExample {
     }
 
     private static void printStats(ExclusiveSelectionResult result) {
+        ExclusiveSelectionResult.SelectionDiagnostics d = result.getDiagnostics();
         System.out.println("stats: frequentTermCount=" + result.getFrequentTermCount()
                 + ", candidateCount=" + result.getCandidateCount()
                 + ", intersectionCount=" + result.getIntersectionCount()
                 + ", maxCandidateCount=" + result.getMaxCandidateCount()
                 + ", truncated=" + result.isTruncatedByCandidateLimit());
+        System.out.println("diagnostics: samplingRequested=" + d.isSamplingRequested()
+                + ", sampledExecutionUsed=" + d.isSampledExecutionUsed()
+                + ", targetSampleSize=" + d.getTargetSampleSize()
+                + ", actualSampleSize=" + d.getActualSampleSize()
+                + ", fallbackInput=" + d.isSampledInputBuildFallbackToFull()
+                + ", fallbackMining=" + d.isSampledMiningFallbackToFull()
+                + ", phaseMs={index=" + d.getIndexBuildMs()
+                + ", inputBuild=" + d.getMiningInputBuildMs()
+                + ", mining=" + d.getMiningMs()
+                + ", hintMerge=" + d.getHintMergeMs()
+                + ", recompute=" + d.getRecomputeMs()
+                + ", pick=" + d.getPickMs()
+                + ", total=" + d.getTotalMs() + "}");
     }
 
     private static void printResultHex(String title, List<SelectedGroup> groups) {

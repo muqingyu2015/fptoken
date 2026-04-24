@@ -16,12 +16,7 @@ import java.util.List;
 final class LineFileIndexBuilders {
 
     private static final ThreadLocal<BitsetBuildScratch> BITSET_BUILD_SCRATCH =
-            new ThreadLocal<BitsetBuildScratch>() {
-                @Override
-                protected BitsetBuildScratch initialValue() {
-                    return new BitsetBuildScratch();
-                }
-            };
+            ThreadLocal.withInitial(BitsetBuildScratch::new);
 
     private LineFileIndexBuilders() {
     }
@@ -72,58 +67,66 @@ final class LineFileIndexBuilders {
             int skipHashMinGram,
             int skipHashMaxGram
     ) {
-        BitsetBuildScratch scratch = BITSET_BUILD_SCRATCH.get();
-        List<ByteRef> logicalTerms = scratch.borrowLogicalTerms();
-        List<Integer> termPostingIndexes = scratch.borrowTermPostingIndexes();
-        int maxPostingIndex = -1;
-        int maxTermLen = 0;
+        try {
+            BitsetBuildScratch scratch = BITSET_BUILD_SCRATCH.get();
+            List<ByteRef> logicalTerms = scratch.borrowLogicalTerms();
+            List<Integer> termPostingIndexes = scratch.borrowTermPostingIndexes();
+            int maxPostingIndex = -1;
+            int maxTermLen = 0;
 
-        for (LineFileProcessingResult.TermsPostingIndexRef ref : refs) {
-            int postingIndex = ref.getPostingIndex();
-            if (postingIndex > maxPostingIndex) {
-                maxPostingIndex = postingIndex;
-            }
-            for (ByteRef term : ref.getTermsUnsafe()) {
-                logicalTerms.add(term);
-                termPostingIndexes.add(postingIndex);
-                if (term.getLength() > maxTermLen) {
-                    maxTermLen = term.getLength();
+            for (LineFileProcessingResult.TermsPostingIndexRef ref : refs) {
+                int postingIndex = ref.getPostingIndex();
+                if (postingIndex > maxPostingIndex) {
+                    maxPostingIndex = postingIndex;
+                }
+                for (ByteRef term : ref.getTermsUnsafe()) {
+                    logicalTerms.add(term);
+                    termPostingIndexes.add(postingIndex);
+                    if (term.getLength() > maxTermLen) {
+                        maxTermLen = term.getLength();
+                    }
                 }
             }
-        }
 
-        List<LineFileProcessingResult.HashLevelBitsets> hashLevels = scratch.borrowHashLevels();
-        for (int gramLength = skipHashMinGram; gramLength <= skipHashMaxGram; gramLength++) {
-            if (maxTermLen >= gramLength) {
-                hashLevels.add(buildHashLevelBitsets(
-                        gramLength, logicalTerms, termPostingIndexes, scratch));
+            List<LineFileProcessingResult.HashLevelBitsets> hashLevels = scratch.borrowHashLevels();
+            for (int gramLength = skipHashMinGram; gramLength <= skipHashMaxGram; gramLength++) {
+                if (maxTermLen >= gramLength) {
+                    hashLevels.add(buildHashLevelBitsets(
+                            gramLength, logicalTerms, termPostingIndexes, scratch));
+                }
             }
+            return new LineFileProcessingResult.TermBlockSkipBitsetIndex(maxPostingIndex, hashLevels);
+        } finally {
+            BITSET_BUILD_SCRATCH.remove();
         }
-        return new LineFileProcessingResult.TermBlockSkipBitsetIndex(maxPostingIndex, hashLevels);
     }
 
     static LineFileProcessingResult.OneByteDocidBitsetIndex buildOneByteDocidBitsetIndex(List<DocTerms> loadedRows) {
-        BitsetBuildScratch scratch = BITSET_BUILD_SCRATCH.get();
-        int maxDocId = -1;
-        for (DocTerms row : loadedRows) {
-            if (row.getDocId() > maxDocId) {
-                maxDocId = row.getDocId();
-            }
-        }
-
-        List<BitSet> buckets = scratch.borrowBuckets();
-        for (DocTerms row : loadedRows) {
-            int docId = row.getDocId();
-            for (ByteRef bytes : row.getTermRefsUnsafe()) {
-                byte[] src = bytes.getSourceUnsafe();
-                int start = bytes.getOffset();
-                int end = start + bytes.getLength();
-                for (int i = start; i < end; i++) {
-                    buckets.get(src[i] & 0xFF).set(docId);
+        try {
+            BitsetBuildScratch scratch = BITSET_BUILD_SCRATCH.get();
+            int maxDocId = -1;
+            for (DocTerms row : loadedRows) {
+                if (row.getDocId() > maxDocId) {
+                    maxDocId = row.getDocId();
                 }
             }
+
+            List<BitSet> buckets = scratch.borrowBuckets();
+            for (DocTerms row : loadedRows) {
+                int docId = row.getDocId();
+                for (ByteRef bytes : row.getTermRefsUnsafe()) {
+                    byte[] src = bytes.getSourceUnsafe();
+                    int start = bytes.getOffset();
+                    int end = start + bytes.getLength();
+                    for (int i = start; i < end; i++) {
+                        buckets.get(src[i] & 0xFF).set(docId);
+                    }
+                }
+            }
+            return new LineFileProcessingResult.OneByteDocidBitsetIndex(maxDocId, buckets);
+        } finally {
+            BITSET_BUILD_SCRATCH.remove();
         }
-        return new LineFileProcessingResult.OneByteDocidBitsetIndex(maxDocId, buckets);
     }
 
     static void validateSkipHashGramRange(int skipHashMinGram, int skipHashMaxGram) {

@@ -10,18 +10,22 @@ import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.DocTerms;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.ExclusiveSelectionResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.FrequentItemsetMiningResult;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.model.SelectedGroup;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.hints.PremergeHintCandidateResolver;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.picker.TwoPhaseExclusiveItemsetPicker;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.protocol.ModuleDataContracts;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.ByteArrayUtils;
+import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.util.IntOpenAddressingSet;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
-import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * 互斥频繁项集选择的门面(Facade):对调用方屏蔽索引、挖掘与挑选的实现细节。
@@ -55,14 +59,24 @@ import java.util.Set;
  *
  * <p><b>避免误用</b>：</p>
  * <ul>
- *   <li>采样配置（如 {@code setSampleRatio}）是本类静态全局状态，不是“每次调用隔离”。</li>
- *   <li>若多线程/多租户场景需要不同采样参数，请在调用层做串行化或隔离实例封装。</li>
+ *   <li>默认采样/挑选参数可走静态 setter；若需并发隔离，请优先用
+ *       {@link SelectionRequest.Builder#executionTuning(ExecutionTuning)} 传入请求级调参。</li>
+ *   <li>请求级调参为不可变对象，适合多线程/多租户并行处理不同分片。</li>
  *   <li>{@code rows} 中 {@code docId} 必须可作为位图下标使用（建议非负且可控范围内）。</li>
  * </ul>
  *
  * @author muqingyu
  */
 public final class ExclusiveFrequentItemsetSelector {
+    private static final Logger LOG = Logger.getLogger(ExclusiveFrequentItemsetSelector.class.getName());
+    private static final String DEBUG_LOG_PROPERTY = "fptoken.selector.debugLog";
+    private static final String PROP_SAMPLE_RATIO = "fptoken.selector.sampleRatio";
+    private static final String PROP_MIN_SAMPLE_COUNT = "fptoken.selector.minSampleCount";
+    private static final String PROP_SAMPLING_SUPPORT_SCALE = "fptoken.selector.samplingSupportScale";
+    private static final String PROP_TESTING_FAIL_SAMPLING_PATH = "fptoken.selector.testing.failSamplingPath";
+    private static final String ENV_SAMPLE_RATIO = "FPTOKEN_SELECTOR_SAMPLE_RATIO";
+    private static final String ENV_MIN_SAMPLE_COUNT = "FPTOKEN_SELECTOR_MIN_SAMPLE_COUNT";
+    private static final String ENV_SAMPLING_SUPPORT_SCALE = "FPTOKEN_SELECTOR_SAMPLING_SUPPORT_SCALE";
 
     public enum LookupRoute {
         FREQUENT_ITEMSET,
@@ -156,6 +170,8 @@ public final class ExclusiveFrequentItemsetSelector {
      * @param rows 文档及词列表
      * @param minSupport 最小支持度
      * @param minItemsetSize 最小项集长度
+     * <p><b>前置条件</b>：{@code minSupport >= 1}、{@code minItemsetSize >= 1}。
+     * 当 {@code rows == null || rows.isEmpty()} 时返回空结果（兼容历史语义）。</p>
      * @return 结果与统计;统计含义见 {@link ExclusiveSelectionResult}
      */
     public static ExclusiveSelectionResult selectExclusiveBestItemsetsWithStats(
@@ -184,12 +200,7 @@ public final class ExclusiveFrequentItemsetSelector {
      */
     // ===== 采样参数（默认从 EngineTuningConfig 读取，可通过 setter 覆盖） =====
 
-    private static double sampleRatio = EngineTuningConfig.DEFAULT_SAMPLE_RATIO;
-    private static int minSampleCount = EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT;
-    private static double samplingSupportScale = EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE;
-    private static int pickerMinNetGain = EngineTuningConfig.PICKER_DEFAULT_MIN_NET_GAIN;
-    private static int pickerEstimatedBytesPerTerm = EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM;
-    private static int pickerCoverageRewardPerTerm = EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM;
+    private static volatile RuntimeTuningSnapshot runtimeTuningSnapshot = loadRuntimeTuningSnapshotFromExternal();
     /**
      * 兼容保留：当前实现固定走采样路径，本方法不再切换执行分支。
      *
@@ -205,7 +216,17 @@ public final class ExclusiveFrequentItemsetSelector {
      *              小于 0 按 0 处理，大于 1 按 1 处理（内部自动 clamp）。
      */
     public static void setSampleRatio(double ratio) {
-        sampleRatio = Math.max(0.0, Math.min(1.0, ratio));
+        RuntimeTuningSnapshot current = runtimeTuningSnapshot;
+        runtimeTuningSnapshot = normalizeRuntimeTuningSnapshot(
+                ratio,
+                current.minSampleCount,
+                current.samplingSupportScale,
+                current.pickerMinNetGain,
+                current.pickerEstimatedBytesPerTerm,
+                current.pickerCoverageRewardPerTerm,
+                current.maxDocCoverageRatio,
+                current.pickerScoringWeights
+        );
     }
 
     /**
@@ -213,7 +234,17 @@ public final class ExclusiveFrequentItemsetSelector {
      * @param count 正整数，默认 {@link EngineTuningConfig#DEFAULT_MIN_SAMPLE_COUNT}
      */
     public static void setMinSampleCount(int count) {
-        minSampleCount = Math.max(1, count);
+        RuntimeTuningSnapshot current = runtimeTuningSnapshot;
+        runtimeTuningSnapshot = normalizeRuntimeTuningSnapshot(
+                current.sampleRatio,
+                count,
+                current.samplingSupportScale,
+                current.pickerMinNetGain,
+                current.pickerEstimatedBytesPerTerm,
+                current.pickerCoverageRewardPerTerm,
+                current.maxDocCoverageRatio,
+                current.pickerScoringWeights
+        );
     }
 
     /**
@@ -222,71 +253,126 @@ public final class ExclusiveFrequentItemsetSelector {
      *              其他值表示显式缩放系数（例如 0.5 表示支持度减半）。
      */
     public static void setSamplingSupportScale(double scale) {
-        samplingSupportScale = scale;
+        RuntimeTuningSnapshot current = runtimeTuningSnapshot;
+        runtimeTuningSnapshot = normalizeRuntimeTuningSnapshot(
+                current.sampleRatio,
+                current.minSampleCount,
+                scale,
+                current.pickerMinNetGain,
+                current.pickerEstimatedBytesPerTerm,
+                current.pickerCoverageRewardPerTerm,
+                current.maxDocCoverageRatio,
+                current.pickerScoringWeights
+        );
     }
 
     /**
-     * 保留方法签名以兼容旧调用方。
-     * 采样参数不再从 properties 文件读取，请改用 {@link #setSampleRatio(double)}、
-     * {@link #setMinSampleCount(int)}、{@link #setSamplingSupportScale(double)} 在代码中配置。
+     * 重新加载外部化采样配置（系统属性 / 环境变量）。
+     *
+     * <p>优先级：System Property > Environment Variable > 当前代码内值。</p>
+     *
+     * <p>支持键：
+     * {@code fptoken.selector.sampleRatio} /
+     * {@code fptoken.selector.minSampleCount} /
+     * {@code fptoken.selector.samplingSupportScale}。</p>
      */
-    @Deprecated
     public static synchronized void reloadSamplingConfig() {
-        // no-op: sampling is code-configured only.
+        runtimeTuningSnapshot = applyExternalSamplingOverrides(runtimeTuningSnapshot);
     }
 
     /** 当前采样比率（便于测试与运行期观测）。 */
     public static double getSampleRatio() {
-        return sampleRatio;
+        return runtimeTuningSnapshot.sampleRatio;
     }
 
     /** 当前最小采样文档数（便于测试与运行期观测）。 */
     public static int getMinSampleCount() {
-        return minSampleCount;
+        return runtimeTuningSnapshot.minSampleCount;
     }
 
     /** 当前采样支持度缩放因子（便于测试与运行期观测）。 */
     public static double getSamplingSupportScale() {
-        return samplingSupportScale;
+        return runtimeTuningSnapshot.samplingSupportScale;
     }
 
     /** 当前互斥挑选净收益阈值。 */
     public static int getPickerMinNetGain() {
-        return pickerMinNetGain;
+        return runtimeTuningSnapshot.pickerMinNetGain;
     }
 
     /** 设置互斥挑选净收益阈值。 */
     public static void setPickerMinNetGain(int minNetGain) {
-        if (minNetGain < 0) {
-            throw new IllegalArgumentException("minNetGain must be >= 0");
-        }
-        pickerMinNetGain = minNetGain;
+        RuntimeTuningSnapshot current = runtimeTuningSnapshot;
+        runtimeTuningSnapshot = normalizeRuntimeTuningSnapshot(
+                current.sampleRatio,
+                current.minSampleCount,
+                current.samplingSupportScale,
+                minNetGain,
+                current.pickerEstimatedBytesPerTerm,
+                current.pickerCoverageRewardPerTerm,
+                current.maxDocCoverageRatio,
+                current.pickerScoringWeights
+        );
     }
 
     /** 当前互斥挑选的每 term 字典成本估计（字节）。 */
     public static int getPickerEstimatedBytesPerTerm() {
-        return pickerEstimatedBytesPerTerm;
+        return runtimeTuningSnapshot.pickerEstimatedBytesPerTerm;
     }
 
     /** 设置互斥挑选的每 term 字典成本估计（字节）。 */
     public static void setPickerEstimatedBytesPerTerm(int estimatedBytesPerTerm) {
-        if (estimatedBytesPerTerm <= 0) {
-            throw new IllegalArgumentException("estimatedBytesPerTerm must be > 0");
-        }
-        pickerEstimatedBytesPerTerm = estimatedBytesPerTerm;
+        RuntimeTuningSnapshot current = runtimeTuningSnapshot;
+        runtimeTuningSnapshot = normalizeRuntimeTuningSnapshot(
+                current.sampleRatio,
+                current.minSampleCount,
+                current.samplingSupportScale,
+                current.pickerMinNetGain,
+                estimatedBytesPerTerm,
+                current.pickerCoverageRewardPerTerm,
+                current.maxDocCoverageRatio,
+                current.pickerScoringWeights
+        );
     }
 
     /** 当前互斥挑选每 term 覆盖奖励。 */
     public static int getPickerCoverageRewardPerTerm() {
-        return pickerCoverageRewardPerTerm;
+        return runtimeTuningSnapshot.pickerCoverageRewardPerTerm;
     }
 
     /** 设置互斥挑选每 term 覆盖奖励。 */
     public static void setPickerCoverageRewardPerTerm(int coverageRewardPerTerm) {
-        if (coverageRewardPerTerm < 0) {
-            throw new IllegalArgumentException("coverageRewardPerTerm must be >= 0");
-        }
-        pickerCoverageRewardPerTerm = coverageRewardPerTerm;
+        RuntimeTuningSnapshot current = runtimeTuningSnapshot;
+        runtimeTuningSnapshot = normalizeRuntimeTuningSnapshot(
+                current.sampleRatio,
+                current.minSampleCount,
+                current.samplingSupportScale,
+                current.pickerMinNetGain,
+                current.pickerEstimatedBytesPerTerm,
+                coverageRewardPerTerm,
+                current.maxDocCoverageRatio,
+                current.pickerScoringWeights
+        );
+    }
+
+    /** 获取互斥挑选评分权重（长度/支持度/业务价值/成本等）。 */
+    public static TwoPhaseExclusiveItemsetPicker.ScoringWeights getPickerScoringWeights() {
+        return TwoPhaseExclusiveItemsetPicker.getRuntimeScoringWeights();
+    }
+
+    /** 设置互斥挑选评分权重（运行时动态生效）。 */
+    public static void setPickerScoringWeights(TwoPhaseExclusiveItemsetPicker.ScoringWeights scoringWeights) {
+        TwoPhaseExclusiveItemsetPicker.setRuntimeScoringWeights(scoringWeights);
+    }
+
+    /** 重新加载互斥挑选评分权重（System Property / Environment Variable）。 */
+    public static void reloadPickerScoringWeights() {
+        TwoPhaseExclusiveItemsetPicker.reloadRuntimeScoringWeights();
+    }
+
+    /** 重置互斥挑选评分权重为默认值。 */
+    public static void resetPickerScoringWeightsToDefaults() {
+        TwoPhaseExclusiveItemsetPicker.resetRuntimeScoringWeightsToDefaults();
     }
 
     /**
@@ -315,8 +401,32 @@ public final class ExclusiveFrequentItemsetSelector {
             throw new IllegalArgumentException("sampledDocCount must be in [1, fullDocCount]");
         }
         double autoRatio = (double) sampledDocCount / (double) fullDocCount;
-        double effectiveScale = supportScale <= 0.0d ? autoRatio : supportScale;
+        double effectiveScale = supportScale <= 0.0d
+                ? autoScaleWithConfidenceUpperBound(
+                        autoRatio,
+                        fullDocCount,
+                        EngineTuningConfig.DEFAULT_SAMPLING_CONFIDENCE_Z
+                )
+                : supportScale;
         return Math.max(1, (int) Math.round(fullMinSupport * effectiveScale));
+    }
+
+    /**
+     * 自动采样缩放：在比例缩放基础上加入置信上界边际（正态近似）。
+     *
+     * <p>scale = r + z * sqrt(r(1-r)/N)，其中：
+     * r=sampled/full，N=fullDocCount，z 为置信系数。</p>
+     */
+    private static double autoScaleWithConfidenceUpperBound(double ratio, int fullDocCount, double z) {
+        if (fullDocCount <= 0) {
+            return ratio;
+        }
+        double variance = ratio * (1.0d - ratio) / (double) fullDocCount;
+        if (variance <= 0.0d) {
+            return ratio;
+        }
+        double margin = z * Math.sqrt(variance);
+        return Math.min(1.0d, ratio + margin);
     }
 
     /**
@@ -342,19 +452,26 @@ public final class ExclusiveFrequentItemsetSelector {
             int maxItemsetSize,
             int maxCandidateCount
     ) {
+        // 兼容历史语义：legacy 多参数入口对 null rows 返回空结果而非抛异常。
+        if (rows == null) {
+            return emptyResult(maxCandidateCount);
+        }
         return selectExclusiveBestItemsetsWithStats(
-                rows,
-                minSupport,
-                minItemsetSize,
-                maxItemsetSize,
-                maxCandidateCount,
-                Collections.<PremergeHintCandidate>emptyList(),
-                0
-        );
+                SelectionRequest.builder(rows)
+                        .minSupport(minSupport)
+                        .minItemsetSize(minItemsetSize)
+                        .maxItemsetSize(maxItemsetSize)
+                        .maxCandidateCount(maxCandidateCount)
+                        .build());
     }
 
     /**
      * merge 场景扩展入口：可传入前置高频提示候选，提示会在本轮全量数据上二次回算后再参与互斥挑选。
+     *
+     * <p><b>前置条件</b>：{@code minSupport >= 1}、{@code minItemsetSize >= 1}、
+     * {@code maxItemsetSize >= minItemsetSize}、{@code maxCandidateCount >= 1}、
+     * {@code hintBoostWeight >= 0}。
+     * 当 {@code rows == null || rows.isEmpty()} 时返回空结果（兼容历史语义）。</p>
      */
     public static ExclusiveSelectionResult selectExclusiveBestItemsetsWithStats(
             List<DocTerms> rows,
@@ -365,77 +482,282 @@ public final class ExclusiveFrequentItemsetSelector {
             List<PremergeHintCandidate> premergeHints,
             int hintBoostWeight
     ) {
-        if (rows == null || rows.isEmpty()) {
+        // 兼容历史语义：legacy 多参数入口对 null rows 返回空结果而非抛异常。
+        if (rows == null) {
             return emptyResult(maxCandidateCount);
         }
-        if (hintBoostWeight < 0) {
-            throw new IllegalArgumentException("hintBoostWeight must be >= 0");
+        return selectExclusiveBestItemsetsWithStats(
+                SelectionRequest.builder(rows)
+                        .minSupport(minSupport)
+                        .minItemsetSize(minItemsetSize)
+                        .maxItemsetSize(maxItemsetSize)
+                        .maxCandidateCount(maxCandidateCount)
+                        .premergeHints(premergeHints)
+                        .hintBoostWeight(hintBoostWeight)
+                        .build());
+    }
+
+    /**
+     * 配置对象入口：避免参数爆炸，统一选择流程入口。
+     *
+     * <p><b>前置条件</b>：{@code request != null} 且 {@code request.rows != null}。
+     * 其余参数约束通过 {@link SelectorConfig} 统一校验（最小支持度、项集长度、候选上限）。</p>
+     */
+    public static ExclusiveSelectionResult selectExclusiveBestItemsetsWithStats(SelectionRequest request) {
+        validateSelectionRequestPreconditions(request);
+        boolean debugLog = isDebugLogEnabled();
+        long totalStartNs = System.nanoTime();
+        RuntimeTuningSnapshot tuning = resolveTuningSnapshot(request);
+        if (request.rows.isEmpty()) {
+            return emptyResult(request.maxCandidateCount);
         }
 
         // 参数统一走 SelectorConfig 校验，确保异常语义与历史一致。
-        new SelectorConfig(
-                minSupport,
-                minItemsetSize,
-                maxItemsetSize,
-                maxCandidateCount
+        SelectorConfig.of(
+                request.minSupport,
+                request.minItemsetSize,
+                request.maxItemsetSize,
+                request.maxCandidateCount
         );
 
-        int[] allDocIds = collectDistinctDocIds(rows);
+        int[] allDocIds = collectDistinctDocIds(request.rows);
         int docCount = allDocIds.length;
-        int sampleSize = computeTargetSampleSize(docCount, sampleRatio, minSampleCount);
+        int sampleSize = computeTargetSampleSize(docCount, tuning.sampleRatio, tuning.minSampleCount);
+        if (debugLog) {
+            LOG.log(Level.INFO,
+                    "[fptoken-selector] start docs={0}, minSupport={1}, minItemsetSize={2}, maxItemsetSize={3}, maxCandidateCount={4}, sampleRatio={5}, minSampleCount={6}, targetSampleSize={7}, premergeHints={8}, hintBoostWeight={9}",
+                    new Object[] {
+                            docCount,
+                            request.minSupport,
+                            request.minItemsetSize,
+                            request.maxItemsetSize,
+                            request.maxCandidateCount,
+                            tuning.sampleRatio,
+                            tuning.minSampleCount,
+                            sampleSize,
+                            request.premergeHints.size(),
+                            request.hintBoostWeight
+                    });
+        }
 
         // Phase 1: 在全量数据上建索引
         // 使用 buildWithSupportBounds 过滤低频词，显著降低词汇量和内存
         // 当不需要过滤时（minSupport=1），退化到 build() 单次扫描
+        long indexStartNs = System.nanoTime();
         TermTidsetIndex fullIndex = TermTidsetIndex.buildWithSupportBounds(
-                rows, minSupport, adaptiveMaxDocCoverageRatio());
+                request.rows, request.minSupport, tuning.maxDocCoverageRatio);
+        long indexBuildMs = nanosToMillis(System.nanoTime() - indexStartNs);
         List<ByteRef> termVocabulary = fullIndex.getIdToTermRefsUnsafe();
         if (termVocabulary.isEmpty()) {
-            return emptyResult(maxCandidateCount);
+            return emptyResult(request.maxCandidateCount);
         }
         List<BitSet> fullTidsets = fullIndex.getTidsetsByTermIdUnsafe();
+        if (debugLog) {
+            LOG.log(Level.INFO,
+                    "[fptoken-selector] full-index ready vocab={0}, filteredBySupportBounds=true",
+                    new Object[] { termVocabulary.size() });
+        }
 
-        // === 采样路径（固定执行）===
-        // 1) 随机选择采样文档的 docId
-        int[] sampledDocIds = sampleDocIds(allDocIds, sampleSize);
-        // 2) 创建采样掩码，从全量 tidsets 中位过滤出采样文档
-        BitSet sampleMask = buildSampleMask(sampledDocIds, docCount);
-        // 3) 对每个 term 的 tidset 做位过滤（clone + and），产生采样 tidsets
-        List<BitSet> sampledTidsets = buildSampledTidsets(fullTidsets, sampleMask);
-        // 4) minSupport 按采样比例缩放：采样集小，用更低阈值确保能挖到模式
-        //    回算阶段会再用全量 minSupport 过滤，所以缩放不会引入虚假组合
-        int sampledMinSupport = computeSampledMinSupport(
-                minSupport,
+        // Phase 2: 构造挖掘输入（采样源或全量源）
+        long miningInputStartNs = System.nanoTime();
+        MiningInputBuildOutcome miningInputOutcome = buildMiningInputWithFallback(
+                allDocIds,
+                fullTidsets,
                 docCount,
                 sampleSize,
-                samplingSupportScale
+                request.minSupport,
+                tuning.samplingSupportScale,
+                debugLog
         );
-        // 5) 在采样 tidsets 上挖掘
-        SelectorConfig sampledConfig = new SelectorConfig(
-                sampledMinSupport, minItemsetSize, maxItemsetSize, maxCandidateCount);
-        MiningPlan sampledPlan = buildMiningPlan(sampledConfig, sampleSize, termVocabulary.size());
-        FrequentItemsetMiningResult miningStats = mineCandidates(sampledTidsets, sampledPlan);
+        long miningInputBuildMs = nanosToMillis(System.nanoTime() - miningInputStartNs);
+        MiningInput miningInput = miningInputOutcome.miningInput;
+        if (debugLog) {
+            LOG.log(Level.INFO,
+                    "[fptoken-selector] mining-input mode={0}, miningDocCount={1}, miningMinSupport={2}",
+                    new Object[] {
+                            miningInput.usesSampling ? "sampled" : "full",
+                            miningInput.miningDocCount,
+                            miningInput.miningMinSupport
+                    });
+        }
+        // Phase 3: 在统一的数据源抽象上挖掘（核心算法不感知采样/非采样）
+        SelectorConfig miningConfig = SelectorConfig.of(
+                miningInput.miningMinSupport,
+                request.minItemsetSize,
+                request.maxItemsetSize,
+                request.maxCandidateCount);
+        MiningPlan miningPlan = buildMiningPlan(miningConfig, miningInput.miningDocCount, termVocabulary.size());
+        long miningStartNs = System.nanoTime();
+        boolean sampledMiningFallbackToFull = false;
+        FrequentItemsetMiningResult miningStats;
+        try {
+            miningStats = mineCandidates(
+                    new ModuleDataContracts.TidsetMiningInput(miningInput.miningTidsets),
+                    miningPlan
+            );
+        } catch (RuntimeException samplingFailure) {
+            if (!miningInput.usesSampling) {
+                throw samplingFailure;
+            }
+            if (debugLog) {
+                LOG.log(Level.WARNING,
+                        "[fptoken-selector] sampled-mining failed, fallback to full-mining. reason={0}",
+                        new Object[] { samplingFailure.toString() });
+            }
+            miningInput = new MiningInput(fullTidsets, docCount, request.minSupport, false);
+            SelectorConfig fullConfig = SelectorConfig.of(
+                    request.minSupport,
+                    request.minItemsetSize,
+                    request.maxItemsetSize,
+                    request.maxCandidateCount
+            );
+            MiningPlan fullPlan = buildMiningPlan(fullConfig, docCount, termVocabulary.size());
+            miningStats = mineCandidates(
+                    new ModuleDataContracts.TidsetMiningInput(miningInput.miningTidsets),
+                    fullPlan
+            );
+            sampledMiningFallbackToFull = true;
+        }
+        long miningMs = nanosToMillis(System.nanoTime() - miningStartNs);
         List<CandidateItemset> minedCandidates = miningStats.getCandidates();
-        List<CandidateItemset> hintCandidates = mapHintCandidatesToTermIds(premergeHints, termVocabulary);
-        List<CandidateItemset> mergedCandidates = mergeAndDedupCandidates(minedCandidates, hintCandidates);
+        if (debugLog) {
+            LOG.log(Level.INFO,
+                    "[fptoken-selector] mining done generatedCandidates={0}, intersections={1}, truncatedByCandidateLimit={2}, minedCandidates={3}",
+                    new Object[] {
+                            miningStats.getGeneratedCandidateCount(),
+                            miningStats.getIntersectionCount(),
+                            miningStats.isTruncatedByCandidateLimit(),
+                            minedCandidates.size()
+                    });
+        }
+        long hintMergeStartNs = System.nanoTime();
+        List<CandidateItemset> hintCandidates = PremergeHintCandidateResolver.mapHintCandidatesToTermIds(
+                request.premergeHints,
+                termVocabulary
+        );
+        List<CandidateItemset> mergedCandidates = PremergeHintCandidateResolver.mergeAndDedupCandidates(
+                minedCandidates,
+                hintCandidates
+        );
+        long hintMergeMs = nanosToMillis(System.nanoTime() - hintMergeStartNs);
+        if (debugLog) {
+            LOG.log(Level.INFO,
+                    "[fptoken-selector] candidate-merge mined={0}, hintMapped={1}, mergedDistinct={2}",
+                    new Object[] { minedCandidates.size(), hintCandidates.size(), mergedCandidates.size() });
+        }
         if (mergedCandidates.isEmpty()) {
-            return buildResult(Collections.<SelectedGroup>emptyList(), miningStats, maxCandidateCount);
+            long totalMs = nanosToMillis(System.nanoTime() - totalStartNs);
+            return buildResult(
+                    Collections.<SelectedGroup>emptyList(),
+                    miningStats,
+                    request.maxCandidateCount,
+                    buildDiagnostics(
+                            docCount,
+                            sampleSize,
+                            miningInput,
+                            miningInputOutcome.sampledInputBuildFallbackToFull,
+                            sampledMiningFallbackToFull,
+                            indexBuildMs,
+                            miningInputBuildMs,
+                            miningMs,
+                            hintMergeMs,
+                            0L,
+                            0L,
+                            totalMs,
+                            request.premergeHints.size(),
+                            hintCandidates.size(),
+                            mergedCandidates.size()
+                    )
+            );
         }
         // 6) 回算：在全量 tidsets 上重新计算候选组合的完整 doclist
         //    挖掘阶段得到的 termIds 就是全量索引的 termId，无需映射
-        List<CandidateItemset> recomputed = recomputeOnFullData(
-                mergedCandidates, fullTidsets, minSupport);
-        if (!hintCandidates.isEmpty() && hintBoostWeight > 0) {
-            recomputed = applyHintBoost(recomputed, hintCandidates, hintBoostWeight);
+        if (debugLog) {
+            LOG.log(Level.INFO,
+                    "[fptoken-selector] recompute-start mergedCandidates={0}, fullMinSupport={1}",
+                    new Object[] { mergedCandidates.size(), request.minSupport });
         }
+        long recomputeStartNs = System.nanoTime();
+        List<CandidateItemset> recomputed = recomputeOnFullData(
+                mergedCandidates, fullTidsets, request.minSupport);
+        if (!hintCandidates.isEmpty() && request.hintBoostWeight > 0) {
+            recomputed = PremergeHintCandidateResolver.applyHintBoost(
+                    recomputed,
+                    hintCandidates,
+                    request.hintBoostWeight
+            );
+            if (debugLog) {
+                LOG.log(Level.INFO,
+                        "[fptoken-selector] hint-boost applied hintCandidates={0}, boostWeight={1}, recomputedAfterBoost={2}",
+                        new Object[] { hintCandidates.size(), request.hintBoostWeight, recomputed.size() });
+            }
+        }
+        long recomputeMs = nanosToMillis(System.nanoTime() - recomputeStartNs);
         if (recomputed.isEmpty()) {
-            return buildResult(Collections.<SelectedGroup>emptyList(), miningStats, maxCandidateCount);
+            long totalMs = nanosToMillis(System.nanoTime() - totalStartNs);
+            return buildResult(
+                    Collections.<SelectedGroup>emptyList(),
+                    miningStats,
+                    request.maxCandidateCount,
+                    buildDiagnostics(
+                            docCount,
+                            sampleSize,
+                            miningInput,
+                            miningInputOutcome.sampledInputBuildFallbackToFull,
+                            sampledMiningFallbackToFull,
+                            indexBuildMs,
+                            miningInputBuildMs,
+                            miningMs,
+                            hintMergeMs,
+                            recomputeMs,
+                            0L,
+                            totalMs,
+                            request.premergeHints.size(),
+                            hintCandidates.size(),
+                            mergedCandidates.size()
+                    )
+            );
         }
         // 7) 互斥挑选
+        long pickStartNs = System.nanoTime();
         List<CandidateItemset> selectedCandidates = pickExclusiveCandidates(
-                recomputed, termVocabulary.size(), adaptiveMinNetGain());
+                recomputed,
+                termVocabulary.size(),
+                tuning.pickerMinNetGain,
+                tuning.pickerEstimatedBytesPerTerm,
+                tuning.pickerCoverageRewardPerTerm,
+                tuning.pickerScoringWeights
+        );
+        long pickMs = nanosToMillis(System.nanoTime() - pickStartNs);
         List<SelectedGroup> selectedGroups = toSelectedGroups(selectedCandidates, termVocabulary);
-        return buildResult(selectedGroups, miningStats, maxCandidateCount);
+        if (debugLog) {
+            LOG.log(Level.INFO,
+                    "[fptoken-selector] pick-done recomputed={0}, selected={1}, outputGroups={2}",
+                    new Object[] { recomputed.size(), selectedCandidates.size(), selectedGroups.size() });
+        }
+        long totalMs = nanosToMillis(System.nanoTime() - totalStartNs);
+        return buildResult(
+                selectedGroups,
+                miningStats,
+                request.maxCandidateCount,
+                buildDiagnostics(
+                        docCount,
+                        sampleSize,
+                        miningInput,
+                        miningInputOutcome.sampledInputBuildFallbackToFull,
+                        sampledMiningFallbackToFull,
+                        indexBuildMs,
+                        miningInputBuildMs,
+                        miningMs,
+                        hintMergeMs,
+                        recomputeMs,
+                        pickMs,
+                        totalMs,
+                        request.premergeHints.size(),
+                        hintCandidates.size(),
+                        mergedCandidates.size()
+                )
+        );
     }
 
     /** 随机选择文档子集的 docId。 */
@@ -474,8 +796,126 @@ public final class ExclusiveFrequentItemsetSelector {
         return sampledTidsets;
     }
 
+    /**
+     * 统一采样/非采样输入构建：
+     * <ul>
+     *   <li>sampleSize >= docCount：直接使用全量 tidsets + 全量 minSupport（非采样路径）。</li>
+     *   <li>sampleSize < docCount：生成采样 tidsets + 缩放后的 sampledMinSupport（采样路径）。</li>
+     * </ul>
+     *
+     * <p>上层挖掘逻辑只消费 {@link MiningInput}，无需感知数据源类型。</p>
+     */
+    private static MiningInput buildMiningInput(
+            int[] allDocIds,
+            List<BitSet> fullTidsets,
+            int docCount,
+            int sampleSize,
+            int minSupport,
+            double samplingSupportScale
+    ) {
+        if (sampleSize >= docCount) {
+            return new MiningInput(fullTidsets, docCount, minSupport, false);
+        }
+        if (isTestingFailSamplingPathEnabled()) {
+            throw new IllegalStateException("Injected sampling path failure for testing");
+        }
+        int[] sampledDocIds = sampleDocIds(allDocIds, sampleSize);
+        BitSet sampleMask = buildSampleMask(sampledDocIds, docCount);
+        List<BitSet> sampledTidsets = buildSampledTidsets(fullTidsets, sampleMask);
+        int sampledMinSupport = computeSampledMinSupport(
+                minSupport,
+                docCount,
+                sampleSize,
+                samplingSupportScale
+        );
+        return new MiningInput(sampledTidsets, sampleSize, sampledMinSupport, true);
+    }
+
+    private static MiningInputBuildOutcome buildMiningInputWithFallback(
+            int[] allDocIds,
+            List<BitSet> fullTidsets,
+            int docCount,
+            int sampleSize,
+            int minSupport,
+            double samplingSupportScale,
+            boolean debugLog
+    ) {
+        try {
+            return new MiningInputBuildOutcome(
+                    buildMiningInput(
+                            allDocIds,
+                            fullTidsets,
+                            docCount,
+                            sampleSize,
+                            minSupport,
+                            samplingSupportScale
+                    ),
+                    false
+            );
+        } catch (RuntimeException samplingFailure) {
+            if (sampleSize >= docCount) {
+                throw samplingFailure;
+            }
+            if (debugLog) {
+                LOG.log(Level.WARNING,
+                        "[fptoken-selector] build-sampled-input failed, fallback to full-input. reason={0}",
+                        new Object[] { samplingFailure.toString() });
+            }
+            return new MiningInputBuildOutcome(new MiningInput(fullTidsets, docCount, minSupport, false), true);
+        }
+    }
+
+    private static ExclusiveSelectionResult.SelectionDiagnostics buildDiagnostics(
+            int docCount,
+            int targetSampleSize,
+            MiningInput miningInput,
+            boolean sampledInputBuildFallbackToFull,
+            boolean sampledMiningFallbackToFull,
+            long indexBuildMs,
+            long miningInputBuildMs,
+            long miningMs,
+            long hintMergeMs,
+            long recomputeMs,
+            long pickMs,
+            long totalMs,
+            int premergeHintInputCount,
+            int mappedHintCandidateCount,
+            int mergedDistinctCandidateCount
+    ) {
+        return ExclusiveSelectionResult.SelectionDiagnostics.of(
+                targetSampleSize < docCount,
+                miningInput.usesSampling,
+                sampledInputBuildFallbackToFull,
+                sampledMiningFallbackToFull,
+                targetSampleSize,
+                miningInput.miningDocCount,
+                indexBuildMs,
+                miningInputBuildMs,
+                miningMs,
+                hintMergeMs,
+                recomputeMs,
+                pickMs,
+                totalMs,
+                premergeHintInputCount,
+                mappedHintCandidateCount,
+                mergedDistinctCandidateCount
+        );
+    }
+
+    private static long nanosToMillis(long nanos) {
+        return nanos / 1_000_000L;
+    }
+
+    private static boolean isTestingFailSamplingPathEnabled() {
+        return Boolean.parseBoolean(System.getProperty(PROP_TESTING_FAIL_SAMPLING_PATH, "false"));
+    }
+
+    private static boolean isDebugLogEnabled() {
+        return Boolean.parseBoolean(System.getProperty(DEBUG_LOG_PROPERTY, "false"));
+    }
+
     private static int[] collectDistinctDocIds(List<DocTerms> rows) {
-        HashSet<Integer> docIds = new HashSet<>(rows.size());
+        IntOpenAddressingSet docIds = new IntOpenAddressingSet(rows.size());
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             DocTerms row = rows.get(rowIndex);
             if (row == null) {
@@ -485,13 +925,9 @@ public final class ExclusiveFrequentItemsetSelector {
             if (docId < 0) {
                 throw new IllegalArgumentException("docId must be >= 0, got " + docId);
             }
-            docIds.add(Integer.valueOf(docId));
+            docIds.add(docId);
         }
-        int[] out = new int[docIds.size()];
-        int idx = 0;
-        for (Integer docId : docIds) {
-            out[idx++] = docId.intValue();
-        }
+        int[] out = docIds.toArray();
         Arrays.sort(out);
         return out;
     }
@@ -502,22 +938,66 @@ public final class ExclusiveFrequentItemsetSelector {
             List<BitSet> fullTidsets,
             int minSupport
     ) {
+        RecomputeOnFullDataResult result = recomputeOnFullDataWithPrefixPruningStats(candidates, fullTidsets, minSupport);
+        if (isDebugLogEnabled() && result.prefixPrunedCandidates > 0) {
+            LOG.log(
+                    Level.INFO,
+                    "[fptoken-selector] recompute-prefix-pruned candidates={0}, minSupport={1}",
+                    new Object[] { result.prefixPrunedCandidates, minSupport }
+            );
+        }
+        return result.recomputedCandidates;
+    }
+
+    private static RecomputeOnFullDataResult recomputeOnFullDataWithPrefixPruningStats(
+            List<CandidateItemset> candidates,
+            List<BitSet> fullTidsets,
+            int minSupport
+    ) {
         List<CandidateItemset> out = new ArrayList<>(candidates.size());
         BitSet scratch = new BitSet(64);
+        Map<IntArrayKey, Integer> prefixSupportCache = new HashMap<>();
+        int prefixPrunedCandidates = 0;
         for (CandidateItemset candidate : candidates) {
             int[] termIds = candidate.getTermIdsUnsafe();
+            boolean prunedByKnownPrefix = false;
+            for (int prefixLen = 1; prefixLen < termIds.length; prefixLen++) {
+                IntArrayKey key = new IntArrayKey(Arrays.copyOf(termIds, prefixLen));
+                Integer cachedPrefixSupport = prefixSupportCache.get(key);
+                if (cachedPrefixSupport != null && cachedPrefixSupport.intValue() < minSupport) {
+                    prunedByKnownPrefix = true;
+                    break;
+                }
+            }
+            if (prunedByKnownPrefix) {
+                prefixPrunedCandidates++;
+                continue;
+            }
             scratch.clear();
             scratch.or(fullTidsets.get(termIds[0]));
             for (int i = 1; i < termIds.length && scratch.cardinality() >= minSupport; i++) {
                 scratch.and(fullTidsets.get(termIds[i]));
+                IntArrayKey prefixKey = new IntArrayKey(Arrays.copyOf(termIds, i + 1));
+                prefixSupportCache.put(prefixKey, Integer.valueOf(scratch.cardinality()));
             }
             int fullSupport = scratch.cardinality();
+            prefixSupportCache.put(new IntArrayKey(Arrays.copyOf(termIds, termIds.length)), Integer.valueOf(fullSupport));
             if (fullSupport >= minSupport) {
                 BitSet docBits = (BitSet) scratch.clone();
                 out.add(CandidateItemset.trusted(termIds, docBits, fullSupport));
             }
         }
-        return out;
+        return new RecomputeOnFullDataResult(out, prefixPrunedCandidates);
+    }
+
+    private static final class RecomputeOnFullDataResult {
+        private final List<CandidateItemset> recomputedCandidates;
+        private final int prefixPrunedCandidates;
+
+        private RecomputeOnFullDataResult(List<CandidateItemset> recomputedCandidates, int prefixPrunedCandidates) {
+            this.recomputedCandidates = recomputedCandidates;
+            this.prefixPrunedCandidates = prefixPrunedCandidates;
+        }
     }
 
 
@@ -544,14 +1024,20 @@ public final class ExclusiveFrequentItemsetSelector {
     /**
      * 调用 Beam 挖掘器,并传入门面层固定的扩展/束宽参数。
      *
-     * @param index 已构建的垂直索引
-     * @param config 支持度与长度、候选上限
+     * <p><b>模块协议</b>：index 侧仅输出
+     * {@link ModuleDataContracts.TidsetMiningInput}，miner 侧仅消费该协议并产出候选。</p>
+     *
+     * @param tidsetsByTermId index 输出的 tidset（termId 对齐）
+     * @param plan 支持度与长度、候选上限及自适应挖掘参数
      * @return 候选项与统计
      */
-    private static FrequentItemsetMiningResult mineCandidates(List<BitSet> tidsetsByTermId, MiningPlan plan) {
+    private static FrequentItemsetMiningResult mineCandidates(
+            ModuleDataContracts.TidsetMiningInput miningInput,
+            MiningPlan plan
+    ) {
         BeamFrequentItemsetMiner miner = new BeamFrequentItemsetMiner();
         return miner.mineWithStats(
-                tidsetsByTermId,
+                miningInput,
                 plan.config,
                 plan.maxFrequentTermCount,
                 plan.maxBranchingFactor,
@@ -564,14 +1050,20 @@ public final class ExclusiveFrequentItemsetSelector {
     /**
      * 两阶段互斥挑选;词典大小用于分配词占用位图。
      *
-     * @param candidates 挖掘得到的候选项(顺序会影响替换阶段扫描次序)
-     * @param dictionarySize {@code idToTerm.size()},即 termId 上界(不含)参考
+     * <p><b>模块协议</b>：miner 侧仅输出候选列表，本阶段通过
+     * {@link ModuleDataContracts.PickerInput} 接收候选与词典上界。</p>
+     *
+     * @param candidates 挖掘得到的候选项（顺序会影响替换阶段扫描次序）
+     * @param dictionarySize {@code idToTerm.size()}，即 termId 上界（不含）参考
      * @return 互斥子集
      */
     private static List<CandidateItemset> pickExclusiveCandidates(
             List<CandidateItemset> candidates,
             int dictionarySize,
-            int minNetGain
+            int minNetGain,
+            int estimatedBytesPerTerm,
+            int coverageRewardPerTerm,
+            TwoPhaseExclusiveItemsetPicker.ScoringWeights scoringWeights
     ) {
         TwoPhaseExclusiveItemsetPicker picker = new TwoPhaseExclusiveItemsetPicker();
         return picker.pick(
@@ -579,8 +1071,9 @@ public final class ExclusiveFrequentItemsetSelector {
                 dictionarySize,
                 adaptiveMaxSwapTrials(candidates.size()),
                 minNetGain,
-                adaptivePickerEstimatedBytesPerTerm(),
-                adaptivePickerCoverageRewardPerTerm()
+                estimatedBytesPerTerm,
+                coverageRewardPerTerm,
+                scoringWeights
         );
     }
 
@@ -653,20 +1146,159 @@ public final class ExclusiveFrequentItemsetSelector {
         return 10_000L;
     }
 
-    private static double adaptiveMaxDocCoverageRatio() {
-        return EngineTuningConfig.DEFAULT_MAX_DOC_COVERAGE_RATIO;
+    private static RuntimeTuningSnapshot defaultRuntimeTuningSnapshot() {
+        return normalizeRuntimeTuningSnapshot(
+                EngineTuningConfig.DEFAULT_SAMPLE_RATIO,
+                EngineTuningConfig.DEFAULT_MIN_SAMPLE_COUNT,
+                EngineTuningConfig.DEFAULT_SAMPLING_SUPPORT_SCALE,
+                EngineTuningConfig.PICKER_DEFAULT_MIN_NET_GAIN,
+                EngineTuningConfig.PICKER_ESTIMATED_BYTES_PER_TERM,
+                EngineTuningConfig.PICKER_DEFAULT_COVERAGE_REWARD_PER_TERM,
+                EngineTuningConfig.DEFAULT_MAX_DOC_COVERAGE_RATIO,
+                TwoPhaseExclusiveItemsetPicker.getRuntimeScoringWeights()
+        );
     }
 
-    private static int adaptiveMinNetGain() {
-        return pickerMinNetGain;
+    private static RuntimeTuningSnapshot loadRuntimeTuningSnapshotFromExternal() {
+        return applyExternalSamplingOverrides(defaultRuntimeTuningSnapshot());
     }
 
-    private static int adaptivePickerEstimatedBytesPerTerm() {
-        return pickerEstimatedBytesPerTerm;
+    private static RuntimeTuningSnapshot applyExternalSamplingOverrides(RuntimeTuningSnapshot base) {
+        double sampleRatio = resolveDoubleExternalValue(
+                PROP_SAMPLE_RATIO,
+                ENV_SAMPLE_RATIO,
+                base.sampleRatio
+        );
+        int minSampleCount = resolveIntExternalValue(
+                PROP_MIN_SAMPLE_COUNT,
+                ENV_MIN_SAMPLE_COUNT,
+                base.minSampleCount
+        );
+        double samplingSupportScale = resolveDoubleExternalValue(
+                PROP_SAMPLING_SUPPORT_SCALE,
+                ENV_SAMPLING_SUPPORT_SCALE,
+                base.samplingSupportScale
+        );
+        return normalizeRuntimeTuningSnapshot(
+                sampleRatio,
+                minSampleCount,
+                samplingSupportScale,
+                base.pickerMinNetGain,
+                base.pickerEstimatedBytesPerTerm,
+                base.pickerCoverageRewardPerTerm,
+                base.maxDocCoverageRatio,
+                base.pickerScoringWeights
+        );
     }
 
-    private static int adaptivePickerCoverageRewardPerTerm() {
-        return pickerCoverageRewardPerTerm;
+    private static double resolveDoubleExternalValue(String propertyKey, String envKey, double fallback) {
+        String raw = readExternalRawValue(propertyKey, envKey);
+        if (raw == null) {
+            return fallback;
+        }
+        try {
+            return Double.parseDouble(raw.trim());
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private static int resolveIntExternalValue(String propertyKey, String envKey, int fallback) {
+        String raw = readExternalRawValue(propertyKey, envKey);
+        if (raw == null) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private static String readExternalRawValue(String propertyKey, String envKey) {
+        String fromProperty = System.getProperty(propertyKey);
+        if (fromProperty != null && !fromProperty.trim().isEmpty()) {
+            return fromProperty;
+        }
+        String fromEnv = System.getenv(envKey);
+        if (fromEnv != null && !fromEnv.trim().isEmpty()) {
+            return fromEnv;
+        }
+        return null;
+    }
+
+    /**
+     * 统一运行时调参校验入口：所有 setter 与默认值初始化都走这里，避免校验规则散落。
+     */
+    private static RuntimeTuningSnapshot normalizeRuntimeTuningSnapshot(
+            double sampleRatio,
+            int minSampleCount,
+            double samplingSupportScale,
+            int pickerMinNetGain,
+            int pickerEstimatedBytesPerTerm,
+            int pickerCoverageRewardPerTerm,
+            double maxDocCoverageRatio,
+            TwoPhaseExclusiveItemsetPicker.ScoringWeights pickerScoringWeights
+    ) {
+        double normalizedSampleRatio = Math.max(0.0d, Math.min(1.0d, sampleRatio));
+        int normalizedMinSampleCount = Math.max(1, minSampleCount);
+        double normalizedSamplingSupportScale = samplingSupportScale;
+        if (pickerMinNetGain < 0) {
+            throw new IllegalArgumentException("minNetGain must be >= 0");
+        }
+        if (pickerEstimatedBytesPerTerm <= 0) {
+            throw new IllegalArgumentException("estimatedBytesPerTerm must be > 0");
+        }
+        if (pickerCoverageRewardPerTerm < 0) {
+            throw new IllegalArgumentException("coverageRewardPerTerm must be >= 0");
+        }
+        double normalizedMaxDocCoverageRatio = maxDocCoverageRatio <= 0d
+                ? 1d
+                : Math.min(1d, maxDocCoverageRatio);
+        return new RuntimeTuningSnapshot(
+                normalizedSampleRatio,
+                normalizedMinSampleCount,
+                normalizedSamplingSupportScale,
+                pickerMinNetGain,
+                pickerEstimatedBytesPerTerm,
+                pickerCoverageRewardPerTerm,
+                normalizedMaxDocCoverageRatio,
+                pickerScoringWeights
+        );
+    }
+
+    private static RuntimeTuningSnapshot captureRuntimeTuningSnapshot() {
+        RuntimeTuningSnapshot current = runtimeTuningSnapshot;
+        return normalizeRuntimeTuningSnapshot(
+                current.sampleRatio,
+                current.minSampleCount,
+                current.samplingSupportScale,
+                current.pickerMinNetGain,
+                current.pickerEstimatedBytesPerTerm,
+                current.pickerCoverageRewardPerTerm,
+                current.maxDocCoverageRatio,
+                TwoPhaseExclusiveItemsetPicker.getRuntimeScoringWeights()
+        );
+    }
+
+    private static RuntimeTuningSnapshot resolveTuningSnapshot(SelectionRequest request) {
+        ExecutionTuning t = request.executionTuning;
+        return normalizeRuntimeTuningSnapshot(
+                t.sampleRatio,
+                t.minSampleCount,
+                t.samplingSupportScale,
+                t.pickerMinNetGain,
+                t.pickerEstimatedBytesPerTerm,
+                t.pickerCoverageRewardPerTerm,
+                t.maxDocCoverageRatio,
+                t.pickerScoringWeights
+        );
+    }
+
+    private static void validateSelectionRequestPreconditions(SelectionRequest request) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(request.rows, "request.rows");
+        Objects.requireNonNull(request.executionTuning, "request.executionTuning");
     }
 
     /**
@@ -683,129 +1315,6 @@ public final class ExclusiveFrequentItemsetSelector {
             return 150;
         }
         return Math.min(300, candidateCount / 20);
-    }
-
-    private static List<CandidateItemset> mapHintCandidatesToTermIds(
-            List<PremergeHintCandidate> hints,
-            List<ByteRef> termVocabulary
-    ) {
-        if (hints == null || hints.isEmpty()) {
-            return Collections.emptyList();
-        }
-        Map<IntArrayKey, CandidateItemset> out = new HashMap<>();
-        for (int i = 0; i < hints.size(); i++) {
-            PremergeHintCandidate hint = hints.get(i);
-            if (hint == null || hint.getTermRefs().isEmpty()) {
-                continue;
-            }
-            int[] termIds = mapHintTermsToTermIds(hint.getTermRefs(), termVocabulary);
-            if (termIds.length == 0) {
-                continue;
-            }
-            IntArrayKey key = new IntArrayKey(termIds);
-            if (!out.containsKey(key)) {
-                out.put(key, CandidateItemset.trusted(termIds, new BitSet(), 0));
-            }
-        }
-        return new ArrayList<>(out.values());
-    }
-
-    private static int[] mapHintTermsToTermIds(List<ByteRef> hintTerms, List<ByteRef> termVocabulary) {
-        int[] mapped = new int[hintTerms.size()];
-        int used = 0;
-        for (int i = 0; i < hintTerms.size(); i++) {
-            ByteRef hint = hintTerms.get(i);
-            int termId = findTermIdInVocabulary(hint, termVocabulary);
-            if (termId >= 0) {
-                mapped[used++] = termId;
-            }
-        }
-        if (used == 0) {
-            return new int[0];
-        }
-        int[] termIds = Arrays.copyOf(mapped, used);
-        Arrays.sort(termIds);
-        int uniqueCount = 1;
-        for (int i = 1; i < termIds.length; i++) {
-            if (termIds[i] != termIds[i - 1]) {
-                termIds[uniqueCount++] = termIds[i];
-            }
-        }
-        return Arrays.copyOf(termIds, uniqueCount);
-    }
-
-    private static int findTermIdInVocabulary(ByteRef hint, List<ByteRef> termVocabulary) {
-        for (int i = 0; i < termVocabulary.size(); i++) {
-            if (equalsRef(hint, termVocabulary.get(i))) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private static boolean equalsRef(ByteRef a, ByteRef b) {
-        if (a.getLength() != b.getLength()) {
-            return false;
-        }
-        byte[] as = a.getSourceUnsafe();
-        byte[] bs = b.getSourceUnsafe();
-        int ao = a.getOffset();
-        int bo = b.getOffset();
-        for (int i = 0; i < a.getLength(); i++) {
-            if (as[ao + i] != bs[bo + i]) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static List<CandidateItemset> mergeAndDedupCandidates(
-            List<CandidateItemset> mined,
-            List<CandidateItemset> hinted
-    ) {
-        if ((mined == null || mined.isEmpty()) && (hinted == null || hinted.isEmpty())) {
-            return Collections.emptyList();
-        }
-        Map<IntArrayKey, CandidateItemset> merged = new HashMap<>();
-        if (mined != null) {
-            for (int i = 0; i < mined.size(); i++) {
-                CandidateItemset c = mined.get(i);
-                merged.put(new IntArrayKey(c.getTermIdsUnsafe()), c);
-            }
-        }
-        if (hinted != null) {
-            for (int i = 0; i < hinted.size(); i++) {
-                CandidateItemset c = hinted.get(i);
-                IntArrayKey key = new IntArrayKey(c.getTermIdsUnsafe());
-                if (!merged.containsKey(key)) {
-                    merged.put(key, c);
-                }
-            }
-        }
-        return new ArrayList<>(merged.values());
-    }
-
-    private static List<CandidateItemset> applyHintBoost(
-            List<CandidateItemset> recomputed,
-            List<CandidateItemset> hintCandidates,
-            int hintBoostWeight
-    ) {
-        Set<IntArrayKey> hintKeys = new HashSet<>();
-        for (int i = 0; i < hintCandidates.size(); i++) {
-            hintKeys.add(new IntArrayKey(hintCandidates.get(i).getTermIdsUnsafe()));
-        }
-        List<CandidateItemset> out = new ArrayList<>(recomputed.size());
-        for (int i = 0; i < recomputed.size(); i++) {
-            CandidateItemset c = recomputed.get(i);
-            IntArrayKey key = new IntArrayKey(c.getTermIdsUnsafe());
-            if (hintKeys.contains(key)) {
-                int boost = hintBoostWeight * Math.max(1, c.length());
-                out.add(c.withPriorityBoost(boost));
-            } else {
-                out.add(c);
-            }
-        }
-        return out;
     }
 
     public static LookupRoute routeLookupByHitRate(double estimatedHitRate) {
@@ -847,7 +1356,8 @@ public final class ExclusiveFrequentItemsetSelector {
     private static ExclusiveSelectionResult buildResult(
             List<SelectedGroup> groups,
             FrequentItemsetMiningResult miningResult,
-            int maxCandidateCount
+            int maxCandidateCount,
+            ExclusiveSelectionResult.SelectionDiagnostics diagnostics
     ) {
         return new ExclusiveSelectionResult(
                 groups,
@@ -855,7 +1365,8 @@ public final class ExclusiveFrequentItemsetSelector {
                 miningResult.getGeneratedCandidateCount(),
                 miningResult.getIntersectionCount(),
                 maxCandidateCount,
-                miningResult.isTruncatedByCandidateLimit()
+                miningResult.isTruncatedByCandidateLimit(),
+                diagnostics
         );
     }
 
@@ -945,19 +1456,256 @@ public final class ExclusiveFrequentItemsetSelector {
         }
     }
 
+    /**
+     * 单次调用的运行时调参快照，避免在深层方法中隐式读取可变静态字段。
+     */
+    private static final class RuntimeTuningSnapshot {
+        private final double sampleRatio;
+        private final int minSampleCount;
+        private final double samplingSupportScale;
+        private final int pickerMinNetGain;
+        private final int pickerEstimatedBytesPerTerm;
+        private final int pickerCoverageRewardPerTerm;
+        private final double maxDocCoverageRatio;
+        private final TwoPhaseExclusiveItemsetPicker.ScoringWeights pickerScoringWeights;
+
+        private RuntimeTuningSnapshot(
+                double sampleRatio,
+                int minSampleCount,
+                double samplingSupportScale,
+                int pickerMinNetGain,
+                int pickerEstimatedBytesPerTerm,
+                int pickerCoverageRewardPerTerm,
+                double maxDocCoverageRatio,
+                TwoPhaseExclusiveItemsetPicker.ScoringWeights pickerScoringWeights
+        ) {
+            this.sampleRatio = sampleRatio;
+            this.minSampleCount = minSampleCount;
+            this.samplingSupportScale = samplingSupportScale;
+            this.pickerMinNetGain = pickerMinNetGain;
+            this.pickerEstimatedBytesPerTerm = pickerEstimatedBytesPerTerm;
+            this.pickerCoverageRewardPerTerm = pickerCoverageRewardPerTerm;
+            this.maxDocCoverageRatio = maxDocCoverageRatio;
+            this.pickerScoringWeights = Objects.requireNonNull(pickerScoringWeights, "pickerScoringWeights");
+        }
+    }
+
+    /**
+     * 选择入口配置对象：聚合可调参数，避免多重重载导致的参数爆炸。
+     */
+    public static final class SelectionRequest {
+        private final List<DocTerms> rows;
+        private final int minSupport;
+        private final int minItemsetSize;
+        private final int maxItemsetSize;
+        private final int maxCandidateCount;
+        private final List<PremergeHintCandidate> premergeHints;
+        private final int hintBoostWeight;
+        private final ExecutionTuning executionTuning;
+
+        private SelectionRequest(
+                List<DocTerms> rows,
+                int minSupport,
+                int minItemsetSize,
+                int maxItemsetSize,
+                int maxCandidateCount,
+                List<PremergeHintCandidate> premergeHints,
+                int hintBoostWeight,
+                ExecutionTuning executionTuning
+        ) {
+            this.rows = Collections.unmodifiableList(new ArrayList<DocTerms>(
+                    Objects.requireNonNull(rows, "rows")));
+            this.minSupport = minSupport;
+            this.minItemsetSize = minItemsetSize;
+            this.maxItemsetSize = maxItemsetSize;
+            this.maxCandidateCount = maxCandidateCount;
+            this.premergeHints = premergeHints == null
+                    ? Collections.<PremergeHintCandidate>emptyList()
+                    : Collections.unmodifiableList(new ArrayList<PremergeHintCandidate>(premergeHints));
+            if (hintBoostWeight < 0) {
+                throw new IllegalArgumentException("hintBoostWeight must be >= 0");
+            }
+            this.hintBoostWeight = hintBoostWeight;
+            this.executionTuning = executionTuning != null
+                    ? executionTuning
+                    : ExecutionTuning.fromCurrentRuntimeDefaults();
+        }
+
+        public static Builder builder(List<DocTerms> rows) {
+            return new Builder(rows);
+        }
+
+        public static final class Builder {
+            private final List<DocTerms> rows;
+            private int minSupport = 1;
+            private int minItemsetSize = 1;
+            private int maxItemsetSize = EngineTuningConfig.DEFAULT_MAX_ITEMSET_SIZE;
+            private int maxCandidateCount = EngineTuningConfig.DEFAULT_MAX_CANDIDATE_COUNT;
+            private List<PremergeHintCandidate> premergeHints = Collections.emptyList();
+            private int hintBoostWeight = 0;
+            private ExecutionTuning executionTuning = ExecutionTuning.fromCurrentRuntimeDefaults();
+
+            private Builder(List<DocTerms> rows) {
+                this.rows = rows;
+            }
+
+            public Builder minSupport(int value) {
+                this.minSupport = value;
+                return this;
+            }
+
+            public Builder minItemsetSize(int value) {
+                this.minItemsetSize = value;
+                return this;
+            }
+
+            public Builder maxItemsetSize(int value) {
+                this.maxItemsetSize = value;
+                return this;
+            }
+
+            public Builder maxCandidateCount(int value) {
+                this.maxCandidateCount = value;
+                return this;
+            }
+
+            public Builder premergeHints(List<PremergeHintCandidate> value) {
+                this.premergeHints = value;
+                return this;
+            }
+
+            public Builder hintBoostWeight(int value) {
+                this.hintBoostWeight = value;
+                return this;
+            }
+
+            public Builder executionTuning(ExecutionTuning value) {
+                this.executionTuning = value;
+                return this;
+            }
+
+            public SelectionRequest build() {
+                return new SelectionRequest(
+                        rows,
+                        minSupport,
+                        minItemsetSize,
+                        maxItemsetSize,
+                        maxCandidateCount,
+                        premergeHints,
+                        hintBoostWeight,
+                        executionTuning
+                );
+            }
+        }
+    }
+
+    /**
+     * 单次请求级调参对象：用于无状态并发场景下替代全局静态配置。
+     */
+    public static final class ExecutionTuning {
+        private final double sampleRatio;
+        private final int minSampleCount;
+        private final double samplingSupportScale;
+        private final int pickerMinNetGain;
+        private final int pickerEstimatedBytesPerTerm;
+        private final int pickerCoverageRewardPerTerm;
+        private final double maxDocCoverageRatio;
+        private final TwoPhaseExclusiveItemsetPicker.ScoringWeights pickerScoringWeights;
+
+        public ExecutionTuning(
+                double sampleRatio,
+                int minSampleCount,
+                double samplingSupportScale,
+                int pickerMinNetGain,
+                int pickerEstimatedBytesPerTerm,
+                int pickerCoverageRewardPerTerm,
+                double maxDocCoverageRatio,
+                TwoPhaseExclusiveItemsetPicker.ScoringWeights pickerScoringWeights
+        ) {
+            this.sampleRatio = sampleRatio;
+            this.minSampleCount = minSampleCount;
+            this.samplingSupportScale = samplingSupportScale;
+            this.pickerMinNetGain = pickerMinNetGain;
+            this.pickerEstimatedBytesPerTerm = pickerEstimatedBytesPerTerm;
+            this.pickerCoverageRewardPerTerm = pickerCoverageRewardPerTerm;
+            this.maxDocCoverageRatio = maxDocCoverageRatio;
+            this.pickerScoringWeights = Objects.requireNonNull(pickerScoringWeights, "pickerScoringWeights");
+        }
+
+        public static ExecutionTuning fromCurrentRuntimeDefaults() {
+            RuntimeTuningSnapshot snapshot = captureRuntimeTuningSnapshot();
+            return new ExecutionTuning(
+                    snapshot.sampleRatio,
+                    snapshot.minSampleCount,
+                    snapshot.samplingSupportScale,
+                    snapshot.pickerMinNetGain,
+                    snapshot.pickerEstimatedBytesPerTerm,
+                    snapshot.pickerCoverageRewardPerTerm,
+                    snapshot.maxDocCoverageRatio,
+                    snapshot.pickerScoringWeights
+            );
+        }
+    }
+
+    private static final class MiningInput {
+        private final List<BitSet> miningTidsets;
+        private final int miningDocCount;
+        private final int miningMinSupport;
+        private final boolean usesSampling;
+
+        private MiningInput(
+                List<BitSet> miningTidsets,
+                int miningDocCount,
+                int miningMinSupport,
+                boolean usesSampling
+        ) {
+            this.miningTidsets = miningTidsets;
+            this.miningDocCount = miningDocCount;
+            this.miningMinSupport = miningMinSupport;
+            this.usesSampling = usesSampling;
+        }
+    }
+
+    private static final class MiningInputBuildOutcome {
+        private final MiningInput miningInput;
+        private final boolean sampledInputBuildFallbackToFull;
+
+        private MiningInputBuildOutcome(MiningInput miningInput, boolean sampledInputBuildFallbackToFull) {
+            this.miningInput = miningInput;
+            this.sampledInputBuildFallbackToFull = sampledInputBuildFallbackToFull;
+        }
+    }
+
     /** merge 阶段前置提示：仅词项序列。 */
     public static final class PremergeHintCandidate {
         private final List<ByteRef> termRefs;
+        private final int qualityScore;
 
         public PremergeHintCandidate(List<ByteRef> termRefs) {
+            this(termRefs, 1);
+        }
+
+        public PremergeHintCandidate(List<ByteRef> termRefs, int qualityScore) {
             this.termRefs = Collections.unmodifiableList(new ArrayList<>(termRefs));
+            if (qualityScore <= 0) {
+                throw new IllegalArgumentException("qualityScore must be > 0");
+            }
+            this.qualityScore = qualityScore;
         }
 
         public List<ByteRef> getTermRefs() {
             return termRefs;
         }
+
+        public int getQualityScore() {
+            return qualityScore;
+        }
     }
 
+    /**
+     * 兼容保留：历史测试通过反射校验该键类型的 equals/hash 语义。
+     * 新实现中的 hint 去重键已迁移到独立组件。
+     */
     private static final class IntArrayKey {
         private final int[] values;
         private final int hash;
@@ -983,4 +1731,5 @@ public final class ExclusiveFrequentItemsetSelector {
             return Arrays.equals(values, ((IntArrayKey) obj).values);
         }
     }
+
 }

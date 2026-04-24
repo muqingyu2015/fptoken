@@ -86,8 +86,23 @@ public final class EngineTuningConfig {
     public static final double DEFAULT_SAMPLE_RATIO = 0.30d;
     /** 最小采样文档数，避免太少时挖掘失效。 */
     public static final int DEFAULT_MIN_SAMPLE_COUNT = 64;
-    /** 采样支持度缩放因子。0.0=自动按采样比例缩放（默认，推荐），1.0=不缩放。 */
+    /**
+     * 采样支持度缩放因子。
+     *
+     * <p>{@code <= 0} 时启用“自动缩放”：
+     * 先按采样比例缩放，再叠加一个基于正态近似置信上界的安全边际，
+     * 用于降低采样噪声导致的误判抖动（偏向 precision 的默认策略）。</p>
+     *
+     * <p>{@code > 0} 时表示显式缩放系数，直接覆盖自动策略。</p>
+     */
     public static final double DEFAULT_SAMPLING_SUPPORT_SCALE = 0.0d;
+    /**
+     * 自动缩放置信边际 z 值。
+     *
+     * <p>默认取 0.0（即仅使用采样比例本身），对应二项模型下比例估计的中心值（MLE，无额外偏置）。
+     * 若后续要偏向更保守阈值，可在代码侧提高该值（如 1.645）。</p>
+     */
+    public static final double DEFAULT_SAMPLING_CONFIDENCE_Z = 0.0d;
     /** 采样总开关默认值。 */
     public static final boolean DEFAULT_SAMPLING_ENABLED = true;
 

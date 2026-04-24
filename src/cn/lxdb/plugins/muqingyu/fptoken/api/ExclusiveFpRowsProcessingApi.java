@@ -13,11 +13,14 @@ import cn.lxdb.plugins.muqingyu.fptoken.runner.ngram.ByteNgramTokenizer;
 import cn.lxdb.plugins.muqingyu.fptoken.runner.result.LineFileProcessingResult;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReferenceArray;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * 对外行记录处理 API：仅基于 rows 进行互斥频繁项集处理与派生数据生成。
@@ -35,6 +38,25 @@ import java.util.Set;
  * {@link ProcessingOptions} 中显式设置 n-gram 区间；否则会按默认 n-gram 配置执行切词。</p>
  */
 public final class ExclusiveFpRowsProcessingApi {
+    private static final double ONE_OFF_HINT_SUPPORT_MULTIPLIER = 1.5d;
+    private static final int STABLE_HINT_REPEAT_THRESHOLD = 2;
+    private static final int MAX_HINT_QUALITY_SCORE = 8;
+    private static final String AUTO_HINTS_WHEN_MISSING_PROPERTY =
+            "fptoken.premerge.autoHintsWhenMissing";
+    private static final int AUTO_HINT_MAX_FREQUENT_TERMS = 12;
+    private static final int AUTO_HINT_MAX_PAIR_HINTS = 16;
+    private static final double SINGLE_HINT_SUPPORT_MULTIPLIER_WHEN_MUTEX_EXISTS = 1.5d;
+    private static final int MIN_SINGLE_HINTS_WHEN_MUTEX_EXISTS = 16;
+    private static final int SINGLE_HINTS_PER_MUTEX_HINT = 2;
+    private static final int PREMERGE_HINT_AGGREGATE_CACHE_SLOTS = 64;
+    private static final AtomicReferenceArray<HintAggregateCacheEntry> PREMERGE_HINT_AGGREGATE_CACHE =
+            new AtomicReferenceArray<>(PREMERGE_HINT_AGGREGATE_CACHE_SLOTS);
+    private static final LongAdder PREMERGE_HINT_CACHE_HITS = new LongAdder();
+    private static final LongAdder PREMERGE_HINT_CACHE_MISSES = new LongAdder();
+    private static final LongAdder PREMERGE_HINT_CACHE_CLEANUPS = new LongAdder();
+    private static final AtomicLong PREMERGE_HINT_CACHE_OPS = new AtomicLong(0L);
+    private static final int PREMERGE_HINT_CACHE_HYGIENE_INTERVAL = 256;
+    private static final int PREMERGE_HINT_CACHE_MISS_TO_HIT_RATIO_FOR_CLEANUP = 4;
     /**
      * 接口易用版入口：使用项目默认参数处理 rows。
      *
@@ -130,7 +152,7 @@ public final class ExclusiveFpRowsProcessingApi {
      *
      * <p><b>注意事项</b>：</p>
      * <ul>
-     *   <li>方法内部会设置采样参数（代码配置），无需依赖外部 properties 文件。</li>
+     *   <li>方法内部会把 {@link ProcessingOptions} 转为请求级调参并传给 selector，不修改全局静态参数。</li>
      *   <li>若 rows 为空，会返回空结果结构；调用方可直接按空集合处理。</li>
      *   <li>若 rows 中存在 null 元素或负 docId，会在后续选择器阶段抛出参数异常。</li>
      * </ul>
@@ -228,9 +250,6 @@ public final class ExclusiveFpRowsProcessingApi {
             List<DocTerms> rows,
             ProcessingOptions options
     ) {
-        applySamplingConfig(options);
-        applySelectorTuningConfig(options);
-
         // 处理层不要修改调用方传入的 rows，这里先做一份防御性拷贝。
         List<DocTerms> loadedRows = copyRows(rows);
         List<DocTerms> tokenizedRows = tokenizeRowsForMining(
@@ -239,13 +258,10 @@ public final class ExclusiveFpRowsProcessingApi {
                 options.getNgramEnd()
         );
         List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> selectorPremergeHints =
-                buildSelectorPremergeHints(options);
+                buildSelectorPremergeHints(options, tokenizedRows, options.getMinSupport());
         ExclusiveSelectionResult result = selectWithDefaultSelectorTuning(
                 tokenizedRows,
-                options.getMinSupport(),
-                options.getMinItemsetSize(),
-                options.getMaxItemsetSize(),
-                options.getMaxCandidateCount(),
+                options,
                 selectorPremergeHints,
                 options.getHintBoostWeight()
         );
@@ -338,25 +354,192 @@ public final class ExclusiveFpRowsProcessingApi {
     }
 
     private static List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> buildSelectorPremergeHints(
-            ProcessingOptions options
+            ProcessingOptions options,
+            List<DocTerms> currentRows,
+            int minSupport
+    ) {
+        if (options.getPremergeMutexGroupHints().isEmpty() && options.getPremergeSingleTermHints().isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<HintAggregate> aggregated = getOrBuildHintAggregates(options, currentRows, minSupport);
+        if (aggregated.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return filterFreshHints(aggregated, currentRows, minSupport);
+    }
+
+    private static List<HintAggregate> getOrBuildHintAggregates(
+            ProcessingOptions options,
+            List<DocTerms> currentRows,
+            int minSupport
     ) {
         List<PremergeHint> mutexHints = options.getPremergeMutexGroupHints();
         List<PremergeHint> singleHints = options.getPremergeSingleTermHints();
-        if (mutexHints.isEmpty() && singleHints.isEmpty()) {
+        if ((mutexHints == null || mutexHints.isEmpty())
+                && (singleHints == null || singleHints.isEmpty())
+                && isAutoHintsWhenMissingEnabled()) {
+            return buildAutoGeneratedHintAggregates(currentRows, minSupport);
+        }
+        int keyHash = premergeHintCacheKeyHash(mutexHints, singleHints, options.getHintValidationMode());
+        int slot = keyHash & (PREMERGE_HINT_AGGREGATE_CACHE_SLOTS - 1);
+        HintAggregateCacheEntry entry = PREMERGE_HINT_AGGREGATE_CACHE.get(slot);
+        if (entry != null && entry.matches(mutexHints, singleHints, options.getHintValidationMode(), keyHash)) {
+            PREMERGE_HINT_CACHE_HITS.increment();
+            maybeHygieneCleanupPremergeHintCache();
+            return entry.aggregates;
+        }
+        PREMERGE_HINT_CACHE_MISSES.increment();
+        List<HintAggregate> built = buildHintAggregates(options, mutexHints, singleHints);
+        PREMERGE_HINT_AGGREGATE_CACHE.set(
+                slot,
+                new HintAggregateCacheEntry(keyHash, options.getHintValidationMode(), mutexHints, singleHints, built)
+        );
+        maybeHygieneCleanupPremergeHintCache();
+        return built;
+    }
+
+    private static void maybeHygieneCleanupPremergeHintCache() {
+        long ops = PREMERGE_HINT_CACHE_OPS.incrementAndGet();
+        if ((ops & (PREMERGE_HINT_CACHE_HYGIENE_INTERVAL - 1)) != 0L) {
+            return;
+        }
+        long hits = PREMERGE_HINT_CACHE_HITS.sum();
+        long misses = PREMERGE_HINT_CACHE_MISSES.sum();
+        if (misses < PREMERGE_HINT_CACHE_HYGIENE_INTERVAL) {
+            return;
+        }
+        // Misses dominantly higher than hits indicates stale/low-reuse cache content.
+        if (misses >= (hits + 1L) * PREMERGE_HINT_CACHE_MISS_TO_HIT_RATIO_FOR_CLEANUP) {
+            clearPremergeHintAggregateCacheInternal();
+        }
+    }
+
+    private static void clearPremergeHintAggregateCacheInternal() {
+        for (int i = 0; i < PREMERGE_HINT_AGGREGATE_CACHE_SLOTS; i++) {
+            PREMERGE_HINT_AGGREGATE_CACHE.set(i, null);
+        }
+        PREMERGE_HINT_CACHE_HITS.reset();
+        PREMERGE_HINT_CACHE_MISSES.reset();
+        PREMERGE_HINT_CACHE_OPS.set(0L);
+        PREMERGE_HINT_CACHE_CLEANUPS.increment();
+    }
+
+    private static List<HintAggregate> buildHintAggregates(
+            ProcessingOptions options,
+            List<PremergeHint> mutexHints,
+            List<PremergeHint> singleHints
+    ) {
+        LinkedHashMap<HintTermKey, HintAggregate> aggregated = new LinkedHashMap<>();
+        appendPremergeHintCandidates(options, mutexHints, "premergeMutexGroupHints", aggregated);
+        appendPremergeHintCandidates(options, singleHints, "premergeSingleTermHints", aggregated);
+        return Collections.unmodifiableList(new ArrayList<>(aggregated.values()));
+    }
+
+    private static List<HintAggregate> buildAutoGeneratedHintAggregates(List<DocTerms> currentRows, int minSupport) {
+        if (currentRows.isEmpty()) {
             return Collections.emptyList();
         }
-        List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> out =
-                new ArrayList<>(mutexHints.size() + singleHints.size());
-        appendPremergeHintCandidates(options, mutexHints, "premergeMutexGroupHints", out);
-        appendPremergeHintCandidates(options, singleHints, "premergeSingleTermHints", out);
-        return out;
+        OpenHashTable termTable = new OpenHashTable();
+        List<Integer> termSupports = new ArrayList<>();
+        List<byte[]> termBytes = new ArrayList<>();
+        for (int i = 0; i < currentRows.size(); i++) {
+            List<ByteRef> terms = currentRows.get(i).getTermRefsUnsafe();
+            OpenHashTable rowSeen = new OpenHashTable(Math.max(8, terms.size() * 2 + 1));
+            for (int t = 0; t < terms.size(); t++) {
+                ByteRef ref = terms.get(t);
+                int hash = ByteArrayUtils.hash(ref.getSourceUnsafe(), ref.getOffset(), ref.getLength());
+                if (rowSeen.get(ref, hash) >= 0) {
+                    continue;
+                }
+                rowSeen.getOrPut(ref, hash, true);
+                int termId = termTable.getOrPut(ref, hash, true);
+                while (termSupports.size() <= termId) {
+                    termSupports.add(Integer.valueOf(0));
+                    termBytes.add(null);
+                }
+                termSupports.set(termId, Integer.valueOf(termSupports.get(termId).intValue() + 1));
+                if (termBytes.get(termId) == null) {
+                    termBytes.set(termId, ref.copyBytes());
+                }
+            }
+        }
+        List<TermSupport> frequent = new ArrayList<>();
+        for (int termId = 0; termId < termSupports.size(); termId++) {
+            int support = termSupports.get(termId).intValue();
+            if (support >= minSupport && termBytes.get(termId) != null) {
+                frequent.add(new TermSupport(termId, support));
+            }
+        }
+        if (frequent.size() < 2) {
+            return Collections.emptyList();
+        }
+        Collections.sort(frequent, (a, b) -> Integer.compare(b.support, a.support));
+        int topN = Math.min(AUTO_HINT_MAX_FREQUENT_TERMS, frequent.size());
+        int[] topTermIds = new int[topN];
+        for (int i = 0; i < topN; i++) {
+            topTermIds[i] = frequent.get(i).termId;
+        }
+        int[][] pairSupport = new int[topN][topN];
+        for (int i = 0; i < currentRows.size(); i++) {
+            boolean[] present = new boolean[topN];
+            List<ByteRef> terms = currentRows.get(i).getTermRefsUnsafe();
+            for (int t = 0; t < terms.size(); t++) {
+                ByteRef ref = terms.get(t);
+                int hash = ByteArrayUtils.hash(ref.getSourceUnsafe(), ref.getOffset(), ref.getLength());
+                int termId = termTable.get(ref, hash);
+                if (termId < 0) {
+                    continue;
+                }
+                for (int k = 0; k < topN; k++) {
+                    if (topTermIds[k] == termId) {
+                        present[k] = true;
+                        break;
+                    }
+                }
+            }
+            for (int a = 0; a < topN; a++) {
+                if (!present[a]) {
+                    continue;
+                }
+                for (int b = a + 1; b < topN; b++) {
+                    if (present[b]) {
+                        pairSupport[a][b]++;
+                    }
+                }
+            }
+        }
+        List<PairSupport> pairs = new ArrayList<>();
+        int pairMinSupport = Math.max(2, minSupport);
+        for (int a = 0; a < topN; a++) {
+            for (int b = a + 1; b < topN; b++) {
+                if (pairSupport[a][b] >= pairMinSupport) {
+                    pairs.add(new PairSupport(a, b, pairSupport[a][b]));
+                }
+            }
+        }
+        if (pairs.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Collections.sort(pairs, (x, y) -> Integer.compare(y.support, x.support));
+        int limit = Math.min(AUTO_HINT_MAX_PAIR_HINTS, pairs.size());
+        List<HintAggregate> out = new ArrayList<>(limit);
+        for (int i = 0; i < limit; i++) {
+            PairSupport p = pairs.get(i);
+            List<ByteRef> refs = new ArrayList<>(2);
+            byte[] left = termBytes.get(topTermIds[p.leftIdx]);
+            byte[] right = termBytes.get(topTermIds[p.rightIdx]);
+            refs.add(new ByteRef(left, 0, left.length));
+            refs.add(new ByteRef(right, 0, right.length));
+            out.add(new HintAggregate(ByteArrayUtils.normalizeTermRefs(refs), 2));
+        }
+        return Collections.unmodifiableList(out);
     }
 
     private static void appendPremergeHintCandidates(
             ProcessingOptions options,
             List<PremergeHint> hints,
             String listLabel,
-            List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> out
+            LinkedHashMap<HintTermKey, HintAggregate> aggregated
     ) {
         for (int i = 0; i < hints.size(); i++) {
             PremergeHint hint = hints.get(i);
@@ -373,8 +556,288 @@ public final class ExclusiveFpRowsProcessingApi {
                 }
                 continue;
             }
-            out.add(new ExclusiveFrequentItemsetSelector.PremergeHintCandidate(refs));
+            HintTermKey key = new HintTermKey(refs);
+            HintAggregate old = aggregated.get(key);
+            if (old == null) {
+                aggregated.put(key, new HintAggregate(refs, 1));
+            } else {
+                aggregated.put(key, new HintAggregate(old.refs, old.seenCount + 1));
+            }
         }
+    }
+
+    private static List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> filterFreshHints(
+            List<HintAggregate> aggregated,
+            List<DocTerms> currentRows,
+            int minSupport
+    ) {
+        List<HintResolvedCandidate> multiTermCandidates = new ArrayList<>();
+        List<SingleHintResolvedCandidate> singleTermCandidates = new ArrayList<>();
+        for (int i = 0; i < aggregated.size(); i++) {
+            HintAggregate aggregate = aggregated.get(i);
+            int currentSupport = countRowsContainingAllTerms(currentRows, aggregate.refs);
+            int requiredSupport = requiredHintSupport(minSupport, aggregate.seenCount);
+            if (currentSupport >= requiredSupport) {
+                int qualityScore = computeHintQualityScore(currentSupport, requiredSupport, aggregate.seenCount);
+                if (aggregate.refs.size() <= 1) {
+                    singleTermCandidates.add(new SingleHintResolvedCandidate(
+                            aggregate.refs,
+                            aggregate.seenCount,
+                            currentSupport,
+                            qualityScore));
+                } else {
+                    multiTermCandidates.add(new HintResolvedCandidate(
+                            aggregate.refs,
+                            aggregate.seenCount,
+                            currentSupport,
+                            qualityScore));
+                }
+            }
+        }
+        List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> resolvedMutexHints =
+                resolveMutexConflicts(multiTermCandidates);
+        List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> resolvedSingleHints =
+                selectSingleHints(singleTermCandidates, resolvedMutexHints.size(), minSupport);
+        List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> out = new ArrayList<>(
+                resolvedSingleHints.size() + resolvedMutexHints.size());
+        out.addAll(resolvedSingleHints);
+        out.addAll(resolvedMutexHints);
+        return out;
+    }
+
+    private static List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> selectSingleHints(
+            List<SingleHintResolvedCandidate> singles,
+            int resolvedMutexHintCount,
+            int minSupport
+    ) {
+        if (singles.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<SingleHintResolvedCandidate> eligible = new ArrayList<>(singles.size());
+        int supportFloor = minSupport;
+        if (resolvedMutexHintCount > 0) {
+            supportFloor = Math.max(minSupport,
+                    (int) Math.ceil(minSupport * SINGLE_HINT_SUPPORT_MULTIPLIER_WHEN_MUTEX_EXISTS));
+        }
+        for (int i = 0; i < singles.size(); i++) {
+            SingleHintResolvedCandidate c = singles.get(i);
+            if (c.currentSupport >= supportFloor) {
+                eligible.add(c);
+            }
+        }
+        if (eligible.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Collections.sort(eligible, (a, b) -> {
+            int cmp = Integer.compare(b.qualityScore, a.qualityScore);
+            if (cmp != 0) {
+                return cmp;
+            }
+            cmp = Integer.compare(b.currentSupport, a.currentSupport);
+            if (cmp != 0) {
+                return cmp;
+            }
+            cmp = Integer.compare(b.seenCount, a.seenCount);
+            if (cmp != 0) {
+                return cmp;
+            }
+            return compareLexicographicRefList(a.refs, b.refs);
+        });
+        int limit = eligible.size();
+        if (resolvedMutexHintCount > 0) {
+            limit = Math.min(
+                    eligible.size(),
+                    Math.max(MIN_SINGLE_HINTS_WHEN_MUTEX_EXISTS, resolvedMutexHintCount * SINGLE_HINTS_PER_MUTEX_HINT)
+            );
+        }
+        List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> out = new ArrayList<>(limit);
+        for (int i = 0; i < limit; i++) {
+            SingleHintResolvedCandidate c = eligible.get(i);
+            out.add(new ExclusiveFrequentItemsetSelector.PremergeHintCandidate(c.refs, c.qualityScore));
+        }
+        return out;
+    }
+
+    private static List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> resolveMutexConflicts(
+            List<HintResolvedCandidate> candidates
+    ) {
+        if (candidates.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Collections.sort(candidates, (a, b) -> {
+            int cmp = Integer.compare(conflictPriorityScore(b), conflictPriorityScore(a));
+            if (cmp != 0) {
+                return cmp;
+            }
+            cmp = Integer.compare(b.currentSupport, a.currentSupport);
+            if (cmp != 0) {
+                return cmp;
+            }
+            cmp = Integer.compare(b.seenCount, a.seenCount);
+            if (cmp != 0) {
+                return cmp;
+            }
+            return compareLexicographicRefList(a.refs, b.refs);
+        });
+        List<HintResolvedCandidate> selected = new ArrayList<>(candidates.size());
+        for (int i = 0; i < candidates.size(); i++) {
+            HintResolvedCandidate candidate = candidates.get(i);
+            if (!conflictsWithAnySelected(candidate, selected)) {
+                selected.add(candidate);
+            }
+        }
+        List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> out = new ArrayList<>(selected.size());
+        for (int i = 0; i < selected.size(); i++) {
+            HintResolvedCandidate candidate = selected.get(i);
+            out.add(new ExclusiveFrequentItemsetSelector.PremergeHintCandidate(candidate.refs, candidate.qualityScore));
+        }
+        return out;
+    }
+
+    private static int conflictPriorityScore(HintResolvedCandidate candidate) {
+        return candidate.qualityScore * Math.max(1, candidate.currentSupport) * Math.max(2, candidate.refs.size());
+    }
+
+    private static boolean conflictsWithAnySelected(HintResolvedCandidate candidate, List<HintResolvedCandidate> selected) {
+        for (int i = 0; i < selected.size(); i++) {
+            if (areMutexHintsConflicting(candidate.refs, selected.get(i).refs)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean areMutexHintsConflicting(List<ByteRef> left, List<ByteRef> right) {
+        if (left.size() <= 1 || right.size() <= 1) {
+            return false;
+        }
+        boolean hasOverlap = false;
+        for (int i = 0; i < left.size(); i++) {
+            ByteRef li = left.get(i);
+            for (int j = 0; j < right.size(); j++) {
+                if (sameRef(li, right.get(j))) {
+                    hasOverlap = true;
+                    break;
+                }
+            }
+            if (hasOverlap) {
+                break;
+            }
+        }
+        if (!hasOverlap) {
+            return false;
+        }
+        return !isSubsetRefs(left, right) && !isSubsetRefs(right, left);
+    }
+
+    private static boolean isSubsetRefs(List<ByteRef> maybeSubset, List<ByteRef> maybeSuperset) {
+        for (int i = 0; i < maybeSubset.size(); i++) {
+            boolean found = false;
+            ByteRef needle = maybeSubset.get(i);
+            for (int j = 0; j < maybeSuperset.size(); j++) {
+                if (sameRef(needle, maybeSuperset.get(j))) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static int compareLexicographicRefList(List<ByteRef> a, List<ByteRef> b) {
+        int n = Math.min(a.size(), b.size());
+        for (int i = 0; i < n; i++) {
+            int cmp = ByteArrayUtils.compareUnsigned(a.get(i), b.get(i));
+            if (cmp != 0) {
+                return cmp;
+            }
+        }
+        return Integer.compare(a.size(), b.size());
+    }
+
+    private static int premergeHintCacheKeyHash(
+            List<PremergeHint> mutexHints,
+            List<PremergeHint> singleHints,
+            HintValidationMode mode
+    ) {
+        int h = 1;
+        h = 31 * h + System.identityHashCode(mutexHints);
+        h = 31 * h + System.identityHashCode(singleHints);
+        h = 31 * h + mutexHints.size();
+        h = 31 * h + singleHints.size();
+        h = 31 * h + mode.ordinal();
+        return h;
+    }
+
+    private static boolean isAutoHintsWhenMissingEnabled() {
+        return !"false".equalsIgnoreCase(System.getProperty(AUTO_HINTS_WHEN_MISSING_PROPERTY, "true"));
+    }
+
+    private static int requiredHintSupport(int minSupport, int seenCount) {
+        if (seenCount >= STABLE_HINT_REPEAT_THRESHOLD) {
+            return Math.max(1, minSupport);
+        }
+        return Math.max(1, (int) Math.ceil(minSupport * ONE_OFF_HINT_SUPPORT_MULTIPLIER));
+    }
+
+    private static int computeHintQualityScore(int currentSupport, int requiredSupport, int seenCount) {
+        double supportRatio = requiredSupport <= 0 ? 1.0d : (currentSupport / (double) requiredSupport);
+        double stabilityFactor = 1.0d + 0.25d * Math.max(0, seenCount - 1);
+        int score = (int) Math.floor(supportRatio * stabilityFactor);
+        if (score < 1) {
+            return 1;
+        }
+        return Math.min(MAX_HINT_QUALITY_SCORE, score);
+    }
+
+    private static int countRowsContainingAllTerms(List<DocTerms> rows, List<ByteRef> refs) {
+        if (refs.isEmpty()) {
+            return 0;
+        }
+        int support = 0;
+        for (int i = 0; i < rows.size(); i++) {
+            List<ByteRef> rowTerms = rows.get(i).getTermRefsUnsafe();
+            int matched = 0;
+            for (int r = 0; r < refs.size(); r++) {
+                if (containsRef(rowTerms, refs.get(r))) {
+                    matched++;
+                } else {
+                    break;
+                }
+            }
+            if (matched == refs.size()) {
+                support++;
+            }
+        }
+        return support;
+    }
+
+    private static boolean containsRef(List<ByteRef> terms, ByteRef target) {
+        for (int i = 0; i < terms.size(); i++) {
+            if (sameRef(terms.get(i), target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean sameRef(ByteRef a, ByteRef b) {
+        if (a.getLength() != b.getLength()) {
+            return false;
+        }
+        byte[] as = a.getSourceUnsafe();
+        byte[] bs = b.getSourceUnsafe();
+        int ao = a.getOffset();
+        int bo = b.getOffset();
+        for (int i = 0; i < a.getLength(); i++) {
+            if (as[ao + i] != bs[bo + i]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static List<ByteRef> normalizeHintTermRefs(List<ByteRef> termRefs) {
@@ -389,44 +852,52 @@ public final class ExclusiveFpRowsProcessingApi {
         return ByteArrayUtils.normalizeTermRefs(out);
     }
 
-    private static void applySamplingConfig(ProcessingOptions options) {
-        // 代码内配置抽样参数（不依赖 properties 文件）
-        ExclusiveFrequentItemsetSelector.setSampleRatio(options.getSampleRatio());
-        ExclusiveFrequentItemsetSelector.setMinSampleCount(options.getMinSampleCount());
-        ExclusiveFrequentItemsetSelector.setSamplingSupportScale(options.getSamplingSupportScale());
-    }
-
-    private static void applySelectorTuningConfig(ProcessingOptions options) {
-        ExclusiveFrequentItemsetSelector.setPickerMinNetGain(options.getPickerMinNetGain());
-        ExclusiveFrequentItemsetSelector.setPickerEstimatedBytesPerTerm(options.getPickerEstimatedBytesPerTerm());
-        ExclusiveFrequentItemsetSelector.setPickerCoverageRewardPerTerm(options.getPickerCoverageRewardPerTerm());
-    }
-
     private static ExclusiveSelectionResult selectWithDefaultSelectorTuning(
             List<DocTerms> rows,
-            int minSupport,
-            int minItemsetSize,
-            int maxItemsetSize,
-            int maxCandidateCount,
+            ProcessingOptions options,
             List<ExclusiveFrequentItemsetSelector.PremergeHintCandidate> premergeHints,
             int hintBoostWeight
     ) {
-        return ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(
-                rows,
-                minSupport,
-                minItemsetSize,
-                maxItemsetSize,
-                maxCandidateCount,
-                premergeHints,
-                hintBoostWeight
-        );
+        ExclusiveFrequentItemsetSelector.ExecutionTuning executionTuning =
+                new ExclusiveFrequentItemsetSelector.ExecutionTuning(
+                        options.getSampleRatio(),
+                        options.getMinSampleCount(),
+                        options.getSamplingSupportScale(),
+                        options.getPickerMinNetGain(),
+                        options.getPickerEstimatedBytesPerTerm(),
+                        options.getPickerCoverageRewardPerTerm(),
+                        EngineTuningConfig.DEFAULT_MAX_DOC_COVERAGE_RATIO,
+                        ExclusiveFrequentItemsetSelector.getPickerScoringWeights()
+                );
+        ExclusiveFrequentItemsetSelector.SelectionRequest request =
+                ExclusiveFrequentItemsetSelector.SelectionRequest.builder(rows)
+                        .minSupport(options.getMinSupport())
+                        .minItemsetSize(options.getMinItemsetSize())
+                        .maxItemsetSize(options.getMaxItemsetSize())
+                        .maxCandidateCount(options.getMaxCandidateCount())
+                        .premergeHints(premergeHints)
+                        .hintBoostWeight(hintBoostWeight)
+                        .executionTuning(executionTuning)
+                        .build();
+        return ExclusiveFrequentItemsetSelector.selectExclusiveBestItemsetsWithStats(request);
     }
 
+    /**
+     * 基于挖掘输入与已选互斥结果，构建三层索引派生数据。
+     *
+     * <p><b>前置条件</b>：{@code miningRows != null}、{@code result != null}、
+     * {@code hotTermThresholdExclusive >= 0}。</p>
+     */
     public static LineFileProcessingResult.DerivedData buildDerivedData(
             List<DocTerms> miningRows,
             ExclusiveSelectionResult result,
             int hotTermThresholdExclusive
     ) {
+        Objects.requireNonNull(miningRows, "miningRows");
+        Objects.requireNonNull(result, "result");
+        if (hotTermThresholdExclusive < 0) {
+            throw new IllegalArgumentException("hotTermThresholdExclusive must be >= 0");
+        }
         // cutRes 基于输入行做浅结构复制，后续只移除词项，不改变 docId。
         List<DocTerms> cutRes = copyRows(miningRows);
         // hotTerms 在“原始 cutRes”上统计，语义是“先统计，再剔除 selected 词项”。
@@ -517,18 +988,12 @@ public final class ExclusiveFpRowsProcessingApi {
             }
         }
         // 展示层排序：先按出现文档数降序，再按字节序升序保证同 count 稳定顺序。
-        Collections.sort(out, new Comparator<LineFileProcessingResult.HotTermDocList>() {
-            @Override
-            public int compare(
-                    LineFileProcessingResult.HotTermDocList a,
-                    LineFileProcessingResult.HotTermDocList b
-            ) {
-                int c = b.getCount() - a.getCount();
-                if (c != 0) {
-                    return c;
-                }
-                return ByteArrayUtils.compareUnsigned(a.getTermRef(), b.getTermRef());
+        Collections.sort(out, (a, b) -> {
+            int c = b.getCount() - a.getCount();
+            if (c != 0) {
+                return c;
             }
+            return ByteArrayUtils.compareUnsigned(a.getTermRef(), b.getTermRef());
         });
         return out;
     }
@@ -639,45 +1104,97 @@ public final class ExclusiveFpRowsProcessingApi {
         private IntermediateSteps() {
         }
 
+        /**
+         * 前置条件：{@code rows != null}，且每个 {@link DocTerms} 不能为 null。
+         */
         public static List<DocTerms> copyRows(List<DocTerms> rows) {
+            Objects.requireNonNull(rows, "rows");
             return ExclusiveFpRowsProcessingApi.copyRows(rows);
         }
 
+        /**
+         * 前置条件：{@code rows != null}、{@code ngramStart > 0}、{@code ngramEnd >= ngramStart}。
+         */
         public static List<DocTerms> tokenizeRowsForMining(
                 List<DocTerms> rows,
                 int ngramStart,
                 int ngramEnd
         ) {
+            Objects.requireNonNull(rows, "rows");
+            validateNgramRange(ngramStart, ngramEnd);
             return ExclusiveFpRowsProcessingApi.tokenizeRowsForMining(rows, ngramStart, ngramEnd);
         }
 
+        /**
+         * 前置条件：{@code rows != null}、{@code hotTermThresholdExclusive >= 0}。
+         */
         public static List<LineFileProcessingResult.HotTermDocList> buildHotTerms(
                 List<DocTerms> rows,
                 int hotTermThresholdExclusive
         ) {
+            Objects.requireNonNull(rows, "rows");
+            if (hotTermThresholdExclusive < 0) {
+                throw new IllegalArgumentException("hotTermThresholdExclusive must be >= 0");
+            }
             return ExclusiveFpRowsProcessingApi.buildHotTerms(rows, hotTermThresholdExclusive);
         }
 
+        /**
+         * 前置条件：{@code result != null}。
+         */
         public static Set<ByteArrayKey> collectSelectedTerms(ExclusiveSelectionResult result) {
+            Objects.requireNonNull(result, "result");
             return ExclusiveFpRowsProcessingApi.collectSelectedTerms(result);
         }
 
+        /**
+         * 前置条件：{@code cutRes != null}、{@code selectedTerms != null}。
+         */
         public static List<DocTerms> removeSelectedTermsFromCutRes(
                 List<DocTerms> cutRes,
                 Set<ByteArrayKey> selectedTerms
         ) {
+            Objects.requireNonNull(cutRes, "cutRes");
+            Objects.requireNonNull(selectedTerms, "selectedTerms");
             return ExclusiveFpRowsProcessingApi.removeSelectedTermsFromCutRes(cutRes, selectedTerms);
         }
 
+        /**
+         * 前置条件：{@code hotTerms != null}、{@code selectedTerms != null}。
+         */
         public static List<LineFileProcessingResult.HotTermDocList> removeSelectedTermsFromHotTerms(
                 List<LineFileProcessingResult.HotTermDocList> hotTerms,
                 Set<ByteArrayKey> selectedTerms
         ) {
+            Objects.requireNonNull(hotTerms, "hotTerms");
+            Objects.requireNonNull(selectedTerms, "selectedTerms");
             return ExclusiveFpRowsProcessingApi.removeSelectedTermsFromHotTerms(hotTerms, selectedTerms);
         }
 
+        /**
+         * 前置条件：{@code options != null}。
+         */
         public static void validateProcessingOptions(ProcessingOptions options) {
+            Objects.requireNonNull(options, "options");
             ExclusiveFpRowsProcessingApi.validateProcessingOptions(options);
+        }
+
+        /** 仅用于并发测试/观测：清空 premerge hint 聚合缓存与命中计数。 */
+        public static void clearPremergeHintAggregateCache() {
+            clearPremergeHintAggregateCacheInternal();
+            PREMERGE_HINT_CACHE_CLEANUPS.reset();
+        }
+
+        public static long premergeHintAggregateCacheHitCount() {
+            return PREMERGE_HINT_CACHE_HITS.sum();
+        }
+
+        public static long premergeHintAggregateCacheMissCount() {
+            return PREMERGE_HINT_CACHE_MISSES.sum();
+        }
+
+        public static long premergeHintAggregateCacheCleanupCount() {
+            return PREMERGE_HINT_CACHE_CLEANUPS.sum();
         }
     }
 
@@ -970,6 +1487,8 @@ public final class ExclusiveFpRowsProcessingApi {
 
         /**
          * 历史段 {@code highFreqMutexGroupPostings} 映射为 pre-merge 提示（每条 hint 对应一个互斥词组）。
+         *
+         * <p>契约建议：优先提供该类提示；每条提示通常包含 >=2 个 term，且来自最近 merge 窗口。</p>
          */
         public ProcessingOptions withPremergeMutexGroupHints(List<PremergeHint> value) {
             return new ProcessingOptions(
@@ -983,6 +1502,8 @@ public final class ExclusiveFpRowsProcessingApi {
 
         /**
          * 历史段 {@code highFreqSingleTermPostings} 映射为 pre-merge 提示（每条 hint 通常只含 1 个 term）。
+         *
+         * <p>契约建议：single hints 仅作为补充，避免无筛选全量下发；存在 mutex hints 时会被更严格限流。</p>
          */
         public ProcessingOptions withPremergeSingleTermHints(List<PremergeHint> value) {
             return new ProcessingOptions(
@@ -994,6 +1515,9 @@ public final class ExclusiveFpRowsProcessingApi {
             );
         }
 
+        /**
+         * hint 优先级附加权重；取 0 等价于关闭 hint 对排序的影响。
+         */
         public ProcessingOptions withHintBoostWeight(int value) {
             return new ProcessingOptions(
                     minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
@@ -1004,6 +1528,9 @@ public final class ExclusiveFpRowsProcessingApi {
             );
         }
 
+        /**
+         * hint 输入校验模式：STRICT 会对空/非法 hint 直接抛错，FILTER_ONLY 会尽量过滤后继续执行。
+         */
         public ProcessingOptions withHintValidationMode(HintValidationMode value) {
             return new ProcessingOptions(
                     minSupport, minItemsetSize, maxItemsetSize, maxCandidateCount, hotTermThresholdExclusive,
@@ -1088,6 +1615,142 @@ public final class ExclusiveFpRowsProcessingApi {
 
         public HintValidationMode getHintValidationMode() {
             return hintValidationMode;
+        }
+    }
+
+    private static final class HintAggregate {
+        private final List<ByteRef> refs;
+        private final int seenCount;
+
+        private HintAggregate(List<ByteRef> refs, int seenCount) {
+            this.refs = refs;
+            this.seenCount = seenCount;
+        }
+    }
+
+    private static final class HintResolvedCandidate {
+        private final List<ByteRef> refs;
+        private final int seenCount;
+        private final int currentSupport;
+        private final int qualityScore;
+
+        private HintResolvedCandidate(List<ByteRef> refs, int seenCount, int currentSupport, int qualityScore) {
+            this.refs = refs;
+            this.seenCount = seenCount;
+            this.currentSupport = currentSupport;
+            this.qualityScore = qualityScore;
+        }
+    }
+
+    private static final class SingleHintResolvedCandidate {
+        private final List<ByteRef> refs;
+        private final int seenCount;
+        private final int currentSupport;
+        private final int qualityScore;
+
+        private SingleHintResolvedCandidate(List<ByteRef> refs, int seenCount, int currentSupport, int qualityScore) {
+            this.refs = refs;
+            this.seenCount = seenCount;
+            this.currentSupport = currentSupport;
+            this.qualityScore = qualityScore;
+        }
+    }
+
+    private static final class HintTermKey {
+        private final List<ByteRef> refs;
+        private final int hash;
+
+        private HintTermKey(List<ByteRef> refs) {
+            this.refs = refs;
+            int h = 1;
+            for (int i = 0; i < refs.size(); i++) {
+                h = 31 * h + ByteArrayUtils.hash(
+                        refs.get(i).getSourceUnsafe(),
+                        refs.get(i).getOffset(),
+                        refs.get(i).getLength());
+            }
+            this.hash = h;
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof HintTermKey)) {
+                return false;
+            }
+            HintTermKey other = (HintTermKey) obj;
+            if (refs.size() != other.refs.size()) {
+                return false;
+            }
+            for (int i = 0; i < refs.size(); i++) {
+                if (!sameRef(refs.get(i), other.refs.get(i))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    private static final class HintAggregateCacheEntry {
+        private final int keyHash;
+        private final HintValidationMode mode;
+        private final List<PremergeHint> mutexHintsRef;
+        private final List<PremergeHint> singleHintsRef;
+        private final List<HintAggregate> aggregates;
+
+        private HintAggregateCacheEntry(
+                int keyHash,
+                HintValidationMode mode,
+                List<PremergeHint> mutexHintsRef,
+                List<PremergeHint> singleHintsRef,
+                List<HintAggregate> aggregates
+        ) {
+            this.keyHash = keyHash;
+            this.mode = mode;
+            this.mutexHintsRef = mutexHintsRef;
+            this.singleHintsRef = singleHintsRef;
+            this.aggregates = aggregates;
+        }
+
+        private boolean matches(
+                List<PremergeHint> mutexHintsRef,
+                List<PremergeHint> singleHintsRef,
+                HintValidationMode mode,
+                int keyHash
+        ) {
+            return this.keyHash == keyHash
+                    && this.mode == mode
+                    && this.mutexHintsRef == mutexHintsRef
+                    && this.singleHintsRef == singleHintsRef;
+        }
+    }
+
+    private static final class TermSupport {
+        private final int termId;
+        private final int support;
+
+        private TermSupport(int termId, int support) {
+            this.termId = termId;
+            this.support = support;
+        }
+    }
+
+    private static final class PairSupport {
+        private final int leftIdx;
+        private final int rightIdx;
+        private final int support;
+
+        private PairSupport(int leftIdx, int rightIdx, int support) {
+            this.leftIdx = leftIdx;
+            this.rightIdx = rightIdx;
+            this.support = support;
         }
     }
 }

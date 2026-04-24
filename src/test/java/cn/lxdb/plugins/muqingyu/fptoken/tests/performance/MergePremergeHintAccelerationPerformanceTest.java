@@ -50,8 +50,9 @@ class MergePremergeHintAccelerationPerformanceTest {
                 .withSampleRatio(0.45d)
                 .withHintBoostWeight(0);
 
-        SegmentPremergeHints hints =
-                buildHintsFromSegments(baseOptions, segA, segB, segC, true, true);
+        TimedHintBuild timedHints =
+                timedBuildHintsFromSegments(baseOptions, segA, segB, segC, true, true);
+        SegmentPremergeHints hints = timedHints.hints;
         List<ExclusiveFpRowsProcessingApi.PremergeHint> coverageHints = new ArrayList<>();
         coverageHints.addAll(hints.mutexGroupHints);
         coverageHints.addAll(hints.singleTermHints);
@@ -69,6 +70,10 @@ class MergePremergeHintAccelerationPerformanceTest {
         double improvementPercent = baseline.medianMs <= 0L
                 ? 0.0d
                 : ((baseline.medianMs - hinted.medianMs) * 100.0d) / baseline.medianMs;
+        long mergeSavedMs = Math.max(0L, baseline.medianMs - hinted.medianMs);
+        double benefitCostRatio = timedHints.hintBuildMs <= 0L
+                ? (mergeSavedMs > 0L ? Double.POSITIVE_INFINITY : 0.0d)
+                : (mergeSavedMs / (double) timedHints.hintBuildMs);
         String reason = diagnoseNoImprovement(baseline, hinted, hintCoverage);
         System.out.println(
                 "[merge-hint-perf] baselineMedianMs=" + baseline.medianMs
@@ -78,6 +83,9 @@ class MergePremergeHintAccelerationPerformanceTest {
                         + ", hintedCandidates=" + hinted.candidateCount
                         + ", baselineGroups=" + baseline.groupCount
                         + ", hintedGroups=" + hinted.groupCount
+                        + ", hintBuildMs=" + timedHints.hintBuildMs
+                        + ", mergeSavedMs=" + mergeSavedMs
+                        + ", benefitCostRatio=" + benefitCostRatio
                         + ", hintCoveragePercent=" + hintCoverage
                         + ", reason=" + reason
         );
@@ -110,12 +118,15 @@ class MergePremergeHintAccelerationPerformanceTest {
                 .withSampleRatio(0.45d)
                 .withHintBoostWeight(0);
 
-        SegmentPremergeHints mutexOnlyHints =
-                buildHintsFromSegments(baseOptions, segA, segB, segC, true, false);
-        SegmentPremergeHints singleOnlyHints =
-                buildHintsFromSegments(baseOptions, segA, segB, segC, false, true);
-        SegmentPremergeHints bothHints =
-                buildHintsFromSegments(baseOptions, segA, segB, segC, true, true);
+        TimedHintBuild mutexOnlyTimed =
+                timedBuildHintsFromSegments(baseOptions, segA, segB, segC, true, false);
+        TimedHintBuild singleOnlyTimed =
+                timedBuildHintsFromSegments(baseOptions, segA, segB, segC, false, true);
+        TimedHintBuild bothTimed =
+                timedBuildHintsFromSegments(baseOptions, segA, segB, segC, true, true);
+        SegmentPremergeHints mutexOnlyHints = mutexOnlyTimed.hints;
+        SegmentPremergeHints singleOnlyHints = singleOnlyTimed.hints;
+        SegmentPremergeHints bothHints = bothTimed.hints;
         assertTrue(!mutexOnlyHints.mutexGroupHints.isEmpty(), "mutex hints should not be empty");
         assertTrue(!singleOnlyHints.singleTermHints.isEmpty(), "single-term hints should not be empty");
         assertTrue(!bothHints.mutexGroupHints.isEmpty() || !bothHints.singleTermHints.isEmpty(),
@@ -155,6 +166,10 @@ class MergePremergeHintAccelerationPerformanceTest {
                         + "ms, mutexOnly=" + mutexOnly.medianMs
                         + "ms, singleOnly=" + singleOnly.medianMs
                         + "ms, both=" + both.medianMs
+                        + ", hintBuildMs(mutex/single/both)="
+                        + mutexOnlyTimed.hintBuildMs + "/"
+                        + singleOnlyTimed.hintBuildMs + "/"
+                        + bothTimed.hintBuildMs
         );
 
         long baselineFloorMs = Math.max(20L, baseline.medianMs);
@@ -242,6 +257,21 @@ class MergePremergeHintAccelerationPerformanceTest {
             }
         }
         return new SegmentPremergeHints(mutexOut, singleOut);
+    }
+
+    private static TimedHintBuild timedBuildHintsFromSegments(
+            ExclusiveFpRowsProcessingApi.ProcessingOptions options,
+            List<DocTerms> segA,
+            List<DocTerms> segB,
+            List<DocTerms> segC,
+            boolean includeMutexGroupPostings,
+            boolean includeSingleTermPostings
+    ) {
+        long t0 = System.nanoTime();
+        SegmentPremergeHints hints = buildHintsFromSegments(
+                options, segA, segB, segC, includeMutexGroupPostings, includeSingleTermPostings);
+        long elapsedMs = (System.nanoTime() - t0) / 1_000_000L;
+        return new TimedHintBuild(hints, Math.max(0L, elapsedMs));
     }
 
     private static double estimateHintCoverage(
@@ -356,6 +386,16 @@ class MergePremergeHintAccelerationPerformanceTest {
             this.medianMs = medianMs;
             this.candidateCount = candidateCount;
             this.groupCount = groupCount;
+        }
+    }
+
+    private static final class TimedHintBuild {
+        private final SegmentPremergeHints hints;
+        private final long hintBuildMs;
+
+        private TimedHintBuild(SegmentPremergeHints hints, long hintBuildMs) {
+            this.hints = hints;
+            this.hintBuildMs = hintBuildMs;
         }
     }
 }

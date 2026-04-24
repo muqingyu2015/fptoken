@@ -40,7 +40,17 @@ class PremergeHintModelsUnitTest {
 
         terms.clear();
         assertEquals(1, hint.getTermRefs().size());
+        assertEquals(1, hint.getQualityScore());
         assertThrows(UnsupportedOperationException.class, () -> hint.getTermRefs().add(ref("C")));
+    }
+
+    @Test
+    void premergeHintCandidate_withQuality_shouldValidateAndExposeScore() {
+        ExclusiveFrequentItemsetSelector.PremergeHintCandidate hint =
+                new ExclusiveFrequentItemsetSelector.PremergeHintCandidate(Arrays.asList(ref("A"), ref("B")), 3);
+        assertEquals(3, hint.getQualityScore());
+        assertThrows(IllegalArgumentException.class,
+                () -> new ExclusiveFrequentItemsetSelector.PremergeHintCandidate(Arrays.asList(ref("A")), 0));
     }
 
     @Test

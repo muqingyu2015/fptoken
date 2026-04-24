@@ -6,8 +6,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector;
 import cn.lxdb.plugins.muqingyu.fptoken.exclusivefp.config.EngineTuningConfig;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
+@ResourceLock(value = "ExclusiveFrequentItemsetSelector.runtimeTuning", mode = ResourceAccessMode.READ_WRITE)
 class ExclusiveFrequentItemsetSelectorConfigFileTest {
+    private static final String PROP_SAMPLE_RATIO = "fptoken.selector.sampleRatio";
+    private static final String PROP_MIN_SAMPLE_COUNT = "fptoken.selector.minSampleCount";
+    private static final String PROP_SAMPLING_SUPPORT_SCALE = "fptoken.selector.samplingSupportScale";
 
     @Test
     void codeConfig_setters_shouldTakeEffectImmediately() {
@@ -125,6 +131,14 @@ class ExclusiveFrequentItemsetSelectorConfigFileTest {
     }
 
     @Test
+    void computeSampledMinSupport_autoScale_shouldIncludeConfidenceMargin() {
+        int auto = ExclusiveFrequentItemsetSelector.computeSampledMinSupport(100, 1000, 300, 0.0d);
+        int explicitRatioOnly = ExclusiveFrequentItemsetSelector.computeSampledMinSupport(100, 1000, 300, 0.3d);
+        assertEquals(30, explicitRatioOnly);
+        assertEquals(explicitRatioOnly, auto);
+    }
+
+    @Test
     void computeSampledMinSupport_invalidArgs_shouldThrow() {
         assertThrows(IllegalArgumentException.class,
                 () -> ExclusiveFrequentItemsetSelector.computeSampledMinSupport(0, 100, 10, 0.0d));
@@ -146,5 +160,67 @@ class ExclusiveFrequentItemsetSelectorConfigFileTest {
     void computeTargetSampleSize_invalidArgs_shouldThrow() {
         assertThrows(IllegalArgumentException.class,
                 () -> ExclusiveFrequentItemsetSelector.computeTargetSampleSize(0, 0.5d, 10));
+    }
+
+    @Test
+    void reloadSamplingConfig_systemProperties_shouldOverrideSamplingRuntimeTuning() {
+        String oldRatioProp = System.getProperty(PROP_SAMPLE_RATIO);
+        String oldMinProp = System.getProperty(PROP_MIN_SAMPLE_COUNT);
+        String oldScaleProp = System.getProperty(PROP_SAMPLING_SUPPORT_SCALE);
+        double oldRatio = ExclusiveFrequentItemsetSelector.getSampleRatio();
+        int oldMin = ExclusiveFrequentItemsetSelector.getMinSampleCount();
+        double oldScale = ExclusiveFrequentItemsetSelector.getSamplingSupportScale();
+        try {
+            System.setProperty(PROP_SAMPLE_RATIO, "0.55");
+            System.setProperty(PROP_MIN_SAMPLE_COUNT, "123");
+            System.setProperty(PROP_SAMPLING_SUPPORT_SCALE, "0.25");
+
+            ExclusiveFrequentItemsetSelector.reloadSamplingConfig();
+
+            assertEquals(0.55d, ExclusiveFrequentItemsetSelector.getSampleRatio(), 1e-9);
+            assertEquals(123, ExclusiveFrequentItemsetSelector.getMinSampleCount());
+            assertEquals(0.25d, ExclusiveFrequentItemsetSelector.getSamplingSupportScale(), 1e-9);
+        } finally {
+            restoreSystemProperty(PROP_SAMPLE_RATIO, oldRatioProp);
+            restoreSystemProperty(PROP_MIN_SAMPLE_COUNT, oldMinProp);
+            restoreSystemProperty(PROP_SAMPLING_SUPPORT_SCALE, oldScaleProp);
+            ExclusiveFrequentItemsetSelector.setSampleRatio(oldRatio);
+            ExclusiveFrequentItemsetSelector.setMinSampleCount(oldMin);
+            ExclusiveFrequentItemsetSelector.setSamplingSupportScale(oldScale);
+            ExclusiveFrequentItemsetSelector.reloadSamplingConfig();
+        }
+    }
+
+    @Test
+    void reloadSamplingConfig_invalidSystemProperties_shouldFallbackToCurrentValues() {
+        String oldRatioProp = System.getProperty(PROP_SAMPLE_RATIO);
+        String oldMinProp = System.getProperty(PROP_MIN_SAMPLE_COUNT);
+        String oldScaleProp = System.getProperty(PROP_SAMPLING_SUPPORT_SCALE);
+        double oldRatio = ExclusiveFrequentItemsetSelector.getSampleRatio();
+        int oldMin = ExclusiveFrequentItemsetSelector.getMinSampleCount();
+        double oldScale = ExclusiveFrequentItemsetSelector.getSamplingSupportScale();
+        try {
+            System.setProperty(PROP_SAMPLE_RATIO, "not-a-number");
+            System.setProperty(PROP_MIN_SAMPLE_COUNT, "bad-int");
+            System.setProperty(PROP_SAMPLING_SUPPORT_SCALE, "oops");
+
+            ExclusiveFrequentItemsetSelector.reloadSamplingConfig();
+
+            assertEquals(oldRatio, ExclusiveFrequentItemsetSelector.getSampleRatio(), 1e-9);
+            assertEquals(oldMin, ExclusiveFrequentItemsetSelector.getMinSampleCount());
+            assertEquals(oldScale, ExclusiveFrequentItemsetSelector.getSamplingSupportScale(), 1e-9);
+        } finally {
+            restoreSystemProperty(PROP_SAMPLE_RATIO, oldRatioProp);
+            restoreSystemProperty(PROP_MIN_SAMPLE_COUNT, oldMinProp);
+            restoreSystemProperty(PROP_SAMPLING_SUPPORT_SCALE, oldScaleProp);
+        }
+    }
+
+    private static void restoreSystemProperty(String key, String previousValue) {
+        if (previousValue == null) {
+            System.clearProperty(key);
+            return;
+        }
+        System.setProperty(key, previousValue);
     }
 }
