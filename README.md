@@ -96,8 +96,8 @@ FpTokenBlockOrchestrator（按 group_level 与 targetLevel 分流）
 
 完整列表与测试证据见 [`docs/fp-token-review-and-test-report_20260517.html`](docs/fp-token-review-and-test-report_20260517.html)。摘要：
 
-- **P0**：无（热词重建、`group_id`/`index_id` 布局均已按产品约定确认为预期行为）。
-- **P1**：`FpTermKey.viewOf` 作 Map 键；`FpGroupDataRebuild#flushto` 待办项（`FpFilteredTermsEnum` 前缀覆写为设计行为，非缺陷）。
+- **P0 / P1**：无开放项（审查中的逻辑/行为点均已按产品约定撤回，见报告 §4）。
+- **P2（可选）**：块级别策略注释、Javadoc/类名一致性与集成测覆盖（BUG-201～204）。
 
 ---
 
