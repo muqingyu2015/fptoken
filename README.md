@@ -96,8 +96,8 @@ FpTokenBlockOrchestrator（按 group_level 与 targetLevel 分流）
 
 完整列表与测试证据见 [`docs/fp-token-review-and-test-report_20260517.html`](docs/fp-token-review-and-test-report_20260517.html)。摘要：
 
-- **P0**：`index_id` 读写与补丁 `NumericUtils`（int 四字节写 / short 两字节读）不一致（BUG-005）。`group_id` 约定不超过 32767，与 `read_group_id` 返回 `short` 一致。
-- **P1**：`FpFilteredTermsEnum` 原地改写词项前缀；`FpTermKey.viewOf` 作 Map 键的风险。
+- **P0**：无（热词重建、`group_id`/`index_id` 布局均已按产品约定确认为预期行为）。
+- **P1**：`FpTermKey.viewOf` 作 Map 键；`FpGroupDataRebuild#flushto` 待办项（`FpFilteredTermsEnum` 前缀覆写为设计行为，非缺陷）。
 
 ---
 

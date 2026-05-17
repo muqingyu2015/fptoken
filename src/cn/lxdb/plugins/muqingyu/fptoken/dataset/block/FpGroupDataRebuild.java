@@ -106,7 +106,7 @@ public final class FpGroupDataRebuild {
 		int del_term_docid=distinctDocUnion.nextSetBit(0);
 
 
-		final byte[] reuse_bytes = new byte[1024];// TODO 生成新的;//FpTokenProcessLocalId.dataIdPrefix6(System.currentTimeMillis(), dataIdHash);
+		final byte[] reuse_bytes = new byte[1024];
 		BytesRef reuse_term=new BytesRef(reuse_bytes);
 		int group_id=parentItem.groupIndex.incrementAndGet();
 		for(Entry<FpTermKey, FPDocList> e:hotTermToDocs.entrySet())
