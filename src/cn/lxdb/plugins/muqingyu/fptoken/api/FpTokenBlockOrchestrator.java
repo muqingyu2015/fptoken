@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.lucene.codecs.NormsProducer;
 import org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter;
-import org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.TermsWriter;
+import org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter$TermsWriter;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.util.BytesRef;
@@ -39,7 +39,7 @@ public final class FpTokenBlockOrchestrator {
 	public final int maxDoc;
 	public final int targetLevel;
 	public final ObjectPoolMulti pool;
-	public final TermsWriter termsWriter;
+	public final BlockTreeTermsWriter$TermsWriter termsWriter;
 	public final AtomicLong[] debugList;
 	public final NormsProducer norms;
 
@@ -53,7 +53,7 @@ public final class FpTokenBlockOrchestrator {
 	
 	public final TreeMap<Integer, FpBlockInfo> fpblock_list;
 	public FpTokenBlockOrchestrator(TreeMap<Integer, FpBlockInfo> fpblock_list,BlockTreeTermsWriter blockTreeWriter, Terms terms, int maxDoc, String fieldName,
-			ObjectPoolMulti pool, TermsWriter termsWriter, AtomicLong[] debugList, NormsProducer norms) throws IOException {
+			ObjectPoolMulti pool, BlockTreeTermsWriter$TermsWriter termsWriter, AtomicLong[] debugList, NormsProducer norms) throws IOException {
 		this.fpblock_list=fpblock_list;
 		this.blockTreeWriter = blockTreeWriter;
 		this.terms = terms;

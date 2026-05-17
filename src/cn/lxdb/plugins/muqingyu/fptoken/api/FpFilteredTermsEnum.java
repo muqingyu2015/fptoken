@@ -6,6 +6,7 @@ import org.apache.lucene.index.ImpactsEnum;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.TermState;
 import org.apache.lucene.index.TermsEnum;
+import org.apache.lucene.index.TermsEnum$SeekStatus;
 import org.apache.lucene.util.AttributeSource;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.NumericUtils;
@@ -61,7 +62,7 @@ public class FpFilteredTermsEnum extends TermsEnum {
 	}
 
 	@Override
-	public SeekStatus seekCeil(BytesRef text) throws IOException {
+	public TermsEnum$SeekStatus seekCeil(BytesRef text) throws IOException {
 		return this.it.seekCeil(text);
 	}
 

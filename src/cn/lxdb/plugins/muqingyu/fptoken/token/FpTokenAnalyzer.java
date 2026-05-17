@@ -1,16 +1,15 @@
 package cn.lxdb.plugins.muqingyu.fptoken.token;
 
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.Analyzer.TokenStreamComponents;
+import org.apache.lucene.analysis.Analyzer$TokenStreamComponents;
 
-import cn.lucene.proguard.CLDevApi_codes;
-import cn.lucene.proguard.CLDevApi_lquery;
+
 
 /**
  * FP（指纹）二进制域的 Lucene {@link Analyzer}：产生 {@link FPToken} 分词器，将 Reader 文本转为
  * 滑窗字节词项流。
  */
-public class FpTokenAnalyzer extends Analyzer implements CLDevApi_codes, CLDevApi_lquery {
+public class FpTokenAnalyzer extends Analyzer  {
 
 	/** true 表示查询侧构造（与索引侧区分保留，当前分词逻辑相同）。 */
 	boolean isQuery;
@@ -58,8 +57,8 @@ public class FpTokenAnalyzer extends Analyzer implements CLDevApi_codes, CLDevAp
 	 * @return {@link TokenStreamComponents}
 	 */
 	@Override
-	protected TokenStreamComponents createComponents(String fieldName) {
+	protected Analyzer$TokenStreamComponents createComponents(String fieldName) {
 		FPToken toker = new FPToken(this.isQuery, this.bytesMode);
-		return new TokenStreamComponents(toker);
+		return new Analyzer$TokenStreamComponents(toker);
 	}
 }

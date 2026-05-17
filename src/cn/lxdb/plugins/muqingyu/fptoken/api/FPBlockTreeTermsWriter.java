@@ -6,7 +6,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.lucene.codecs.NormsProducer;
 import org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter;
-import org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.TermsWriter;
+import org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter$TermsWriter;
 import org.apache.lucene.index.FieldInfos;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
@@ -41,7 +41,7 @@ public class FPBlockTreeTermsWriter {
 	 *
 	 * @see #writeTerms(int, ObjectPoolMulti, Terms, TermsWriter, FieldInfos, String, AtomicLong[], NormsProducer, FpTokenBlockFinishListener)
 	 */
-	public void writeTerms(int maxDoc, ObjectPoolMulti pool, Terms terms, TermsWriter termsWriter,
+	public void writeTerms(int maxDoc, ObjectPoolMulti pool, Terms terms, org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter$TermsWriter termsWriter,
 			FieldInfos fieldInfos, String field, AtomicLong[] debug_list, NormsProducer norms) throws IOException {
 
 

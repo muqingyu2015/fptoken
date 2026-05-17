@@ -5,10 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.lucene.util.BytesRef;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 
+@Tag("lxdb-runtime")
 class FpTokenTermLayoutTest {
 
 	@Test

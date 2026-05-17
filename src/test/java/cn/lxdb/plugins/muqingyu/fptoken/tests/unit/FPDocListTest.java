@@ -7,10 +7,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 
+@Tag("lxdb-runtime")
 class FPDocListTest {
 
 	@Test

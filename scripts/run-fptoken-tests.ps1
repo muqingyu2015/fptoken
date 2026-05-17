@@ -42,6 +42,7 @@ param(
     [switch] $Soak,
     [switch] $HtmlReport,
     [switch] $ExcludePerfTag,
+    [switch] $IncludeLxdbRuntimeTag,
     [switch] $SkipCompile,
     [string[]] $ExtraJvmArgs = @()
 )
@@ -82,6 +83,8 @@ Ensure-MavenJar "opentest4j-1.3.0.jar" `
     "https://repo1.maven.org/maven2/org/opentest4j/opentest4j/1.3.0/opentest4j-1.3.0.jar"
 Ensure-MavenJar "apiguardian-api-1.1.2.jar" `
     "https://repo1.maven.org/maven2/org/apiguardian/apiguardian-api/1.1.2/apiguardian-api-1.1.2.jar"
+Ensure-MavenJar "commons-logging-1.2.jar" `
+    "https://repo1.maven.org/maven2/commons-logging/commons-logging/1.2/commons-logging-1.2.jar"
 
 function Escape-Html([string] $text) {
     if ($null -eq $text) { return [string]::Empty }
@@ -256,19 +259,26 @@ if (-not $SkipCompile) {
     $javacCp = $junitJar
     if ($libCp) { $javacCp = "$libCp" + [IO.Path]::PathSeparator + $javacCp }
 
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+
     Write-Host "Compiling main sources -> $bin (full tree, requires patched Lucene in lib/)"
-    & javac -encoding UTF-8 -d $bin -classpath $javacCp -sourcepath (Join-Path $root "src") @allMainFiles
+    & javac -encoding UTF-8 -d $bin -classpath $javacCp -sourcepath (Join-Path $root "src") @allMainFiles 2>&1 | Out-Host
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Full main compile failed; falling back to unit-testable subset (see README)."
         $subset = @(Get-FpTokenMainCompilablePaths $root)
         Remove-Item -Path (Join-Path $bin "*") -Recurse -Force -ErrorAction SilentlyContinue
-        & javac -encoding UTF-8 -d $bin -classpath $javacCp @subset
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        & javac -encoding UTF-8 -d $bin -classpath $javacCp @subset 2>&1 | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            $ErrorActionPreference = $prevEap
+            exit $LASTEXITCODE
+        }
     }
 
     Write-Host "Compiling test sources -> $binTest"
     $compileCp = "$bin" + [IO.Path]::PathSeparator + $javacCp
-    & javac -encoding UTF-8 -d $binTest -classpath $compileCp -sourcepath (Join-Path $root "src\test\java") @testFiles
+    & javac -encoding UTF-8 -d $binTest -classpath $compileCp -sourcepath (Join-Path $root "src\test\java") @testFiles 2>&1 | Out-Host
+    $ErrorActionPreference = $prevEap
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } else {
     if (-not (Test-Path $bin)) {
@@ -311,6 +321,9 @@ $junitArgs = @(
 )
 if ($ExcludePerfTag) {
     $junitArgs += @("-T", "performance")
+}
+if (-not $IncludeLxdbRuntimeTag) {
+    $junitArgs += @("-T", "lxdb-runtime")
 }
 
 $xmlDir = $null

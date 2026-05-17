@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FP Token 代码审查与测试报告（2026-05-17）</title>
+  <style>
+    :root { --bg:#0f1419; --card:#1a2332; --border:#2d3a4f; --text:#e6edf3; --muted:#8b9cb3; --accent:#58a6ff; --ok:#3fb950; --warn:#d29922; --bad:#f85149; }
+    body { margin:0; font-family:"Segoe UI","PingFang SC",sans-serif; background:var(--bg); color:var(--text); line-height:1.65; font-size:15px; }
+    .wrap { max-width:980px; margin:0 auto; padding:2rem 1.5rem 4rem; }
+    h1 { font-size:1.6rem; margin:0 0 .5rem; }
+    h2 { font-size:1.2rem; color:var(--accent); margin:2rem 0 .75rem; border-left:4px solid var(--accent); padding-left:.6rem; }
+    h3 { font-size:1rem; color:#7ee787; margin:1.2rem 0 .5rem; }
+    .meta { color:var(--muted); font-size:.9rem; margin-bottom:1.5rem; }
+    table { width:100%; border-collapse:collapse; font-size:.88rem; margin:1rem 0; }
+    th,td { border:1px solid var(--border); padding:.45rem .6rem; text-align:left; vertical-align:top; }
+    th { background:var(--card); color:var(--muted); }
+    .p0 { color:var(--bad); font-weight:600; }
+    .p1 { color:var(--warn); font-weight:600; }
+    .p2 { color:var(--muted); }
+    .box { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:1rem; margin:1rem 0; }
+    code { background:#0d1117; padding:.1em .35em; border-radius:4px; font-size:.88em; }
+    ul { padding-left:1.25rem; }
+    li { margin:.35rem 0; }
+    a { color:var(--accent); }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>FP Token 代码审查与测试报告</h1>
+  <p class="meta">
+    对照设计：<a href="fp-token-design_20260517.html">fp-token-design_20260517.html</a><br>
+    生成日期：2026-05-17 · 说明：<strong>未修改生产源码</strong>，仅新增测试与文档/脚本调整。
+  </p>
+
+  <h2>1. 测试执行摘要</h2>
+  <div class="box">
+    <p><strong>命令：</strong><code>.\scripts\run-fptoken-tests.ps1 -HtmlReport -ExcludePerfTag</code></p>
+    <p><strong>主代码编译：</strong>全量 <code>src/cn</code> 在仅依赖 <code>lib/lxdb_common-5_0_0_0-pg_so.jar</code> 时<strong>失败</strong>（缺少补丁版 Lucene 类型：<code>TermsWriter</code>、<code>Terms#iterator_fp</code> 等）；脚本已<strong>回退</strong>到可单测子集编译。</p>
+    <p><strong>默认 JUnit 结果（排除 <code>@Tag("lxdb-runtime")</code>）：</strong></p>
+    <ul>
+      <li>12 tests，12 passed，0 failed</li>
+      <li>报告：<code>build/test-results/junit-html/index.html</code></li>
+    </ul>
+    <p><strong>含 LXDB 运行时依赖的用例（7 个）：</strong>默认排除；使用 <code>-IncludeLxdbRuntimeTag</code> 时当前因 <code>BytesRef</code> 静态初始化链（commons-logging / LXDB 日志）在独立 classpath 下仍报错，需在<strong>完整 LXDB 工程 classpath</strong> 下重跑。</p>
+  <table>
+    <thead><tr><th>测试类</th><th>默认跑批</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>BinarySlidingWindowApiTest</code></td><td>通过</td><td>64/32 滑窗、边界参数</td></tr>
+      <tr><td><code>ByteRefTest</code></td><td>通过</td><td>零拷贝区间</td></tr>
+      <tr><td><code>Lucene80FPSearchConfigTest</code></td><td>通过</td><td><code>_bfp</code> / <code>_sfp</code> 后缀</td></tr>
+      <tr><td><code>FpBlockInfoOffsetTest</code></td><td>通过</td><td>bit 区偏移公式</td></tr>
+      <tr><td><code>FpTokenBlockLevelPolicyTest</code></td><td>通过</td><td>镜像策略断言（主类未编入 bin）</td></tr>
+      <tr><td><code>FpGroupHotNgramRebuildStaticReviewTest</code></td><td>通过</td><td>静态模式守卫</td></tr>
+      <tr><td><code>FPDocListTest</code> / <code>FpTermKeyTest</code> / <code>FpTokenTermLayoutTest</code></td><td>默认排除</td><td>需完整 LXDB/Lucene 运行时</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2. 潜在缺陷（按优先级）</h2>
+
+  <h3><span class="p0">P0 — 逻辑 / 无法编译</span></h3>
+  <table>
+    <thead><tr><th>ID</th><th>位置</th><th>现象</th><th>影响</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>BUG-001</td>
+        <td><code>FpGroupHotNgramRebuild.buildFinalHotTerms</code></td>
+        <td>迁移旧热词时执行 <code>out.put(e.getKey(), new FPDocList(maxDoc))</code>，<strong>丢弃</strong>原 <code>hot</code> 中已有 posting。</td>
+        <td>重建路径下「分析阶段已标 hot」的 doc 列表丢失，除非后续 <code>mergeCommonDocsIntoFinalHot</code> 碰巧覆盖；与设计「保留旧 hot + 合并 common」不符。</td>
+      </tr>
+      <tr>
+        <td>BUG-002</td>
+        <td><code>FpTokenTermLayout.read_group_id</code></td>
+        <td>用 <code>sortableBytesToInt</code> 读 4 字节 group_id，再 <strong>强转为 short</strong> 返回。</td>
+        <td><code>group_id &gt; 32767</code> 时截断/符号错乱，与头部 4 字节 int 布局不一致（设计文档写 group_id 为 int）。</td>
+      </tr>
+      <tr>
+        <td>BUG-003</td>
+        <td><code>FpFilteredTermsEnum</code></td>
+        <td><code>seekCeil</code> 返回类型写成 <code>SeekStatus</code>，未使用 <code>TermsEnum.SeekStatus</code> 或未 import。</td>
+        <td>全量编译失败（当前仓库独立 javac 已复现）。</td>
+      </tr>
+      <tr>
+        <td>BUG-004</td>
+        <td>全量模块 + <code>lib/lxdb_common-*.jar</code></td>
+        <td>缺少补丁 Lucene（<code>BlockTreeTermsWriter.TermsWriter</code>、<code>Terms#iterator_fp</code>、<code>writefp</code> 等）及 <code>slf4j</code>、<code>cn.lucene.proguard.*</code>。</td>
+        <td>无法在「仅 fptoken 源码 + 单个 common jar」环境完成集成编译；需与完整 LXDB/Lucene 补丁树同构构建。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3><span class="p1">P1 — 行为风险</span></h3>
+  <table>
+    <thead><tr><th>ID</th><th>位置</th><th>现象</th><th>建议</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>BUG-101</td>
+        <td><code>FpFilteredTermsEnum#next</code></td>
+        <td>原地覆写 <code>rtn.bytes</code> 前 2 字节为 index 前缀。</td>
+        <td>若底层 <code>TermsEnum</code> 复用同一 <code>BytesRef</code> 缓冲区，可能污染缓存词项；应拷贝或保证迭代器契约。</td>
+      </tr>
+      <tr>
+        <td>BUG-102</td>
+        <td><code>FpTermKey.viewOf</code> 在 <code>countNewHotNgramsFromCommon</code> 的 <code>HashMap</code> 中</td>
+        <td>键为切片视图，依赖缓冲区不变；当前循环内每次 new <code>BytesRef</code> 一般安全，但易在后续重构时踩坑。</td>
+        <td>写入 <code>newhotFreq</code> / <code>TreeMap</code> 时统一 <code>copyOf</code>。</td>
+      </tr>
+      <tr>
+        <td>BUG-103</td>
+        <td><code>FpGroupDataRebuild#flushto</code></td>
+        <td><code>del_term_docid</code> 取自 <code>distinctDocUnion.nextSetBit(0)</code> 后未使用；<code>reuse_bytes</code> 固定 1024、TODO 未实现 dataId 前缀。</td>
+        <td>删除占位 doc、组头写入可能与设计不一致，需与 Lucene 写路径对齐验收。</td>
+      </tr>
+      <tr>
+        <td>BUG-104</td>
+        <td>测试 / 运行环境</td>
+        <td><code>@Tag("lxdb-runtime")</code> 用例在脚本 classpath 下 <code>NoClassDefFoundError</code>（<code>BytesRef</code> 静态初始化）。</td>
+        <td>在 LXDB IDE/完整依赖下执行 <code>-IncludeLxdbRuntimeTag</code>；或补齐 slf4j 等与 jarloader 一致的依赖。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3><span class="p2">P2 — 设计缺口 / 维护性</span></h3>
+  <ul>
+    <li><strong>BUG-201</strong> <code>FpTokenBlockLevelPolicy.resolveTargetBlockLevel</code> 仅返回 <code>1</code> 或 <code>3</code>，注释中的「级别 2」在策略中未出现。</li>
+    <li><strong>BUG-202</strong> <code>FpGroupDataRebuild#rebuildCommonTermToOrderFromHotDocs</code> 的 Javadoc 仍写「hotTermToOrder」，实现操作的是 <code>commonTermToOrder</code>。</li>
+    <li><strong>BUG-203</strong> 设计文档要求对照 <code>FPBlockTreeTermsWriter</code>，源码类名为 <code>FPBlockTreeTermsWriter</code>（大小写混用），集成检索时需注意符号一致。</li>
+    <li><strong>BUG-204</strong> 缺少针对 <code>FpGroupHotNgramBitIndex</code> 的 round-trip（<code>flushto</code> → <code>readfrom</code>）与 <code>FpTokenBlockOrchestrator</code> 双路径（original / rebuild）的集成测试（受 BUG-004 阻塞）。</li>
+  </ul>
+
+  <h2>3. 与设计文档的一致性</h2>
+  <ul>
+    <li><strong>一致：</strong>12 字节 FP 头、组级 hot/common 双表、1~8 byte ngram 桶、8×256 双矩阵位图、交错落盘与 <code>FpBlockInfo</code> 偏移公式（已由单元测试覆盖部分）。</li>
+    <li><strong>待验证：</strong>透传路径 <code>FpGroupDataOriginal + terms.fpBits</code>、<code>iterator_fp</code> 写段编排、查询侧 <code>readfromBanksSelective</code> — 依赖补丁 Lucene，本仓库独立环境未执行。</li>
+    <li><strong>偏离风险：</strong>热词重建丢弃旧 hot doc（BUG-001）与「重建后倒排与位图语义一致」目标冲突。</li>
+  </ul>
+
+  <h2>4. 新增测试资产（未改生产代码）</h2>
+  <p>位置：<code>src/test/java/cn/lxdb/plugins/muqingyu/fptoken/tests/unit/</code></p>
+  <ul>
+    <li>默认 12 项：滑窗、ByteRef、字段后缀、FpBlockInfo 偏移、闭块策略镜像、热词重建静态守卫。</li>
+    <li>标记 <code>@Tag("lxdb-runtime")</code>：FPDocList、FpTermKey、FpTokenTermLayout（需完整运行时）。</li>
+  </ul>
+
+  <h2>5. 建议的后续动作（供开发参考，非本次执行）</h2>
+  <ol>
+    <li>修复 BUG-001：在 <code>buildFinalHotTerms</code> 中 <code>copyOf</code> 或 <code>addAllDocsFrom</code> 保留旧 hot 的 <code>FPDocList</code>。</li>
+    <li>修复 BUG-002/003，并在完整 LXDB 工程下恢复全量 <code>javac</code>。</li>
+    <li>在 LXDB 集成环境补充：original 透传 vs rebuild、bit 文件 round-trip、merge 后 group_id 边界。</li>
+    <li>将 BUG-001 转为可运行的集成断言（去掉仅静态守卫或作为补充）。</li>
+  </ol>
+</div>
+</body>
+</html>

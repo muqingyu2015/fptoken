@@ -6,10 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import java.util.TreeMap;
 
 import org.apache.lucene.util.BytesRef;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 
+@Tag("lxdb-runtime")
 class FpTermKeyTest {
 
 	@Test
