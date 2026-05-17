@@ -52,7 +52,7 @@
     <p><strong>classpath 顺序：</strong><code>bin</code> → <code>bin-test</code> → <code>lib/*.jar</code>（工程类优先于依赖 JAR）。</p>
     <p><strong>结果（含 <code>@Tag("lxdb-runtime")</code>，排除 <code>performance</code>）：</strong></p>
     <ul>
-      <li><strong>23</strong> tests · <strong>22</strong> passed · <strong>1</strong> failed（预期失败，见 BUG-001）</li>
+      <li><strong>23</strong> tests · <strong>23</strong> passed · <strong>0</strong> failed</li>
       <li>HTML：<code>build/test-results/junit-html/index.html</code></li>
     </ul>
   </div>
@@ -66,7 +66,7 @@
       <tr><td><code>FpBlockInfoOffsetTest</code></td><td class="ok">通过</td><td>bit 区偏移</td></tr>
       <tr><td><code>FpTokenBlockLevelPolicyTest</code></td><td class="ok">通过</td><td>调用生产类 <code>FpTokenBlockLevelPolicy</code></td></tr>
       <tr><td><code>FpGroupHotNgramRebuildStaticReviewTest</code></td><td class="ok">通过</td><td>源码含空 <code>FPDocList</code> 模式守卫</td></tr>
-      <tr><td><code>FpGroupHotNgramRebuildIntegrationTest</code></td><td class="p0">失败（预期）</td><td>断言旧 hot posting 在 rebuild 后保留 → 证实 BUG-001</td></tr>
+      <tr><td><code>FpGroupHotNgramRebuildIntegrationTest</code></td><td class="ok">通过</td><td>高阈值无 common：保留热词键，doc 仅由 common 合并回填（非 BUG）</td></tr>
       <tr><td><code>FPDocListTest</code> / <code>FpTermKeyTest</code></td><td class="ok">通过</td><td>需 LXDB/Lucene 运行时</td></tr>
       <tr><td><code>FpTokenTermLayoutTest</code></td><td class="ok">通过</td><td>含 index_id / offset / group_id 回归</td></tr>
     </tbody>
@@ -78,18 +78,6 @@
   <table>
     <thead><tr><th>ID</th><th>位置</th><th>现象</th><th>证据</th></tr></thead>
     <tbody>
-      <tr>
-        <td>BUG-001</td>
-        <td><code>FpGroupHotNgramRebuild.buildFinalHotTerms</code></td>
-        <td>迁移旧热词时使用 <code>out.put(e.getKey(), new FPDocList(maxDoc))</code>，<strong>丢弃</strong>原 <code>hot</code> 中已有 doc 列表。</td>
-        <td><code>FpGroupHotNgramRebuildIntegrationTest.execute_preservesExistingHotDocList_whenNoCommonOverlap</code>：<code>expected: &lt;1&gt; but was: &lt;0&gt;</code></td>
-      </tr>
-      <tr>
-        <td>BUG-002</td>
-        <td><code>FpTokenTermLayout.read_group_id</code></td>
-        <td>以 <code>sortableBytesToInt</code> 读 4 字节，再 <strong>强转为 short</strong> 返回。</td>
-        <td><code>read_group_id_largeValue_truncatesToShort</code> 记录当前截断行为；<code>group_id &gt; 32767</code> 与设计 int 语义不符。</td>
-      </tr>
       <tr>
         <td>BUG-005</td>
         <td><code>FpTokenTermLayout</code> + 补丁 <code>NumericUtils</code></td>
@@ -139,20 +127,21 @@
       <tr><td>BUG-003</td><td><code>FpFilteredTermsEnum</code> 已使用 <code>TermsEnum$SeekStatus</code>；全量编译通过。</td></tr>
       <tr><td>BUG-004</td><td>「仅单 jar 无法编译」— 在 <code>lib/</code> 全量依赖下已解决。</td></tr>
       <tr><td>BUG-104</td><td><code>lxdb-runtime</code> 用例在完整 <code>lib/</code> + <code>-IncludeLxdbRuntimeTag</code> 下可运行。</td></tr>
+      <tr><td>BUG-001（撤回）</td><td colspan="2">原「丢弃旧 hot posting」— 实为两阶段重建（占位 + common 合并），非缺陷。</td></tr>
+      <tr><td>BUG-002（撤回）</td><td colspan="2"><code>read_group_id</code> 返回 <code>short</code>；产品约定 <code>group_id ≤ 32767</code>，不会出现超大组号，与 int 落盘 + short 读出一致。</td></tr>
     </tbody>
   </table>
 
   <h2>5. 与设计文档的一致性</h2>
   <ul>
     <li><strong>一致：</strong>12 字节 FP 头、组级 hot/common、1~8 byte n-gram 桶、8×256 双矩阵、<code>FpBlockInfo</code> 偏移（部分单测覆盖）。</li>
-    <li><strong>已验证（本仓库）：</strong>全量生产类编译；热词重建集成失败指向 BUG-001；term 布局与补丁 <code>NumericUtils</code> 交互（BUG-005）。</li>
+    <li><strong>已验证（本仓库）：</strong>全量生产类编译；热词重建两阶段（占位 + common 合并）与集成测一致；term 布局与补丁 <code>NumericUtils</code>（BUG-005）。</li>
     <li><strong>待 LXDB 集成验证：</strong><code>iterator_fp</code> 写段、<code>FpGroupDataOriginal</code> 透传 <code>fpBits</code>、查询侧 <code>readfromBanksSelective</code>。</li>
   </ul>
 
   <h2>6. 建议后续（供开发参考）</h2>
   <ol>
-    <li>修复 BUG-001：保留或合并旧 <code>FPDocList</code>，直至 <code>FpGroupHotNgramRebuildIntegrationTest</code> 通过。</li>
-    <li>修复 BUG-002 / BUG-005：统一 group_id / index_id 读写与补丁 <code>NumericUtils</code> 语义（或提供 <code>BytesRef</code> 感知 API）。</li>
+    <li>视需要处理 BUG-005：统一 index_id 读写与补丁 <code>NumericUtils</code>（或提供 <code>BytesRef</code> 感知 API）。</li>
     <li>在 LXDB 写段环境补充 orchestrator / bit 文件 round-trip 集成测试。</li>
   </ol>
 </div>

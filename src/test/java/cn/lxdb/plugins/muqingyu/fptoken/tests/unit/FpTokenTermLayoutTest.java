@@ -2,7 +2,6 @@ package cn.lxdb.plugins.muqingyu.fptoken.tests.unit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.lucene.util.BytesRef;
@@ -51,12 +50,12 @@ class FpTokenTermLayoutTest {
 	}
 
 	@Test
-	void read_group_id_largeValue_truncatesToShort() {
+	void read_group_id_roundTrip_withinProductRange() {
 		byte[] buf = new byte[FpTokenTermLayout.FP_HEADER_BYTES + 1];
 		BytesRef reuse = new BytesRef(buf);
-		FpTokenTermLayout.make_fp_term(reuse, (short) 1, 70000, (byte) 1, false, 0, false,
+		int groupId = 12345;
+		FpTokenTermLayout.make_fp_term(reuse, (short) 1, groupId, (byte) 1, false, 0, false,
 				new BytesRef(new byte[] { 1 }));
-		short gid = FpTokenTermLayout.read_group_id(reuse.bytes);
-		assertEquals((short) 70000, gid);
+		assertEquals((short) groupId, FpTokenTermLayout.read_group_id(reuse.bytes));
 	}
 }

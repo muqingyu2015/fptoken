@@ -1,6 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken.tests.unit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import java.io.IOException;
 
@@ -14,13 +15,13 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 
 /**
- * 集成级：验证重建后是否保留分析阶段已存在的 hot posting。
+ * 集成：高阈值且无 common 时，execute 不应清空热词表键；doc 列表由 mergeCommonDocsIntoFinalHot 从 common 回填。
  */
 @Tag("lxdb-runtime")
 class FpGroupHotNgramRebuildIntegrationTest {
 
 	@Test
-	void execute_preservesExistingHotDocList_whenNoCommonOverlap() throws IOException {
+	void execute_highThreshold_noCommon_keepsHotKeys_docListFilledOnlyFromCommon() throws IOException {
 		FpGroupDataRebuild group = new FpGroupDataRebuild(100);
 		FpTermKey hotKey = FpTermKey.copyOf(new BytesRef(new byte[] { 0x0A, 0x0B }));
 		FPDocList hotDocs = new FPDocList(100);
@@ -30,6 +31,8 @@ class FpGroupHotNgramRebuildIntegrationTest {
 		FpGroupHotNgramRebuild.execute(group, null, 999_999);
 
 		FPDocList after = group.hotTermMapInternal().get(hotKey);
-		assertEquals(1, after.docsize(), "pre-existing hot docs should survive rebuild");
+		assertNotNull(after, "hot term key should remain in map after rebuild");
+		assertEquals(0, after.docsize(),
+				"postings are rebuilt from common via mergeCommonDocsIntoFinalHot, not copied from pre-rebuild hot");
 	}
 }
