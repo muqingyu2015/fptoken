@@ -212,8 +212,30 @@ function Convert-JUnitXmlDirectoryToHtml([string] $xmlDir, [string] $htmlFile) {
     [System.IO.File]::WriteAllText($htmlFile, $html, $utf8NoBom)
 }
 
+function Get-LibClasspath([string] $libDir) {
+    $jars = @(Get-ChildItem -Path $libDir -Filter "*.jar" -File -ErrorAction SilentlyContinue)
+    if ($jars.Count -eq 0) { return "" }
+    return ($jars | ForEach-Object { $_.FullName }) -join [IO.Path]::PathSeparator
+}
+
+function Get-FpTokenMainCompilablePaths([string] $repoRoot) {
+    $rel = @(
+        "src\cn\lxdb\plugins\muqingyu\fptoken\token\BinarySlidingWindowApi.java",
+        "src\cn\lxdb\plugins\muqingyu\fptoken\token\ByteRef.java",
+        "src\cn\lxdb\plugins\muqingyu\fptoken\token\WindowTerm.java",
+        "src\cn\lxdb\plugins\muqingyu\fptoken\config\Lucene80FPSearchConfig.java",
+        "src\cn\lxdb\plugins\muqingyu\fptoken\dataset\common\FpDocListEach.java",
+        "src\cn\lxdb\plugins\muqingyu\fptoken\dataset\common\FPDocList.java",
+        "src\cn\lxdb\plugins\muqingyu\fptoken\dataset\common\FpTermKey.java",
+        "src\cn\lxdb\plugins\muqingyu\fptoken\dataset\common\FpTokenTermLayout.java",
+        "src\cn\lxdb\plugins\muqingyu\fptoken\dataset\common\FpBlockInfo.java"
+    )
+    return @($rel | ForEach-Object { Join-Path $repoRoot $_ })
+}
+
 $bin = Join-Path $root "bin"
 $binTest = Join-Path $root "bin-test"
+$libCp = Get-LibClasspath $lib
 
 if (-not $SkipCompile) {
     New-Item -ItemType Directory -Force -Path $bin | Out-Null
@@ -221,22 +243,31 @@ if (-not $SkipCompile) {
     Remove-Item -Path (Join-Path $bin "*") -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Path (Join-Path $binTest "*") -Recurse -Force -ErrorAction SilentlyContinue
 
-    $mainFiles = @(Get-ChildItem -Path (Join-Path $root "src\cn") -Recurse -Filter "*.java" | ForEach-Object { $_.FullName })
+    $allMainFiles = @(Get-ChildItem -Path (Join-Path $root "src\cn") -Recurse -Filter "*.java" | ForEach-Object { $_.FullName })
     $testFiles = @(Get-ChildItem -Path (Join-Path $root "src\test\java") -Recurse -Filter "*.java" | ForEach-Object { $_.FullName })
 
-    if ($mainFiles.Count -eq 0) {
+    if ($allMainFiles.Count -eq 0) {
         throw "No main sources under src\cn"
     }
     if ($testFiles.Count -eq 0) {
         throw "No test sources under src\test\java"
     }
 
-    Write-Host "Compiling main sources -> $bin"
-    & javac -encoding UTF-8 -d $bin -sourcepath (Join-Path $root "src") @mainFiles
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $javacCp = $junitJar
+    if ($libCp) { $javacCp = "$libCp" + [IO.Path]::PathSeparator + $javacCp }
+
+    Write-Host "Compiling main sources -> $bin (full tree, requires patched Lucene in lib/)"
+    & javac -encoding UTF-8 -d $bin -classpath $javacCp -sourcepath (Join-Path $root "src") @allMainFiles
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Full main compile failed; falling back to unit-testable subset (see README)."
+        $subset = @(Get-FpTokenMainCompilablePaths $root)
+        Remove-Item -Path (Join-Path $bin "*") -Recurse -Force -ErrorAction SilentlyContinue
+        & javac -encoding UTF-8 -d $bin -classpath $javacCp @subset
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
 
     Write-Host "Compiling test sources -> $binTest"
-    $compileCp = "$bin" + [IO.Path]::PathSeparator + $junitJar
+    $compileCp = "$bin" + [IO.Path]::PathSeparator + $javacCp
     & javac -encoding UTF-8 -d $binTest -classpath $compileCp -sourcepath (Join-Path $root "src\test\java") @testFiles
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } else {
@@ -249,6 +280,7 @@ if (-not $SkipCompile) {
 }
 
 $runCp = "$bin" + [IO.Path]::PathSeparator + $binTest
+if ($libCp) { $runCp = "$libCp" + [IO.Path]::PathSeparator + $runCp }
 Write-Host "Running tests (package cn.lxdb.plugins.muqingyu.fptoken.tests)..."
 $jvmArgs = @()
 if ($Perf) {

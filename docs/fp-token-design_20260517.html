@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FP Token 模块技术文档 — cn.lxdb.plugins.muqingyu.fptoken</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --border: #2d3a4f;
+      --text: #e6edf3;
+      --muted: #8b9cb3;
+      --accent: #58a6ff;
+      --accent2: #3fb950;
+      --warn: #d29922;
+      --code-bg: #0d1117;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      font-size: 15px;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    h1 { font-size: 1.75rem; font-weight: 600; margin: 0 0 0.5rem; }
+    .subtitle { color: var(--muted); font-size: 0.95rem; }
+    nav.toc {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 2.5rem;
+    }
+    nav.toc h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 0.75rem; }
+    nav.toc ol { margin: 0; padding-left: 1.25rem; }
+    nav.toc li { margin: 0.35rem 0; }
+    nav.toc a { color: var(--accent); text-decoration: none; }
+    nav.toc a:hover { text-decoration: underline; }
+    section { margin-bottom: 2.5rem; }
+    h2 {
+      font-size: 1.35rem;
+      color: var(--accent);
+      border-left: 4px solid var(--accent);
+      padding-left: 0.75rem;
+      margin: 2rem 0 1rem;
+    }
+    h3 { font-size: 1.1rem; color: var(--accent2); margin: 1.25rem 0 0.6rem; }
+    p { margin: 0.6rem 0; }
+    ul, ol { margin: 0.5rem 0; padding-left: 1.5rem; }
+    li { margin: 0.35rem 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin: 1rem 0;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+    }
+    th { background: var(--surface); color: var(--muted); font-weight: 600; }
+    code, pre {
+      font-family: "Cascadia Code", "Consolas", monospace;
+      font-size: 0.88em;
+    }
+    code {
+      background: var(--code-bg);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      color: #f0883e;
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+    .diagram {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: monospace;
+      font-size: 0.82rem;
+      white-space: pre;
+      overflow-x: auto;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+    .note {
+      border-left: 4px solid var(--warn);
+      background: rgba(210, 153, 34, 0.08);
+      padding: 0.75rem 1rem;
+      margin: 1rem 0;
+      border-radius: 0 6px 6px 0;
+    }
+    .pkg { color: var(--accent2); }
+    footer {
+      margin-top: 3rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>FP Token 模块技术文档</h1>
+    <p class="subtitle">包路径：<code>cn.lxdb.plugins.muqingyu.fptoken</code> · 基于 Lucene BlockTree 的二进制指纹（Fingerprint）索引与块级合并</p>
+  </header>
+
+  <nav class="toc">
+    <h2>目录</h2>
+    <ol>
+      <li><a href="#sec-interpret">代码解读</a></li>
+      <li><a href="#sec-principle">基本原理</a></li>
+      <li><a href="#sec-design">设计思路</a></li>
+      <li><a href="#sec-structure">代码结构</a></li>
+      <li><a href="#sec-flow">数据流与生命周期</a></li>
+      <li><a href="#sec-on-disk">持久化格式</a></li>
+      <li><a href="#sec-integration">与 Lucene 的集成点</a></li>
+      <li><a href="#sec-glossary">术语表</a></li>
+      <li><a href="#sec-ops">运维与扩展建议</a></li>
+    </ol>
+  </nav>
+
+  <!-- 1 -->
+  <section id="sec-interpret">
+    <h2>1. 代码解读</h2>
+
+    <h3>1.1 模块在做什么</h3>
+    <p>
+      FP Token 为 LXDB/Lucene 提供<strong>按二进制滑窗切出的子串</strong>作为词项的倒排能力：
+      索引阶段对字段字节流做 n-gram 式滑窗，写出带固定 12 字节头部的词项；
+      在段合并写 BlockTree 时，按<strong>组号（index_id + group_id，共 6 字节）</strong>聚合多个 term，
+      在组内做<strong>热词挖掘、ngram 位图索引、块级闭包判定</strong>，再落盘到倒排与侧车 bit 文件。
+    </p>
+
+    <h3>1.2 核心类职责（按调用链）</h3>
+    <table>
+      <thead>
+        <tr><th>类</th><th>包</th><th>职责摘要</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>FPToken</code> / <code>FpTokenAnalyzer</code></td>
+          <td><span class="pkg">token</span></td>
+          <td>分析阶段：二进制滑窗分词，输出带 <code>FpTokenTermLayout</code> 头部的 <code>BytesTermAttribute</code>。</td>
+        </tr>
+        <tr>
+          <td><code>FPBlockTreeTermsWriter</code></td>
+          <td><span class="pkg">api</span></td>
+          <td>写段入口：遍历 <code>Terms#iterator_fp()</code>，驱动 <code>FpTokenBlockOrchestrator</code>。</td>
+        </tr>
+        <tr>
+          <td><code>FpTokenBlockOrchestrator</code></td>
+          <td><span class="pkg">api</span></td>
+          <td>块编排：按词项级别分流「高候选原样组」与「可合并重建组」，换组/闭块时 flush。</td>
+        </tr>
+        <tr>
+          <td><code>FpGroupDataOriginal</code></td>
+          <td><span class="pkg">dataset.block</span></td>
+          <td>高级别路径：ingest 后若体量达标，借助已有 <code>fpBits</code> 位图<strong>原样写出</strong>（不重算 ngram 热词）。</td>
+        </tr>
+        <tr>
+          <td><code>FpGroupDataRebuild</code></td>
+          <td><span class="pkg">dataset.block</span></td>
+          <td>可合并路径：缓冲组内 hot/common 词表 → <code>FpGroupHotNgramRebuild</code> → <code>FpGroupHotNgramBitIndex</code> → <code>writefp</code> + bit 持久化。</td>
+        </tr>
+        <tr>
+          <td><code>FpGroupHotNgramRebuild</code></td>
+          <td><span class="pkg">dataset.block</span></td>
+          <td>从 common 载荷统计 byte ngram(1~8) 频率，超过阈值升格为 hot，并把 common 的 doc 合并进对应 hot ngram。</td>
+        </tr>
+        <tr>
+          <td><code>FpGroupHotNgramBitIndex</code></td>
+          <td><span class="pkg">dataset.block</span></td>
+          <td>构建/读写 8×256 的 <code>FixedBitSet</code> 矩阵（hot 与 common 各一套），支持全量读与按需读。</td>
+        </tr>
+        <tr>
+          <td><code>FPDocList</code></td>
+          <td><span class="pkg">dataset.common</span></td>
+          <td>单 term 的 doc 列表：递增 <code>int[]</code> 或 <code>SparseFixedBitSet</code>，供 <code>writefp</code> 遍历。</td>
+        </tr>
+        <tr>
+          <td><code>FpBlockInfo</code></td>
+          <td><span class="pkg">dataset.common</span></td>
+          <td>每组 flush 后在 meta 中记录 bit 区偏移、步长、维度；查询侧 <code>fpBits</code> 定位数据。</td>
+        </tr>
+        <tr>
+          <td><code>FpTokenTermLayout</code></td>
+          <td><span class="pkg">dataset.common</span></td>
+          <td>12 字节 FP 头：index_id、group_id、level、hot 标记、termIndex+删除位 + 载荷。</td>
+        </tr>
+        <tr>
+          <td><code>FpFilteredTermsEnum</code></td>
+          <td><span class="pkg">api</span></td>
+          <td>多子索引合并时，在词项前 2 字节写入分片 index，保证字节序可区分来源。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>1.3 词项头部布局（12 字节）</h3>
+    <pre>[index_id:2][group_id:4][group_level:1][hotmark:1][termindex+isDelTerm:4][payload...]</pre>
+    <ul>
+      <li><code>index_id</code>：短整型 sortable，合并时可被替换为逻辑分片号。</li>
+      <li><code>group_id</code>：组内写出时由 <code>FpTokenBlockOrchestrator.groupIndex</code> 递增分配。</li>
+      <li><code>group_level</code>：块级别，与 <code>FpTokenBlockLevelPolicy</code> 配合。</li>
+      <li><code>hotmark</code>：1=热词，0=普通词（写入时由重建结果决定）。</li>
+      <li><code>termindex+isDelTerm</code>：高 31 位为 term 序号，最低位为删除占位标记。</li>
+    </ul>
+
+    <h3>1.4 编排器关键分支（<code>FpTokenBlockOrchestrator</code>）</h3>
+    <ul>
+      <li><strong>acceptTerm</strong>：若 <code>readLevel(term) &gt;= targetLevel</code> → 进入 <code>FpGroupKVOriginal</code>；否则进入 <code>FpGroupKVRebuild</code>。换组时 flush 高组；可合并组换组时若已达闭块条件则 flush common。</li>
+      <li><strong>flushHighGroup</strong>：用 <code>shouldCompleteBlock(1, targetLevel, docs, terms)</code> 判断。达标 → <code>terms.fpBits(index_id, group_id, null, null)</code> 取已有位图，<code>FpGroupDataOriginal#flushto</code>；不达标 → <code>mergeInto</code> 可合并组。</li>
+      <li><strong>flushCommonGroup</strong>：<code>FpGroupDataRebuild#flushto(orchestrator, false)</code>，完整走热词重建 + 位图构建 + 写出。</li>
+    </ul>
+
+    <h3>1.5 热词重建与位图（精读）</h3>
+    <p><code>FpGroupHotNgramRebuild.execute</code> 三步：</p>
+    <ol>
+      <li><code>countNewHotNgramsFromCommon</code>：对每个 common 词项载荷做 1~8 字节滑动 ngram，词项内去重；已存在于 hot 表的切片跳过；累加频率。</li>
+      <li><code>buildFinalHotTerms</code>：频率 ≥ 阈值（如 32）的 ngram 加入最终 hot 表（保留旧 hot）。</li>
+      <li><code>mergeCommonDocsIntoFinalHot</code>：按较长 ngram 优先，把 common 的 <code>FPDocList</code> 合并到匹配的热词 ngram 上（子域去重避免重复合并）。</li>
+    </ol>
+    <p><code>FpGroupHotNgramBitIndex.execute</code>：</p>
+    <ul>
+      <li>热词侧：按 <code>hotTermToOrder</code> 编号，对载荷每个 ngram 在对应桶的 <code>FixedBitSet</code> 上 <code>set(order-1)</code>。</li>
+      <li>普通词侧：独立 8×256 矩阵；若 ngram 切片已是 hot 键则<strong>不写</strong> common 侧。</li>
+      <li>桶规则：长度 1 → 字节值作桶号；长度 2~8 → 多项式哈希折叠到 0..255。</li>
+    </ul>
+  </section>
+
+  <!-- 2 -->
+  <section id="sec-principle">
+    <h2>2. 基本原理</h2>
+
+    <h3>2.1 二进制指纹检索</h3>
+    <p>
+      传统分词依赖词典；FP Token 将字段视为<strong>原始字节序列</strong>，通过固定步长的 64bit 滑窗（见 <code>BinarySlidingWindowApi</code>）
+      产生大量重叠子串。相似二进制内容在倒排上共享子串，从而支持<strong>模糊/部分匹配</strong>类检索（具体查询算子由上层 Lucene 查询实现）。
+    </p>
+
+    <h3>2.2 组（Block Group）与级别（Level）</h3>
+    <p>
+      同一 <code>index_id + group_id</code> 下的 term 在写段时被当作一个<strong>逻辑块</strong>：
+      共享组级 doc 并集 <code>distinctDocUnion</code>，并共享一块 ngram 位图索引（<code>FpBlockInfo</code> 指向的数据）。
+      词项自带的 <code>group_level</code> 表示该 term 在索引 pipeline 中已满足的闭块规模；
+      写段编排器另根据段规模计算 <code>targetLevel</code>，决定哪些 term 必须参与「合并重建」。
+    </p>
+
+    <h3>2.3 热词 vs 普通词</h3>
+    <ul>
+      <li><strong>热词</strong>：高频或显式标记的 ngram，倒排 posting 更短、查询可先过滤热词位图。</li>
+      <li><strong>普通词</strong>：组内其余载荷；位图索引排除与热词重复的 ngram，减少冗余。</li>
+    </ul>
+
+    <h3>2.4 Doc 列表的自适应存储</h3>
+    <p>
+      <code>FPDocList</code> 假设单 term 在单段内 doc 多为<strong>递增追加</strong>；
+      一旦出现重复、乱序或超过 1024 条，立即升级为 <code>SparseFixedBitSet</code>。
+      组合并时若双方均为 sparse，使用 <code>SparseFixedBitSet#or(BitSetIterator)</code> 快速归并。
+    </p>
+
+    <h3>2.5 闭块策略（统计学意义）</h3>
+    <p>
+      <code>FpTokenBlockLevelPolicy.shouldCompleteBlock(rate, targetLevel, distinctDocs, distinctTerms)</code>
+      当组内去重文档数或不同词项数达到级别阈值（低级别约 1000，高级别约 100000，可乘以 <code>rate</code>）时认为块「成熟」，可以写出。
+      高级别 term 若统计未达标则<strong>降级</strong>并入可合并组，避免大量小碎块。
+    </p>
+  </section>
+
+  <!-- 3 -->
+  <section id="sec-design">
+    <h2>3. 设计思路</h2>
+
+    <h3>3.1 双路径：透传 vs 重建</h3>
+    <p>
+      <strong>设计动机</strong>：已达目标级别且统计充足的组，在分析阶段已生成稳定的热词与位图；
+      写段时若再跑 ngram 重建会浪费 CPU。<code>FpGroupDataOriginal</code> + <code>terms.fpBits(...)</code> 实现<strong>读已有位图、原样 writefp</strong>。
+      未达标或低级别 term 进入 <code>FpGroupDataRebuild</code>，在内存中聚合后统一重建，保证热词表与位图一致。
+    </p>
+
+    <h3>3.2 热词挖掘与位图分离</h3>
+    <ul>
+      <li>重建阶段用频率阈值从 common 升格 hot，并回写 doc 列表，使倒排与位图语义一致。</li>
+      <li>位图上 hot/common <strong>两套独立的 8×256 FixedBitSet</strong>，位宽各自为 <code>hotNumBits</code> / <code>commonNumBits</code>，避免编号空间耦合。</li>
+      <li>查询侧可按 ngram 长度与桶号 O(1) 定位候选 term 集合（位图 AND/OR 由上层实现）。</li>
+    </ul>
+
+    <h3>3.3 磁盘局部性：交错写入</h3>
+    <p>
+      <code>FpGroupHotNgramBitIndex#flushto</code> 按
+      <code>hot[li][b], common[li][b]</code> 交错写入 bit 文件；
+      <code>FpBlockInfo</code> 只存 <code>fpBanksHot00</code>、<code>fpBanksCommon00</code> 与单格字节步长，
+      任意 <code>(li,b)</code> 偏移可算术推导。利于顺序读与按需 seek 单桶。
+    </p>
+
+    <h3>3.4 键设计：<code>FpTermKey</code></h3>
+    <p>
+      <code>TreeMap&lt;FpTermKey, …&gt;</code> 使用预计算 hash 的字节键；
+      ngram 扫描中的临时查找用 <code>viewOf</code>（零拷贝），持久 map 用 <code>copyOf</code>，平衡 CPU 与内存。
+    </p>
+
+    <h3>3.5 多索引合并</h3>
+    <p>
+      <code>FpFilteredTermsEnum</code> 在词项最前写入 sortable <code>index_id</code>，
+      与 <code>FpTokenTermLayout</code> 头部协同，使 MultiTerms 合并后仍可按分片与组定位 <code>fpBits</code>。
+    </p>
+  </section>
+
+  <!-- 4 -->
+  <section id="sec-structure">
+    <h2>4. 代码结构</h2>
+
+    <div class="diagram">cn.lxdb.plugins.muqingyu.fptoken/
+├── token/                          # 分析链（索引/查询分词）
+│   ├── FPToken.java
+│   ├── FpTokenAnalyzer.java
+│   ├── FpTokenBytesMode.java
+│   ├── BinarySlidingWindowApi.java
+│   ├── ByteRef.java
+│   └── WindowTerm.java
+├── config/                         # 策略与字段命名
+│   ├── FpTokenBlockLevelPolicy.java
+│   └── Lucene80FPSearchConfig.java   # 字段后缀 _bfp / _sfp
+├── api/                            # 写段编排与 Lucene 适配
+│   ├── FPBlockTreeTermsWriter.java
+│   ├── FpTokenBlockOrchestrator.java
+│   └── FpFilteredTermsEnum.java
+├── dataset/
+│   ├── common/                     # 跨块共享数据结构
+│   │   ├── FpTokenTermLayout.java
+│   │   ├── FpTermKey.java
+│   │   ├── FPDocList.java
+│   │   ├── FpDocListEach.java
+│   │   ├── FpBlockInfo.java
+│   │   ├── FpGroupKVOriginal.java
+│   │   └── FpGroupKVRebuild.java
+│   └── block/                      # 组内聚合、重建、位图
+│       ├── FpGroupDataOriginal.java
+│       ├── FpGroupDataRebuild.java
+│       ├── FpGroupHotNgramRebuild.java
+│       └── FpGroupHotNgramBitIndex.java
+└── docs/
+    └── fp-token-design.html        # 本文档</div>
+
+    <h3>4.1 依赖方向（只允许向下）</h3>
+    <pre>token → dataset.common
+api → config + dataset.block + dataset.common
+dataset.block → dataset.common + api（仅 FpTokenBlockOrchestrator 回调）
+Lucene 补丁类（Terms、BlockTreeTermsWriter、FieldReader）→ api + dataset.*</pre>
+
+    <h3>4.2 外部耦合（Lucene 修改点，阅读代码时需对照）</h3>
+    <table>
+      <thead><tr><th>扩展点</th><th>位置（示意）</th></tr></thead>
+      <tbody>
+        <tr><td><code>Terms#iterator_fp()</code></td><td>org.apache.lucene.index.Terms</td></tr>
+        <tr><td><code>Terms#fpBits(index_id, group_id, loadHot, loadCommon)</code></td><td>FieldReader / MultiTerms</td></tr>
+        <tr><td><code>TermsWriter#writefp(..., FPDocList, ...)</code></td><td>BlockTreeTermsWriter</td></tr>
+        <tr><td>段 meta 中 <code>fpblock_list</code></td><td>BlockTreeTermsWriter.finish → metaOut</td></tr>
+        <tr><td>侧车文件 <code>termsbitName</code></td><td>bitOut + FpBlockInfo 偏移</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 5 extra -->
+  <section id="sec-flow">
+    <h2>5. 数据流与生命周期</h2>
+    <div class="diagram">[文档] --FpTokenAnalyzer--> [带 FP 头的 term 字节]
+        |
+        v
+[段内 Terms 字典序迭代 iterator_fp]
+        |
+        v
+[FpTokenBlockOrchestrator.acceptTerm]
+   |-- level >= target --> FpGroupDataOriginal (缓冲)
+   '-- else              --> FpGroupDataRebuild (缓冲)
+        |
+        v (换组 / finish / 闭块)
+[flushHighGroup / flushCommonGroup]
+        |
+        +-- 原样: fpBits + FpGroupDataOriginal.flushto
+        |
+        '-- 重建: FpGroupHotNgramRebuild
+                 -> FpGroupHotNgramBitIndex.execute
+                 -> writefp (hot + common)
+                 -> bitinfo.flushto(bitOut) -> FpBlockInfo -> fpblock_list
+        |
+        v
+[BlockTree 倒排文件] + [termsbit 侧车] + [字段 meta 中的 FpBlockInfo 表]</div>
+
+    <h3>5.1 查询侧（概念）</h3>
+    <p>
+      通过 <code>FieldReader#fpBits</code> 按 <code>index_id</code>、<code>group_id</code> 加载位图；
+      全量：<code>readfrom(in, blkinfo)</code>；
+      按需：<code>readfromBanksSelective(in, blkinfo, loadHot, loadCommon)</code>，未选中的格为 <code>null</code>。
+    </p>
+  </section>
+
+  <section id="sec-on-disk">
+    <h2>6. 持久化格式</h2>
+
+    <h3>6.1 FpBlockInfo（写入字段 meta，经 BlockTree finish）</h3>
+    <table>
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>FORMAT_VERSION</td><td>int</td><td>当前为 1</td></tr>
+        <tr><td>fpBanksHot00</td><td>long</td><td>banksHot[0][0] 在 bit 文件中的偏移</td></tr>
+        <tr><td>fpBanksCommon00</td><td>long</td><td>banksCommon[0][0] 偏移</td></tr>
+        <tr><td>bytesPerHotSerialized</td><td>int</td><td>单个热词 FixedBitSet 序列化长度</td></tr>
+        <tr><td>bytesPerCommonSerialized</td><td>int</td><td>单个普通词 FixedBitSet 序列化长度</td></tr>
+        <tr><td>hotNumBits / commonNumBits</td><td>int</td><td>位图逻辑长度</td></tr>
+        <tr><td>hotCount / commonCount</td><td>int</td><td>term 数量统计</td></tr>
+      </tbody>
+    </table>
+
+    <h3>6.2 Bit 区布局（termsbit 文件）</h3>
+    <pre>对每个 (ngramLen=1..8, bucket=0..255) 按序写入：
+  FixedBitSet_hot[li][b]   // DataOutput.writeBits
+  FixedBitSet_common[li][b]
+
+偏移计算（pair = li * 256 + b）：
+  hotOffset   = fpBanksHot00   + pair * (bytesPerHot + bytesPerCommon)
+  commonOffset = hotOffset + bytesPerHot</pre>
+    <p>序列化格式与 Lucene <code>FixedBitSet#writeBits</code> / <code>IndexInput#readBits(maxDoc)</code> 一致。</p>
+  </section>
+
+  <section id="sec-integration">
+    <h2>7. 与 Lucene 的集成点</h2>
+    <ul>
+      <li><strong>字段识别</strong>：<code>Lucene80FPSearchConfig.isFpField(field)</code> — 后缀 <code>_bfp</code>（二进制）或 <code>_sfp</code>（字符串）。</li>
+      <li><strong>写段</strong>：<code>BlockTreeTermsWriter</code> 对 FP 字段构造 <code>FPBlockTreeTermsWriter</code>，共享 <code>bitOut</code> 与 <code>fpblock_list</code>。</li>
+      <li><strong>读段</strong>：<code>BlockTreeLazyMaker</code> 从 meta 读取 <code>TreeMap&lt;Integer, FpBlockInfo&gt;</code>，打开 <code>termsbit</code> 输入流。</li>
+      <li><strong>Posting 写出</strong>：<code>writefp</code> 消费 <code>FPDocList#foreach</code>，与标准 BlockTree posting 编码衔接。</li>
+    </ul>
+    <div class="note">
+      <strong>注意：</strong>若本地 <code>FPBlockTreeTermsWriter.java</code> 仍含 SVN/Git 冲突标记（<code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code>），需先合并后再编译；
+      运行时逻辑以单一 <code>writeTerms</code> 实现为准。
+    </div>
+  </section>
+
+  <section id="sec-glossary">
+    <h2>8. 术语表</h2>
+    <table>
+      <thead><tr><th>术语</th><th>含义</th></tr></thead>
+      <tbody>
+        <tr><td>FP / Fingerprint</td><td>二进制滑窗子串作为词项的索引方式</td></tr>
+        <tr><td>组 (Group)</td><td>相同 index_id+group_id 的 term 集合及共享元数据</td></tr>
+        <tr><td>targetLevel</td><td>本段写索引时期望达到的闭块级别（由段规模推导）</td></tr>
+        <tr><td>闭块</td><td>组内 doc/term 统计达到阈值，触发 flush</td></tr>
+        <tr><td>热词 (Hot)</td><td>高频 ngram 或标记为 hot 的词项；有位图与独立 posting 序号</td></tr>
+        <tr><td>NGRAM_MIN/MAX</td><td>1~8 字节切片长度</td></tr>
+        <tr><td>桶 (Bucket)</td><td>0~255，由 ngram 字节或哈希决定</td></tr>
+        <tr><td>fpblock_list</td><td>group_id → FpBlockInfo，描述该组在 termsbit 中的位图区</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="sec-ops">
+    <h2>9. 运维与扩展建议</h2>
+    <h3>9.1 调参入口</h3>
+    <ul>
+      <li><code>FpTokenBlockLevelPolicy.resolveTargetBlockLevel</code> — 段规模 → 目标级别。</li>
+      <li><code>FpGroupHotNgramRebuild.execute(..., freqThreshold)</code> — 热词频率阈值（当前调用处为 32）。</li>
+      <li><code>shouldCompleteBlock(rate, ...)</code> — 闭块判定比例（common 换组 flush 使用 rate=3）。</li>
+      <li><code>FPDocList.MAX_ARRAY_DOCS</code> — 数组模式上限（1024）。</li>
+    </ul>
+
+    <h3>9.2 性能关注点</h3>
+    <ul>
+      <li>重建路径中 <code>countNewHotNgramsFromCommon</code> 对每个 common term 做 O(载荷长度×8) 扫描，是大头 CPU。</li>
+      <li>位图构建为 8×256×2 次 set 操作，热词/普通词分表控制位宽。</li>
+      <li>按需读位图可减少 IO，适合查询只触及少数 ngram 长度与桶的场景。</li>
+    </ul>
+
+    <h3>9.3 测试建议</h3>
+    <ul>
+      <li>单组小 doc 数：验证 <code>FPDocList</code> 数组路径与乱序升格 sparse。</li>
+      <li>高低级别 term 混合：验证降级 merge 与 original 透传两条路径。</li>
+      <li>round-trip：<code>flushto</code> → <code>readfrom</code> / <code>readfromBanksSelective</code> 位图一致性。</li>
+      <li>多子索引：<code>FpFilteredTermsEnum</code> 前缀与 <code>fpBits(index_id, …)</code> 对齐。</li>
+    </ul>
+
+    <h3>9.4 版本兼容</h3>
+    <p><code>FpBlockInfo.FORMAT_VERSION = 1</code>；修改 on-disk 布局时必须递增版本并在 <code>readfrom</code> 分支处理。</p>
+  </section>
+
+  <footer>
+    文档生成说明：基于 <code>cl_lxdb/src/main/java/cn/lxdb/plugins/muqingyu/fptoken</code> 当前源码整理。
+    若包内类名或路径有变更，请以 IDE 包树为准同步更新本文档。
+  </footer>
+</div>
+</body>
+</html>
