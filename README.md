@@ -21,11 +21,11 @@
 
 | 依赖 | 路径 / 说明 |
 |------|-------------|
-| **LXDB Common** | `lib/lxdb_common-5_0_0_0-pg_so.jar`（须自行放入 `lib/`，未提交到 Git 时请从 LXDB 构建产物拷贝） |
-| **补丁 Lucene** | 由上述 JAR（及完整 LXDB 工程）提供：`Terms#iterator_fp()`、`Terms#fpBits`、`BlockTreeTermsWriter#writefp`、`TermsWriter` 等 |
-| **JUnit** | `scripts/run-fptoken-tests.ps1` 可自动下载；另自动拉取 `commons-logging` 供部分 Lucene 类静态初始化 |
+| **完整 `lib/`** | 与 Eclipse **`.classpath`** 对齐，约 **203** 个 JAR（`lxdb_common`、`lxdb_bigtable`、补丁 Lucene 8.9、slf4j/log4j、Tika/POI、JUnit 等）。从 LXDB 工程拷贝到 `lib/`；校验：`.\scripts\sync-lib-from-classpath.ps1` |
+| **补丁 Lucene** | 由 `lib/` 提供：`Terms#iterator_fp()`、`Terms#fpBits`、`BlockTreeTermsWriter#writefp`、`TermsWriter` 等 |
+| **JUnit** | `scripts/run-fptoken-tests.ps1` 可自动下载 JUnit Platform；另可自动拉取 `commons-logging-1.2.jar` |
 
-仅使用「fptoken 源码 + 单个 common jar」**无法**完成全量 `javac`；测试脚本会在失败时回退到可单测子集（见下文）。
+在 **`lib/` 齐全** 时，脚本对 **全部** `src/cn` 执行 `javac` 并运行单测。若缺少补丁 JAR，脚本会回退到较小可编译子集（仅用于应急，见下文）。
 
 ---
 
@@ -78,9 +78,9 @@ FpTokenBlockOrchestrator（按 group_level 与 targetLevel 分流）
 
 **编译说明**：
 
-1. 脚本将 `lib/*.jar` 加入 classpath，并尝试编译全部 `src/cn`。
-2. 若失败，回退编译子集：`BinarySlidingWindowApi`、`ByteRef`、`WindowTerm`、`Lucene80FPSearchConfig`、`FPDocList`、`FpTermKey`、`FpTokenTermLayout`、`FpBlockInfo`。
-3. 集成类（`api/*`、`FpTokenAnalyzer`、`FPToken` 等）需在 **LXDB 完整工程** 中编译。
+1. 运行 classpath：`bin` → `bin-test` → `lib/*.jar`。
+2. 默认尝试编译全部 `src/cn`（需完整 `lib/`）。
+3. 若失败，回退编译子集（`token/` 部分类 + `dataset/common` 等）；完整模块仍应在 LXDB IDE 或补齐 `lib/` 后编译。
 
 **测试包**：`src/test/java/cn/lxdb/plugins/muqingyu/fptoken/tests/unit/`
 
@@ -96,8 +96,8 @@ FpTokenBlockOrchestrator（按 group_level 与 targetLevel 分流）
 
 完整列表与测试证据见 [`docs/fp-token-review-and-test-report_20260517.html`](docs/fp-token-review-and-test-report_20260517.html)。摘要：
 
-- **P0**：`FpGroupHotNgramRebuild.buildFinalHotTerms` 可能丢弃已有 hot 的 `FPDocList`；`read_group_id` 强转 `short` 与 4 字节 group_id 不一致；`FpFilteredTermsEnum` 缺少 `SeekStatus` 类型导致无法全量编译。
-- **P1**：独立 classpath 下 Lucene/LXDB 静态初始化依赖未齐；`FpFilteredTermsEnum` 原地改写词项前缀的风险。
+- **P0**：`FpGroupHotNgramRebuild` 重建丢弃已有 hot posting（集成测试失败）；`read_group_id` 强转 `short`；`index_id` 读写与补丁 `NumericUtils`（int 四字节写 / short 两字节读）不一致。
+- **P1**：`FpFilteredTermsEnum` 原地改写词项前缀；`FpTermKey.viewOf` 作 Map 键的风险。
 
 ---
 

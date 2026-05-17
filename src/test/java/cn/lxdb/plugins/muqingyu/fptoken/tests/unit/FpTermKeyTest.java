@@ -33,12 +33,13 @@ class FpTermKeyTest {
 	}
 
 	@Test
-	void viewOf_notEqualAfterBufferMutation() {
+	void viewOf_seesBufferMutation() {
 		byte[] buf = { 1, 2 };
 		BytesRef slice = new BytesRef(buf, 0, 2);
 		FpTermKey view = FpTermKey.viewOf(slice);
+		FpTermKey expectedBefore = FpTermKey.copyOf(new BytesRef(new byte[] { 1, 2 }));
+		assertEquals(expectedBefore, view);
 		buf[0] = 99;
-		FpTermKey copy = FpTermKey.copyOf(new BytesRef(new byte[] { 99, 2 }));
-		assertNotEquals(copy, view);
+		assertNotEquals(expectedBefore, view);
 	}
 }

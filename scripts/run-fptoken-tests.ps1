@@ -336,8 +336,11 @@ if ($HtmlReport) {
     $junitArgs += @("--reports-dir", $xmlDir)
 }
 
-& java @jvmArgs -jar $junitJar @junitArgs
+$prevEapRun = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& java @jvmArgs -jar $junitJar @junitArgs 2>&1 | Out-Host
 $exit = $LASTEXITCODE
+$ErrorActionPreference = $prevEapRun
 
 if ($HtmlReport) {
     $htmlFile = Join-Path $root "build\test-results\junit-html\index.html"
