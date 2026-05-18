@@ -11,9 +11,11 @@ import org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter$TermsWriter;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.util.BytesRef;
+import org.slf4j.Logger;
 
 import com.luxindb.lxdb.pool.objectpool.ObjectPoolMulti;
 
+import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
@@ -33,6 +35,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
  * 级别字节为参数）判定：达标则逐 term 原样 {@code write}；否则降级并入普通 {@link #common_group_data} 对应组。
  */
 public final class FpTokenBlockOrchestrator {
+    public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 
 	public final BlockTreeTermsWriter blockTreeWriter;
 	public final Terms terms;
@@ -144,12 +147,16 @@ public final class FpTokenBlockOrchestrator {
 
 			FpGroupHotNgramBitIndex bits=this.terms.fpBits((short) index_id, group_id, null, null);
 			group_original.val.flushto(this,bits);
+			
+			LOG.info("flushHighGroup:flushto");
 		} else {
 			if (group_common == null) {
 				group_common = new FpGroupKVRebuild(maxDoc);
 				FpTokenTermLayout.copyIndexAndGroup(new BytesRef(group_original.key), group_common.key);
 			}
 			group_original.val.mergeInto(group_common.val);
+			LOG.info("flushHighGroup:mergeInto");
+
 			tryFlushCommonIfComplete();
 		}
 		group_original = null;
@@ -165,6 +172,8 @@ public final class FpTokenBlockOrchestrator {
 		}
 		
 		group_common.val.flushto(this,false);
+		LOG.info("flushCommonGroup:flushto");
+
 		group_common = null;
 	}
 
