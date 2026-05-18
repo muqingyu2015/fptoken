@@ -93,7 +93,7 @@ public final class FpTokenBlockOrchestrator {
 			//如果这个块本身就已经达到了targetLevel,在检查,如果没有因文档删除导致的降级,直接原封写入节省CPU,否则参与合并
 			
 			if (group_original == null) {
-				group_original = new FpGroupKVOriginal(termLevel);
+				group_original = new FpGroupKVOriginal(maxDoc);
 				FpTokenTermLayout.copyIndexAndGroup(term, group_original.key);
 			}
 			group_original.val.ingestTermPostings(term, termsEnum, maxDoc);
