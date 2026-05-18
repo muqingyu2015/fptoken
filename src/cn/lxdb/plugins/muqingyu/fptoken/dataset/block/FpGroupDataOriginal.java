@@ -11,7 +11,9 @@ import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.SparseFixedBitSet;
 import org.apache.lucene.util.offheap.OffheapPoolName;
+import org.slf4j.Logger;
 
+import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
@@ -25,6 +27,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
  * 词项按 {@link FpTokenTermLayout#isHotTerm(BytesRef)} 分入热词 / 普通词两个 {@link TreeMap}；键为 {@link FpTermKey}（缓存 hash）。
  */
 public final class FpGroupDataOriginal {
+    public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 
 	private final int maxDoc;
 	/** 组内去重 doc 并集（闭块判定） */
@@ -109,6 +112,7 @@ public final class FpGroupDataOriginal {
 		FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut);
 		parentItem.fpblock_list.put(group_id, blkinfo);
 	
+		LOG.info("original:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size());
 
 	
 		this.resetAfterFlush();
