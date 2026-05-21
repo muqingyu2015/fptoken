@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.lucene.codecs.BlockTermState;
 import org.apache.lucene.index.PostingsEnum;
@@ -14,9 +15,11 @@ import org.apache.lucene.util.offheap.OffheapPoolName;
 import org.slf4j.Logger;
 
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
+import cn.lucene.proguard.keep.lxdb.common.CLMillisecondClock;
 import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpStatNgram;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 
@@ -101,13 +104,19 @@ public final class FpGroupDataRebuild {
 
 
 	public void flushto(FpTokenBlockOrchestrator parentItem, boolean is_nochange_hot) throws IOException {
+		long ts_begin=CLMillisecondClock.CLOCK.now();
 
 
-		FpGroupHotNgramRebuild.execute(this, parentItem, 32);
+		FpStatNgram ngramstat=FpGroupHotNgramRebuild.execute(this, parentItem, 32);
+		long ts_ngram=CLMillisecondClock.CLOCK.now();
+
 		FpGroupHotNgramBitIndex bitinfo=FpGroupHotNgramBitIndex.execute(this);
+		long ts_bitset=CLMillisecondClock.CLOCK.now();
 
 		int del_term_docid=distinctDocUnion.nextSetBit(0);
-
+		int stat_del_hotterm_cnt=0;
+		long stat_hot_doc_cnt=0;
+		long stat_common_doc_cnt=0;
 
 		final byte[] reuse_bytes = new byte[1024];
 		BytesRef reuse_term=new BytesRef(reuse_bytes);
@@ -120,7 +129,12 @@ public final class FpGroupDataRebuild {
 			boolean isDelTerm=val.docsize()<=0;
 			if(isDelTerm) {//仅仅占位用
 				val.addDoc(del_term_docid);
+				stat_del_hotterm_cnt++;
+
 			}
+			
+			stat_hot_doc_cnt+=val.docsize();
+
 			
 			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, key.bytesRef());
 			BlockTermState stat = parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
@@ -139,7 +153,8 @@ public final class FpGroupDataRebuild {
 				continue;
 			}
 
-			
+			stat_common_doc_cnt+=val.docsize();
+
 			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false, key.bytesRef());
 			BlockTermState stat = parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 
@@ -149,19 +164,29 @@ public final class FpGroupDataRebuild {
 		FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut);
 		parentItem.fpblock_list.put(group_id, blkinfo);
 	
-
-		LOG.info("rebuild:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size());
+		parentItem.stat.doclist_hot+=stat_hot_doc_cnt;
+		parentItem.stat.doclist_common+=stat_common_doc_cnt;
 
 	
-		
+		long ts_end=CLMillisecondClock.CLOCK.now();
+
+		LOG.info("rebuild_flush diff:["+(ts_end-ts_begin)+"~ngram@"+(ts_ngram-ts_begin)+"~bitset@"+(ts_bitset-ts_ngram)+"]ms,doclist:["+stat_hot_doc_cnt+"~"+stat_common_doc_cnt+"],del_hotterm_cnt:"+stat_del_hotterm_cnt+",distinctDocUnion:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size()+",ngramstat:"+ngramstat);
+
 	
 		this.resetAfterFlush();
 	}
 
+	private final AtomicReference<PostingsEnum> docsEnum_reuse = new AtomicReference<PostingsEnum>(null);
+
 	public void ingestTermPostings(BytesRef term_withheader, TermsEnum termsEnum, int maxDocExclusive) throws IOException {
+		if(FpTokenTermLayout.isHotTerm(term_withheader))
+		{
+			return ;
+		}
+		
 		BytesRef term_noheader=FpTokenTermLayout.removeHeaderBytes(term_withheader);
-		final PostingsEnum pe = termsEnum.postings(null, PostingsEnum.NONE);
-		final TreeMap<FpTermKey, FPDocList> bucket = FpTokenTermLayout.isHotTerm(term_withheader) ? hotTermToDocs : commonTermToDocs;
+		final PostingsEnum pe = termsEnum.postings(docsEnum_reuse.get(), PostingsEnum.NONE);
+		final TreeMap<FpTermKey, FPDocList> bucket = commonTermToDocs;
 		final FpTermKey probe = FpTermKey.viewOf(term_noheader);
 		FPDocList acc = bucket.get(probe);
 		if (acc == null) {
@@ -178,29 +203,13 @@ public final class FpGroupDataRebuild {
 				acc.addDoc(doc);
 			}
 		}
+		
+		docsEnum_reuse.set(pe);
 	}
 
-	/** 将本组 doc/term 累加到 target（降级时并入可合并组）。 */
-	public void mergeInto(FpGroupDataRebuild target) throws IOException {
-		for (int d = distinctDocUnion.nextSetBit(0); d >= 0 && d < maxDoc; d = distinctDocUnion.nextSetBit(d + 1)) {
-			target.distinctDocUnion.set(d);
-		}
-		mergeTermBucketInto(hotTermToDocs, target.hotTermToDocs, target);
-		mergeTermBucketInto(commonTermToDocs, target.commonTermToDocs, target);
-		this.resetAfterFlush();
-	}
 
-	private static void mergeTermBucketInto(TreeMap<FpTermKey, FPDocList> from, TreeMap<FpTermKey, FPDocList> into,
-			FpGroupDataRebuild target) throws IOException {
-		for (Map.Entry<FpTermKey, FPDocList> e : from.entrySet()) {
-			FPDocList tgt = into.get(e.getKey());
-			if (tgt == null) {
-				tgt = new FPDocList(target.maxDoc);
-				into.put(e.getKey(), tgt);
-			}
-			tgt.addAllDocsFrom(e.getValue());
-		}
-	}
+
+
 
 	public void resetAfterFlush() {
 		hotTermToDocs.clear();

@@ -3,6 +3,7 @@ package cn.lxdb.plugins.muqingyu.fptoken.dataset.block;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.TreeMap;
 
 import org.apache.lucene.codecs.BlockTermState;
@@ -14,11 +15,13 @@ import org.apache.lucene.util.offheap.OffheapPoolName;
 import org.slf4j.Logger;
 
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
+import cn.lucene.proguard.keep.lxdb.common.CLMillisecondClock;
 import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
+import cn.lxdb.stl.v25.common.MillisecondClock;
 
 /**
  * 单组内：组级 doc 并集用 {@link SparseFixedBitSet}；每个 term 对应 {@link FPDocList}，
@@ -69,9 +72,13 @@ public final class FpGroupDataOriginal {
 
 	public void flushto(FpTokenBlockOrchestrator parentItem,FpGroupHotNgramBitIndex bitinfo) throws IOException {
 
+		long ts_begin=CLMillisecondClock.CLOCK.now();
 		int del_term_docid=distinctDocUnion.nextSetBit(0);
 
-
+		int stat_del_hotterm_cnt=0;
+		long stat_hot_doc_cnt=0;
+		long stat_common_doc_cnt=0;
+		
 		final byte[] reuse_bytes = new byte[1024];
 		BytesRef reuse_term=new BytesRef(reuse_bytes);
 		int group_id=parentItem.groupIndex.incrementAndGet();
@@ -80,11 +87,13 @@ public final class FpGroupDataOriginal {
 			FpTermKey key=e.getKey();
 			FPDocList val=e.getValue();
 			boolean isDelTerm=FpTokenTermLayout.readIsDelTerm(key.bytesRef())||val.docsize()<=0;
-;
 			int index=FpTokenTermLayout.readTermIndex(key.bytesRef());
 			if(isDelTerm&&val.docsize()<=0) {//仅仅占位用
 				val.addDoc(del_term_docid);
+				stat_del_hotterm_cnt++;
 			}
+			
+			stat_hot_doc_cnt+=val.docsize();
 			
 			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, key.bytesRef());
 			BlockTermState stat = parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
@@ -96,31 +105,36 @@ public final class FpGroupDataOriginal {
 		{
 			FpTermKey key=e.getKey();
 			FPDocList val=e.getValue();
-			boolean isDelTerm=FpTokenTermLayout.readIsDelTerm(key.bytesRef())||val.docsize()<=0;
+			boolean isDelTerm=val.docsize()<=0;
 			if(isDelTerm)
 			{
 				continue;
 			}
 			int index=FpTokenTermLayout.readTermIndex(key.bytesRef());
 
+			stat_common_doc_cnt+=val.docsize();
 			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false, FpTokenTermLayout.removeHeaderBytes(key.bytesRef()));
 			BlockTermState stat = parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 
 		}
 		
-
+		parentItem.stat.doclist_hot+=stat_hot_doc_cnt;
+		parentItem.stat.doclist_common+=stat_common_doc_cnt;
 		FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut);
 		parentItem.fpblock_list.put(group_id, blkinfo);
 	
-		LOG.info("original:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size());
+		long ts_end=CLMillisecondClock.CLOCK.now();
+
+		LOG.info("original_flush diff:"+(ts_end-ts_begin)+"ms,doclist:["+stat_hot_doc_cnt+"~"+stat_common_doc_cnt+"],del_hotterm_cnt:"+stat_del_hotterm_cnt+",distinctDocUnion:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size());
 
 	
 		this.resetAfterFlush();
 	}
+	private final AtomicReference<PostingsEnum> docsEnum_reuse = new AtomicReference<PostingsEnum>(null);
 
 	public void ingestTermPostings(BytesRef term_withheader, TermsEnum termsEnum, int maxDocExclusive) throws IOException {
 		BytesRef term_noheader=FpTokenTermLayout.clearAndCopyGroupBytes(term_withheader);
-		final PostingsEnum pe = termsEnum.postings(null, PostingsEnum.NONE);
+		final PostingsEnum pe = termsEnum.postings(docsEnum_reuse.get(), PostingsEnum.NONE);
 		final TreeMap<FpTermKey, FPDocList> bucket = FpTokenTermLayout.isHotTerm(term_withheader) ? hotTermToDocs : commonTermToDocs;
 		final FpTermKey probe = FpTermKey.viewOf(term_noheader);
 		FPDocList acc = bucket.get(probe);
@@ -138,10 +152,12 @@ public final class FpGroupDataOriginal {
 				acc.addDoc(doc);
 			}
 		}
+		docsEnum_reuse.set(pe);
+
 	}
 
 	/** 将本组 doc/term 累加到 target（降级时并入可合并组）。 */
-	public void mergeInto(FpGroupDataRebuild target) throws IOException {
+	public void mergeIntoRebuild(FpGroupDataRebuild target) throws IOException {
 		for (int d = distinctDocUnion.nextSetBit(0); d >= 0 && d < maxDoc; d = distinctDocUnion.nextSetBit(d + 1)) {
 			target.distinctDocUnion.set(d);
 		}

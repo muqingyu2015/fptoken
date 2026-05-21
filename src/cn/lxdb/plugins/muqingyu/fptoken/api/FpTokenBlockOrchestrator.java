@@ -22,6 +22,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpGroupKVOriginal;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpGroupKVRebuild;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpStat;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 
 /**
@@ -45,6 +46,7 @@ public final class FpTokenBlockOrchestrator {
 	public final BlockTreeTermsWriter$TermsWriter termsWriter;
 	public final AtomicLong[] debugList;
 	public final NormsProducer norms;
+	public final FpStat stat=new FpStat();
 
 	/** 当前可合并链路上「上一组」的 6 字节组号（与 {@link #common_group_data} 对应）；null 表示尚未处理过可合并词项。 */
 	private FpGroupKVRebuild group_common=null;
@@ -68,6 +70,7 @@ public final class FpTokenBlockOrchestrator {
 			termGuess = 0;
 		}
 		this.targetLevel = FpTokenBlockLevelPolicy.resolveTargetBlockLevel(maxDoc, termGuess);
+		stat.targetLevel=this.targetLevel;
 		this.pool = pool;
 		this.termsWriter = termsWriter;
 		this.debugList = debugList;
@@ -136,6 +139,8 @@ public final class FpTokenBlockOrchestrator {
 			group_original = null;
 			return;
 		}
+		this.stat.flush_high_cnt++;
+
 		final int distinctDocs = group_original.val.distinctDocUnion.cardinality();
 		final int distinctTerms = group_original.val.termCount();
 		final boolean meets = FpTokenBlockLevelPolicy.shouldCompleteBlock(1, this.targetLevel, distinctDocs,distinctTerms);
@@ -148,14 +153,15 @@ public final class FpTokenBlockOrchestrator {
 			FpGroupHotNgramBitIndex bits=this.terms.fpBits((short) index_id, group_id, null, null);
 			group_original.val.flushto(this,bits);
 			
-			LOG.info("flushHighGroup:flushto");
+			this.stat.flush_high_cnt_original++;
 		} else {
 			if (group_common == null) {
 				group_common = new FpGroupKVRebuild(maxDoc);
 				FpTokenTermLayout.copyIndexAndGroup(new BytesRef(group_original.key), group_common.key);
 			}
-			group_original.val.mergeInto(group_common.val);
-			LOG.info("flushHighGroup:mergeInto");
+			group_original.val.mergeIntoRebuild(group_common.val);
+
+			this.stat.flush_high_cnt_rebuild++;
 
 			tryFlushCommonIfComplete();
 		}
@@ -172,8 +178,8 @@ public final class FpTokenBlockOrchestrator {
 		}
 		
 		group_common.val.flushto(this,false);
-		LOG.info("flushCommonGroup:flushto");
 
+		this.stat.flush_common_cnt++;
 		group_common = null;
 	}
 

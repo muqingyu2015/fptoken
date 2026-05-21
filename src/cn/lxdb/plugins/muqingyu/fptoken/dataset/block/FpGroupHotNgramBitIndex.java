@@ -28,8 +28,8 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
  */
 public final class FpGroupHotNgramBitIndex {
 
-	public static final int NGRAM_MIN = 1;
-	public static final int NGRAM_MAX = 8;
+	public static final int NGRAM_MIN = FpGroupHotNgramRebuild.NGRAM_MIN;
+	public static final int NGRAM_MAX = FpGroupHotNgramRebuild.NGRAM_MAX;
 	public static final int BUCKETS = 256;
 
 	private final FixedBitSet[][] banksHot;

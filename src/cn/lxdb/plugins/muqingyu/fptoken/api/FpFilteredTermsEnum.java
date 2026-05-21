@@ -24,8 +24,6 @@ public class FpFilteredTermsEnum extends TermsEnum {
 	/** 被包装的底层词项枚举。 */
 	private final TermsEnum it;
 
-	/** 分片/逻辑索引用下标，编码进词项前 2 字节。 */
-	private final int index;
 
 	/** 与 {@link #index} 对应的 sortable 2 字节前缀，写入每个 {@link #next()} 返回的 {@link BytesRef}。 */
 	private final byte[] prefix = new byte[2];
@@ -36,7 +34,6 @@ public class FpFilteredTermsEnum extends TermsEnum {
 	 */
 	public FpFilteredTermsEnum(TermsEnum it, int index) {
 		this.it = it;
-		this.index = index;
 		NumericUtils.shortToSortableBytes(index, prefix, 0);
 	}
 
