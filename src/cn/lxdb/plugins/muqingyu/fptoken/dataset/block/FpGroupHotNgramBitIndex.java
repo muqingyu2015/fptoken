@@ -11,6 +11,7 @@ import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.offheap.OffheapPoolName;
 
+import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 
@@ -28,9 +29,6 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
  */
 public final class FpGroupHotNgramBitIndex {
 
-	public static final int NGRAM_MIN = FpGroupHotNgramRebuild.NGRAM_MIN;
-	public static final int NGRAM_MAX = FpGroupHotNgramRebuild.NGRAM_MAX;
-	public static final int BUCKETS = 256;
 
 	private final FixedBitSet[][] banksHot;
 	private final FixedBitSet[][] banksCommon;
@@ -54,11 +52,11 @@ public final class FpGroupHotNgramBitIndex {
 	 */
 	public static FpGroupHotNgramBitIndex readfrom(IndexInput in, FpBlockInfo blkinfo) throws IOException {
 		validateBlockInfo(blkinfo);
-		final FixedBitSet[][] hot = new FixedBitSet[NGRAM_MAX][BUCKETS];
-		final FixedBitSet[][] common = new FixedBitSet[NGRAM_MAX][BUCKETS];
+		final FixedBitSet[][] hot = new FixedBitSet[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.BUCKETS];
+		final FixedBitSet[][] common = new FixedBitSet[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.BUCKETS];
 		in.seek(blkinfo.fpBanksHot00);
-		for (int li = 0; li < NGRAM_MAX; li++) {
-			for (int b = 0; b < BUCKETS; b++) {
+		for (int li = 0; li < Lucene80FPSearchConfig.NGRAM_MAX; li++) {
+			for (int b = 0; b < Lucene80FPSearchConfig.BUCKETS; b++) {
 				hot[li][b] = in.readBits(blkinfo.hotNumBits);
 				common[li][b] = in.readBits(blkinfo.commonNumBits);
 			}
@@ -71,7 +69,7 @@ public final class FpGroupHotNgramBitIndex {
 	 * 按需读取：仅 {@code loadHot[li][b]} / {@code loadCommon[li][b]} 为 true 的位置调用 {@link IndexInput#seek(long)} 并
 	 * {@link IndexInput#readBits(int)}；其余位置对应元素为 {@code null}。
 	 *
-	 * @param loadHot    长度 {@value #NGRAM_MAX}，每行长度 {@value #BUCKETS}
+	 * @param loadHot    长度 {@value #NGRAM_MAX}，每行长度 {@value Lucene80FPSearchConfig#BUCKETS}
 	 * @param loadCommon 同上
 	 */
 	public static FpGroupHotNgramBitIndex readfromBanksSelective(IndexInput in, FpBlockInfo blkinfo, boolean[][] loadHot,
@@ -79,11 +77,11 @@ public final class FpGroupHotNgramBitIndex {
 		validateBlockInfo(blkinfo);
 		validateFlagMatrix(loadHot, "loadHot");
 		validateFlagMatrix(loadCommon, "loadCommon");
-		final FixedBitSet[][] hot = new FixedBitSet[NGRAM_MAX][BUCKETS];
-		final FixedBitSet[][] common = new FixedBitSet[NGRAM_MAX][BUCKETS];
+		final FixedBitSet[][] hot = new FixedBitSet[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.BUCKETS];
+		final FixedBitSet[][] common = new FixedBitSet[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.BUCKETS];
 		final int bh = blkinfo.bytesPerHotSerialized;
-		for (int li = 0; li < NGRAM_MAX; li++) {
-			for (int b = 0; b < BUCKETS; b++) {
+		for (int li = 0; li < Lucene80FPSearchConfig.NGRAM_MAX; li++) {
+			for (int b = 0; b < Lucene80FPSearchConfig.BUCKETS; b++) {
 				final long pairBase = blkinfo.hotBankOffset(li, b);
 				final boolean rh = loadHot[li][b];
 				final boolean rc = loadCommon[li][b];
@@ -131,8 +129,8 @@ public final class FpGroupHotNgramBitIndex {
 		info.bytesPerHotSerialized = (int) (afterFirstHot - info.fpBanksHot00);
 		info.bytesPerCommonSerialized = (int) (afterFirstCommon - afterFirstHot);
 
-		for (int li = 0; li < NGRAM_MAX; li++) {
-			for (int b = 0; b < BUCKETS; b++) {
+		for (int li = 0; li < Lucene80FPSearchConfig.NGRAM_MAX; li++) {
+			for (int b = 0; b < Lucene80FPSearchConfig.BUCKETS; b++) {
 				if (li == 0 && b == 0) {
 					continue;
 				}
@@ -160,12 +158,12 @@ public final class FpGroupHotNgramBitIndex {
 		if (flags == null) {
 			throw new IllegalArgumentException(name + " must be non-null");
 		}
-		if (flags.length != NGRAM_MAX) {
-			throw new IllegalArgumentException(name + " must have length " + NGRAM_MAX);
+		if (flags.length != Lucene80FPSearchConfig.NGRAM_MAX) {
+			throw new IllegalArgumentException(name + " must have length " + Lucene80FPSearchConfig.NGRAM_MAX);
 		}
-		for (int i = 0; i < NGRAM_MAX; i++) {
-			if (flags[i] == null || flags[i].length != BUCKETS) {
-				throw new IllegalArgumentException(name + "[" + i + "] must have length " + BUCKETS);
+		for (int i = 0; i < Lucene80FPSearchConfig.NGRAM_MAX; i++) {
+			if (flags[i] == null || flags[i].length != Lucene80FPSearchConfig.BUCKETS) {
+				throw new IllegalArgumentException(name + "[" + i + "] must have length " + Lucene80FPSearchConfig.BUCKETS);
 			}
 		}
 	}
@@ -201,9 +199,9 @@ public final class FpGroupHotNgramBitIndex {
 	}
 
 	private static FixedBitSet[][] allocBanks(int numBits) {
-		final FixedBitSet[][] banks = new FixedBitSet[NGRAM_MAX][BUCKETS];
-		for (int li = 0; li < NGRAM_MAX; li++) {
-			for (int b = 0; b < BUCKETS; b++) {
+		final FixedBitSet[][] banks = new FixedBitSet[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.BUCKETS];
+		for (int li = 0; li < Lucene80FPSearchConfig.NGRAM_MAX; li++) {
+			for (int b = 0; b < Lucene80FPSearchConfig.BUCKETS; b++) {
 				banks[li][b] = new FixedBitSet(OffheapPoolName.fptokenbitset, numBits);
 			}
 		}
@@ -237,7 +235,7 @@ public final class FpGroupHotNgramBitIndex {
 		}
 		final int base = payload.offset;
 		for (int start = 0; start < payloadLen; start++) {
-			for (int n = NGRAM_MIN; n <= NGRAM_MAX && start + n <= payloadLen; n++) {
+			for (int n = Lucene80FPSearchConfig.NGRAM_MIN; n <= Lucene80FPSearchConfig.NGRAM_MAX && start + n <= payloadLen; n++) {
 				final BytesRef slice = new BytesRef(payload.bytes, base + start, n);
 				if (skipIfInHot && termorder != null && termorder.containsKey(FpTermKey.viewOf(slice))) {
 					continue;

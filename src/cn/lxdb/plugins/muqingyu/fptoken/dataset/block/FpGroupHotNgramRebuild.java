@@ -12,8 +12,8 @@ import java.util.TreeSet;
 import org.apache.lucene.util.BytesRef;
 
 import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
+import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
-import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpHotTermHierarchyConstants;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpStatNgram;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 
@@ -36,9 +36,6 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
  * 各档热词个数见 {@link #countHotTermsInTier}（扫描 {@code finalHot}，按 exactLength 分档，非累加）。
  */
 public final class FpGroupHotNgramRebuild {
-
-	public static final int NGRAM_MIN = 1;
-	public static final int NGRAM_MAX = 8;
 
 	private FpGroupHotNgramRebuild() {
 	}
@@ -93,7 +90,7 @@ public final class FpGroupHotNgramRebuild {
 			ArrayList<TreeSet<FpTermKey>> val=e.getValue();
 			int amt=0;
 			int level=0;
-			for(int i=key.bytesRef().length;i<=NGRAM_MAX;i++)
+			for(int i=key.bytesRef().length;i<=Lucene80FPSearchConfig.NGRAM_MAX;i++)
 			{
 				amt+=val.get(i).size();
 				if(amt>freqThreshold)
@@ -132,7 +129,7 @@ public final class FpGroupHotNgramRebuild {
 			uniqueNgramsThisTerm.clear();
 			final int base = term.offset;
 			for (int start = 0; start < payloadLen; start++) {
-				for (int n = NGRAM_MIN; n <= NGRAM_MAX && start + n <= payloadLen; n++) {
+				for (int n = Lucene80FPSearchConfig.NGRAM_MIN; n <= Lucene80FPSearchConfig.NGRAM_MAX && start + n <= payloadLen; n++) {
 					final BytesRef slice = new BytesRef(term.bytes, base + start, n);
 					stat.token_cnt++;
 					final FpTermKey key = FpTermKey.viewOf(slice);
@@ -163,8 +160,8 @@ public final class FpGroupHotNgramRebuild {
 			ArrayList<TreeSet<FpTermKey>> list=hotfreqSub.get(key);
 			if(list==null)
 			{
-				list=new ArrayList<TreeSet<FpTermKey>>(NGRAM_MAX);
-				for(int i=0;i<=NGRAM_MAX;i++)
+				list=new ArrayList<TreeSet<FpTermKey>>(Lucene80FPSearchConfig.NGRAM_MAX);
+				for(int i=0;i<=Lucene80FPSearchConfig.NGRAM_MAX;i++)
 				{
 					list.add(new TreeSet<FpTermKey>());
 				}
@@ -181,7 +178,7 @@ public final class FpGroupHotNgramRebuild {
 			if (payloadLen <= 0) {
 				continue;
 			}
-			for (int len = NGRAM_MAX; len >= NGRAM_MIN; len--) {
+			for (int len = Lucene80FPSearchConfig.NGRAM_MAX; len >= Lucene80FPSearchConfig.NGRAM_MIN; len--) {
 				for (int start = 0; start + len <= payloadLen; start++) {
 					final BytesRef slice = new BytesRef(term.bytes, base + start, len);
 					final FpTermKey mergeKey = FpTermKey.viewOf(slice);
@@ -218,7 +215,7 @@ public final class FpGroupHotNgramRebuild {
 			mergedNgramKeysThisTerm.clear();
 			final int base = term.offset;
 
-			for (int len = NGRAM_MAX; len >= NGRAM_MIN; len--) {
+			for (int len = Lucene80FPSearchConfig.NGRAM_MAX; len >= Lucene80FPSearchConfig.NGRAM_MIN; len--) {
 				for (int start = 0; start + len <= payloadLen; start++) {
 
 					final BytesRef slice = new BytesRef(term.bytes, base + start, len);
@@ -245,7 +242,7 @@ public final class FpGroupHotNgramRebuild {
 		final int childlen = sliceChild.length;
 		final int childoff = sliceChild.offset;
 
-		for (int len = (sliceChild.length - 1); len >= NGRAM_MIN; len--) {
+		for (int len = (sliceChild.length - 1); len >= Lucene80FPSearchConfig.NGRAM_MIN; len--) {
 			for (int start = 0; start + len <= childlen; start++) {
 				final BytesRef sliceParent = new BytesRef(sliceChild.bytes, childoff + start, len);
 				final FpTermKey parentKey = FpTermKey.viewOf(sliceParent);

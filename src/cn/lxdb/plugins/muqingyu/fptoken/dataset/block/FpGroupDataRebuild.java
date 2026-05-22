@@ -16,9 +16,9 @@ import org.slf4j.Logger;
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lucene.proguard.keep.lxdb.common.CLMillisecondClock;
 import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
+import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
-import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpHotTermHierarchyConstants;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpStatNgram;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
@@ -117,7 +117,7 @@ public final class FpGroupDataRebuild {
 
 
 		FpStatNgram ngramstat=FpGroupHotNgramRebuild.execute(this, parentItem,
-				FpHotTermHierarchyConstants.HOT_TIER_TERM_COUNT_THRESHOLD);
+				Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD);
 		long ts_ngram=CLMillisecondClock.CLOCK.now();
 
 		FpGroupHotNgramBitIndex bitinfo=FpGroupHotNgramBitIndex.execute(this);
