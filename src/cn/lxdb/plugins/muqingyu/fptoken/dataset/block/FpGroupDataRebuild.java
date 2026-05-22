@@ -35,15 +35,15 @@ public final class FpGroupDataRebuild {
 	public final int maxDoc;
 	/** 组内去重 doc 并集（闭块判定） */
 	public final SparseFixedBitSet distinctDocUnion;
-	/** 热词表，键为 {@link FpTermKey}（独立字节拷贝 + 预计算 hash） */
-	public final TreeMap<FpTermKey, FPDocList> hotTermToDocs = new TreeMap<>();
+	/** 热词表，键序见 {@link FpTermKey#ORDER_BY_LENGTH_THEN_BYTES}。 */
+	public final TreeMap<FpTermKey, FPDocList> hotTermToDocs = new TreeMap<>(FpTermKey.ORDER_BY_LENGTH_THEN_BYTES);
 	/**
 	 * 热词锚点向下可遍历/拼回的字节层数预算（maxDown），由 {@link FpGroupHotNgramRebuild} 在 flush 时写入。
 	 * 从锚点字节长起按档累加子串规模，未超过 {@link Lucene80FPSearchConfig#HOT_TIER_TERM_COUNT_THRESHOLD} 的连续档数即为该值；
 	 * 检索与 {@link FpGroupHotNgramRebuild#markParentPrefixesSkippedInCommonTerm} 据此限制向下扩展。
 	 */
-	public final TreeMap<FpTermKey, Integer> hotTermToLevel = new TreeMap<>();
-	public final TreeMap<FpTermKey, Integer> hotTermToOrder = new TreeMap<>();
+	public final TreeMap<FpTermKey, Integer> hotTermToLevel = new TreeMap<>(FpTermKey.ORDER_BY_LENGTH_THEN_BYTES);
+	public final TreeMap<FpTermKey, Integer> hotTermToOrder = new TreeMap<>(FpTermKey.ORDER_BY_LENGTH_THEN_BYTES);
 
 	/** 普通词表 */
 	public final TreeMap<FpTermKey, FPDocList> commonTermToDocs = new TreeMap<>();
@@ -81,14 +81,15 @@ public final class FpGroupDataRebuild {
 		return commonTermToOrder;
 	}
 
-	/** 清空 {@link #hotTermToOrder}，再按 {@link #hotTermToDocs} 的 {@link TreeMap} 序从 1 起连续编号。 */
+	/** 清空 {@link #hotTermToOrder}，再按 {@link #hotTermToDocs} 键序（{@link FpTermKey#ORDER_BY_LENGTH_THEN_BYTES}）从 1 起连续编号。 */
 	public void rebuildHotTermOrderFromHotDocs() {
 		hotTermToOrder.clear();
-		int n = 1;
-		for (FpTermKey k : hotTermToDocs.keySet()) {
-			hotTermToOrder.put(k, Integer.valueOf(n++));
+		int order = 1;
+		for (FpTermKey key : hotTermToDocs.keySet()) {
+			hotTermToOrder.put(key, order++);
 		}
 	}
+
 	
 	/** 清空 {@link #hotTermToOrder}，再按 {@link #hotTermToDocs} 的 {@link TreeMap} 序从 1 起连续编号。 */
 	public void rebuildCommonTermToOrderFromHotDocs() {
@@ -132,25 +133,23 @@ public final class FpGroupDataRebuild {
 		final byte[] reuse_bytes = new byte[1024];
 		BytesRef reuse_term=new BytesRef(reuse_bytes);
 		int group_id=parentItem.groupIndex.incrementAndGet();
-		for(Entry<FpTermKey, FPDocList> e:hotTermToDocs.entrySet())
-		{
-			FpTermKey key=e.getKey();
-			int level=hotTermToLevel.get(key);
-			FPDocList val=e.getValue();
-			Integer index=hotTermToOrder.get(key);
-			boolean isDelTerm=val.docsize()<=0;
-			if(isDelTerm) {//仅仅占位用
+		for (Entry<FpTermKey, FPDocList> e : hotTermToDocs.entrySet()) {
+			final FpTermKey key = e.getKey();
+			final int level = hotTermToLevel.get(key);
+			final FPDocList val = e.getValue();
+			final Integer index = hotTermToOrder.get(key);
+			final boolean isDelTerm = val.docsize() <= 0;
+			if (isDelTerm) { // 仅仅占位用
 				val.addDoc(del_term_docid);
 				stat_del_hotterm_cnt++;
-
 			}
-			
-			stat_hot_doc_cnt+=val.docsize();
 
-			
-			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm,(byte)level, key.bytesRef());
-			BlockTermState stat = parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
+			stat_hot_doc_cnt += val.docsize();
 
+			FpTokenTermLayout.make_fp_term(reuse_term, (short) 0, group_id, (byte) parentItem.targetLevel,
+					FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) level, key.bytesRef());
+			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state, parentItem.pool, parentItem.debugList,
+					reuse_term, val, parentItem.norms);
 		}
 		
 		

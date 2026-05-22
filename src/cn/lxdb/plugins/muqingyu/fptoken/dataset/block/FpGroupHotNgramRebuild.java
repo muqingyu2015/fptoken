@@ -141,7 +141,7 @@ public final class FpGroupHotNgramRebuild {
 	private static TreeMap<FpTermKey, FPDocList> buildHotTermsAndAnchorTierIndex(FpStatNgram stat,
 			HashMap<FpTermKey, Integer> ngramOccurrenceCount, long hotFreqThreshold, int maxDoc,
 			HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm) {
-		final TreeMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = new TreeMap<>();
+		final TreeMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = new TreeMap<>(FpTermKey.ORDER_BY_LENGTH_THEN_BYTES);
 		final int tierSetSizeCap = (int) (hotFreqThreshold * 2);
 
 		for (Map.Entry<FpTermKey, Integer> entry : ngramOccurrenceCount.entrySet()) {

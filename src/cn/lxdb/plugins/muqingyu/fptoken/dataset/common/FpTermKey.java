@@ -1,5 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken.dataset.common;
 
+import java.util.Comparator;
+
 import org.apache.lucene.util.BytesRef;
 
 /**
@@ -11,6 +13,13 @@ import org.apache.lucene.util.BytesRef;
  * 的短生命周期内做 {@code get/containsKey} 等查找，不要作为已存入 Map 的键长期保存。
  */
 public final class FpTermKey implements Comparable<FpTermKey> {
+
+	/**
+	 * 热词 {@link java.util.TreeMap} 键序：先 {@link #bytesRef() 字节长度} 升序，再 {@link #compareTo} 升序。
+	 */
+	public static final Comparator<FpTermKey> ORDER_BY_LENGTH_THEN_BYTES = Comparator
+			.comparingInt((FpTermKey k) -> k.bytesRef().length)
+			.thenComparing(Comparator.naturalOrder());
 
 	private final BytesRef ref;
 	private final int hash;

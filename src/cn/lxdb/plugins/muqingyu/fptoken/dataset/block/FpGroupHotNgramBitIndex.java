@@ -19,7 +19,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
  * 热词 / 普通词各一套 byte ngram（{@value #NGRAM_MIN}~{@value #NGRAM_MAX}）倒排索引：
  * 均为 8×256 组 {@link FixedBitSet}，但<strong>两套 bitset 完全分开</strong>。
  * <ul>
- * <li><b>热词</b>：{@link FpGroupDataRebuild#rebuildHotTermOrderFromHotDocs()} 后按 {@link FpGroupDataRebuild#hotTermOrderInternal()} 序编号 1..H；
+ * <li><b>热词</b>：{@link FpGroupDataRebuild#rebuildHotTermOrderFromHotDocs()} 后按 {@link FpTermKey#ORDER_BY_LENGTH_THEN_BYTES} 编号 1..H；
  * 每位宽为 {@code max(1,H)}。</li>
  * <li><b>普通词</b>：单独一套 bitset，按 {@link FpGroupDataRebuild#commonTermMapInternal()} 的 {@link TreeMap} 序编号 1..C；
  * 每位宽为 {@code max(1,C)}。对每个 ngram 切片，若已作为键存在于 {@code hotTermToDocs} 则<strong>不写</strong> common 侧，
