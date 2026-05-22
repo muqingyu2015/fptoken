@@ -72,6 +72,52 @@ public final class FPDocList {
 	 * {@link SparseFixedBitSet#or(org.apache.lucene.search.DocIdSetIterator)} 并传入 {@link BitSetIterator}
 	 * 以走内部对另一 {@link SparseFixedBitSet} 的快速路径。
 	 */
+	/**
+	 * 从本列表移除在 {@code other} 中出现的 doc（写段时父热词剔除可拼回子档 posting）。
+	 */
+	public void removeAllDocsPresentIn(FPDocList other) throws IOException {
+		if (other == null || other.docsize() == 0) {
+			return;
+		}
+		if (docsSparse != null) {
+			if (other.docsSparse != null) {
+				for (int d = other.docsSparse.nextSetBit(0); d >= 0 && d < maxDoc; d = other.docsSparse.nextSetBit(d + 1)) {
+					docsSparse.clear(d);
+				}
+			} else {
+				for (int i = 0; i < other.docCount; i++) {
+					docsSparse.clear(other.orderedDocs[i]);
+				}
+			}
+			return;
+		}
+		if (other.docsSparse != null) {
+			promoteToSparse();
+			removeAllDocsPresentIn(other);
+			return;
+		}
+		int w = 0;
+		for (int i = 0; i < docCount; i++) {
+			int d = orderedDocs[i];
+			if (!otherContainsDoc(other, d)) {
+				orderedDocs[w++] = d;
+			}
+		}
+		docCount = w;
+	}
+
+	private static boolean otherContainsDoc(FPDocList other, int doc) {
+		if (other.docsSparse != null) {
+			return other.docsSparse.get(doc);
+		}
+		for (int i = 0; i < other.docCount; i++) {
+			if (other.orderedDocs[i] == doc) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public void addAllDocsFrom(FPDocList other) throws IOException {
 		if (other.docsSparse == null && other.docCount == 0) {
 			return;

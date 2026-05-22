@@ -60,7 +60,7 @@ public class FPToken extends Tokenizer {
     {
     	  BytesRef prefix = new BytesRef(new byte[FpTokenTermLayout.FP_HEADER_BYTES]);
           
-          FpTokenTermLayout.make_fp_term(prefix, (short)0, 0, (byte)0, false, 0, false, new BytesRef(new byte[0]));
+          FpTokenTermLayout.make_fp_term(prefix, (short)0, 0, (byte)0, false, 0, false, (byte)0, new BytesRef(new byte[0]));
           
           return prefix.bytes;
 

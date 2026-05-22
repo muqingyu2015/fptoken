@@ -9,19 +9,27 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 /**
- * 静态回归：buildFinalHotTerms 对旧热词先占位空 FPDocList，再由 mergeCommonDocsIntoFinalHot 从 common 合并 doc。
+ * 静态回归：热词重建含层级剔除与 hotTermToLevel 维护。
  */
 class FpGroupHotNgramRebuildStaticReviewTest {
 
 	@Test
-	void buildFinalHotTerms_seedsEmptyDocLists_beforeCommonMerge() throws Exception {
+	void rebuild_includesHierarchyStrippingAndHotTermToLevel() throws Exception {
 		Path root = Path.of(System.getProperty("user.dir"));
-		Path src = root.resolve(
+		Path rebuild = root.resolve(
 				"src/cn/lxdb/plugins/muqingyu/fptoken/dataset/block/FpGroupHotNgramRebuild.java");
-		String text = Files.readString(src, StandardCharsets.UTF_8);
-		assertTrue(text.contains("out.put(e.getKey(), new FPDocList(maxDoc))"),
-				"expected: old hot keys kept with empty lists until mergeCommonDocsIntoFinalHot");
-		assertTrue(text.contains("mergeCommonDocsIntoFinalHot"),
-				"expected: doc postings filled from common n-gram merge");
+		Path group = root.resolve(
+				"src/cn/lxdb/plugins/muqingyu/fptoken/dataset/block/FpGroupDataRebuild.java");
+		String rebuildText = Files.readString(rebuild, StandardCharsets.UTF_8);
+		String groupText = Files.readString(group, StandardCharsets.UTF_8);
+
+		assertTrue(rebuildText.contains("applyHierarchyDocStripping"),
+				"expected hierarchy strip pass after mergeCommonDocsIntoFinalHot");
+		assertTrue(rebuildText.contains("fillHotTermLevels"),
+				"expected hotTermToLevel population");
+		assertTrue(rebuildText.contains("removeAllDocsPresentIn"),
+				"expected parent doc strip via FPDocList");
+		assertTrue(groupText.contains("hotTermToLevel"),
+				"expected hotTermToLevel map on FpGroupDataRebuild");
 	}
 }

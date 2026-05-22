@@ -19,14 +19,15 @@ public final class FpTokenTermLayout {
 	public static final int LEVEL_BYTE_OFFSET = 6;//byte:1
 	public static final int HOT_TERM_FLAG_BYTE_OFFSET = 7;//byte:1 
 	public static final int TERM_INDEX_AND_STATUS_OFFSET = 8;//int:4 termindex+isDelTerm
-	
+	public static final int HOT_TERM_SCANLEVEL_OFFSET = 12;//byte:1 
+
 	public static final int INDEX_AND_GROUP_BYTES = 6;//short:2 int:4=INDEX_ID_OFFSET+GROUP_ID_OFFSET
-	public static final int FP_HEADER_BYTES = 12;
+	public static final int FP_HEADER_BYTES = 13;
 
 
 	//[index_id:2][groupid:4][group_level:1][hotmark:1][termindex+isDelTerm:4][termwindow]
 	public static void make_fp_term(BytesRef reuse, short index_id, int groupid, byte group_level, boolean hotmark,
-			int termindex, boolean isDelTerm, BytesRef term) {
+			int termindex, boolean isDelTerm,byte hotScanlevel, BytesRef term) {
 		int offset = reuse.offset;
 
 		int term_index_tp = termindex << 1;
@@ -39,6 +40,8 @@ public final class FpTokenTermLayout {
 		reuse.bytes[offset + LEVEL_BYTE_OFFSET] = (byte) (group_level & 0xFF);
 		reuse.bytes[offset + HOT_TERM_FLAG_BYTE_OFFSET] = (byte) ((hotmark?1:0) & 0xFF);
 		NumericUtils.intToSortableBytes(term_index_tp, reuse.bytes, offset + TERM_INDEX_AND_STATUS_OFFSET);
+		reuse.bytes[offset + HOT_TERM_SCANLEVEL_OFFSET] = hotScanlevel;
+
 		System.arraycopy(term.bytes, term.offset, reuse.bytes, offset + FP_HEADER_BYTES, term.length);
 		reuse.length = term.length + FP_HEADER_BYTES;
 
@@ -95,7 +98,9 @@ public final class FpTokenTermLayout {
 		return term_index_tp>>1;
 	}
 	
-	
+	public static int readHotTermScanLevel(BytesRef term) {
+		return term.bytes[term.offset + HOT_TERM_SCANLEVEL_OFFSET] & 0xFF;
+	}
 
 	
 	public static BytesRef removeHeaderBytes(BytesRef term) {

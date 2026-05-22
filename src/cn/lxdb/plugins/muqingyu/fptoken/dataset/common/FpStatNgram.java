@@ -15,5 +15,8 @@ public class FpStatNgram {
 	public long hot_doc_cnt_keep=0;
 	public long hot_doc_cnt_skip=0;
 
+	public long ngram_level_ok=0;
+	public long ngram_level_skip=0;
+
 
 }

@@ -1,7 +1,6 @@
 package cn.lxdb.plugins.muqingyu.fptoken.dataset.block;
 
 import java.io.IOException;
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -19,6 +18,7 @@ import cn.lucene.proguard.keep.lxdb.common.CLMillisecondClock;
 import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpHotTermHierarchyConstants;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpStatNgram;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
@@ -37,6 +37,11 @@ public final class FpGroupDataRebuild {
 	public final SparseFixedBitSet distinctDocUnion;
 	/** 热词表，键为 {@link FpTermKey}（独立字节拷贝 + 预计算 hash） */
 	public final TreeMap<FpTermKey, FPDocList> hotTermToDocs = new TreeMap<>();
+	/**
+	 * 以该热词为锚点前缀，向下最多合并几层子档（从 0 起）。
+	 * 0=仅自身（如仅 ab）；1=含 +1 字节档（ab+ab*）；2=含 +2 字节档（ab+ab*+ab**）。见 {@link FpGroupHotNgramRebuild#resolveMaxDownLevelsFromAnchor}。
+	 */
+	public final TreeMap<FpTermKey, Integer> hotTermToLevel = new TreeMap<>();
 	public final TreeMap<FpTermKey, Integer> hotTermToOrder = new TreeMap<>();
 
 	/** 普通词表 */
@@ -65,6 +70,10 @@ public final class FpGroupDataRebuild {
 	/** 供 {@link FpGroupHotNgramBitIndex} 使用：热词编号表。 */
 	public TreeMap<FpTermKey, Integer> hotTermOrderInternal() {
 		return hotTermToOrder;
+	}
+
+	public TreeMap<FpTermKey, Integer> hotTermToLevelInternal() {
+		return hotTermToLevel;
 	}
 	
 	public TreeMap<FpTermKey, Integer> commonTermOrderInternal() {
@@ -107,7 +116,8 @@ public final class FpGroupDataRebuild {
 		long ts_begin=CLMillisecondClock.CLOCK.now();
 
 
-		FpStatNgram ngramstat=FpGroupHotNgramRebuild.execute(this, parentItem, 32);
+		FpStatNgram ngramstat=FpGroupHotNgramRebuild.execute(this, parentItem,
+				FpHotTermHierarchyConstants.HOT_TIER_TERM_COUNT_THRESHOLD);
 		long ts_ngram=CLMillisecondClock.CLOCK.now();
 
 		FpGroupHotNgramBitIndex bitinfo=FpGroupHotNgramBitIndex.execute(this);
@@ -124,6 +134,7 @@ public final class FpGroupDataRebuild {
 		for(Entry<FpTermKey, FPDocList> e:hotTermToDocs.entrySet())
 		{
 			FpTermKey key=e.getKey();
+			int level=hotTermToLevel.get(key);
 			FPDocList val=e.getValue();
 			Integer index=hotTermToOrder.get(key);
 			boolean isDelTerm=val.docsize()<=0;
@@ -136,7 +147,7 @@ public final class FpGroupDataRebuild {
 			stat_hot_doc_cnt+=val.docsize();
 
 			
-			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, key.bytesRef());
+			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm,(byte)level, key.bytesRef());
 			BlockTermState stat = parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 
 		}
@@ -155,7 +166,7 @@ public final class FpGroupDataRebuild {
 
 			stat_common_doc_cnt+=val.docsize();
 
-			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false, key.bytesRef());
+			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, key.bytesRef());
 			BlockTermState stat = parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 
 		}
@@ -213,6 +224,7 @@ public final class FpGroupDataRebuild {
 
 	public void resetAfterFlush() {
 		hotTermToDocs.clear();
+		hotTermToLevel.clear();
 		hotTermToOrder.clear();
 		commonTermToDocs.clear();
 		commonTermToOrder.clear();
