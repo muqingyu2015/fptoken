@@ -73,7 +73,10 @@ public final class FpTermKey implements Comparable<FpTermKey> {
 			return false;
 		}
 		final FpTermKey o = (FpTermKey) obj;
-		return this.ref.equals(o.ref);
+		if (hash != o.hash || ref.length != o.ref.length) {
+			return false;
+		}
+		return ref.equals(o.ref);
 	}
 
 	@Override
