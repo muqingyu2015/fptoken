@@ -9,7 +9,9 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 
 import org.apache.lucene.util.BytesRef;
+import org.slf4j.Logger;
 
+import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
@@ -47,9 +49,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
  * </ol>
  */
 public final class FpGroupHotNgramRebuild {
-
-	
-
+    public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 	/**
 	 * 热词重建主流程，结果写入 {@code group} 的热词表与 {@code hotTermToLevel}。
 	 */

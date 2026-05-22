@@ -10,7 +10,9 @@
 
 | 文档 | 说明 |
 |------|------|
-| [本 README § 写段总流程图](#写段总流程图入口fpblocktreetermswriter) | **一张自顶向下的 Mermaid 总流程图** |
+| [写段详细流程图 PNG](docs/fp-token-write-path-detailed.png) | **高分辨率整图（约 4324×16694）· 源文件 `docs/fp-token-write-path-detailed.mmd`** |
+| [浏览器查看](docs/fp-token-write-path-detailed.html) | 同上，HTML 页内可缩放滚动 |
+| [本 README § 写段总流程图](#写段总流程图入口fpblocktreetermswriter) | 简版 Mermaid（嵌入 README） |
 | [`docs/fp-token-design_20260517.html`](docs/fp-token-design_20260517.html) | 技术设计（类职责、数据流、落盘格式） |
 | [`docs/fp-token-review-and-test-report_20260517.html`](docs/fp-token-review-and-test-report_20260517.html) | 代码审查 + 单元测试结果 + 潜在缺陷清单 |
 | [`docs/README.md`](docs/README.md) | 历史/协作文档索引 |
@@ -44,9 +46,9 @@ dataset/block/  FpGroupDataOriginal / Rebuild、FpGroupHotNgramRebuild、FpGroup
 
 ## 写段总流程图（入口：`FPBlockTreeTermsWriter`）
 
-下面**一张图**自顶向下串起：索引 → 写段入口 → 逐词缓冲 → 刷组 → 热词重建 → 位图 → 落盘 → 检索。字段后缀 `_bfp` / `_sfp`。字节格式见 [`docs/fp-token-design_20260517.html`](docs/fp-token-design_20260517.html)。
+**详细高清整图（推荐）**：[docs/fp-token-write-path-detailed.png](docs/fp-token-write-path-detailed.png)（可用 [docs/fp-token-write-path-detailed.html](docs/fp-token-write-path-detailed.html) 打开）。源图 `docs/fp-token-write-path-detailed.mmd`，重新生成：`.\scripts\render-fp-write-path-diagram.ps1`。
 
-> 需 Mermaid 预览（VS Code、GitHub 等）。图较长，可缩放拖动。
+下面为 README 内嵌的简版 Mermaid。字段后缀 `_bfp` / `_sfp`。字节格式见 [`docs/fp-token-design_20260517.html`](docs/fp-token-design_20260517.html)。
 
 ```mermaid
 flowchart TD

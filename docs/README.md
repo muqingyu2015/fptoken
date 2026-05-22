@@ -2,6 +2,12 @@
 
 本目录为设计与协作文档的**唯一索引**；仓库根 `README.md` 为项目主说明与命令入口。自动化/贡献者速览见仓库根 [`AGENTS.md`](../AGENTS.md)。
 
+## 写段调用（FPBlockTreeTermsWriter）
+
+- **[fp-token-write-path-detailed.png](fp-token-write-path-detailed.png)** — 高分辨率自上而下总流程图（方法级）
+- [fp-token-write-path-detailed.html](fp-token-write-path-detailed.html) — 浏览器查看
+- [fp-token-write-path-detailed.mmd](fp-token-write-path-detailed.mmd) — Mermaid 源（可改后运行 `../scripts/render-fp-write-path-diagram.ps1`）
+
 ## 阅读顺序（建议）
 
 | 顺序 | 文件 | 说明 |

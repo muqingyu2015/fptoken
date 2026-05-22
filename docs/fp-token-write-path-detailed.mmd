@@ -1,0 +1,156 @@
+%% FPToken 写段全路径 · 入口 FPBlockTreeTermsWriter
+%% 渲染: npx @mermaid-js/mermaid-cli -i docs/fp-token-write-path-detailed.mmd -o docs/fp-token-write-path-detailed.png -w 5200 -b white
+flowchart TD
+  classDef host fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+  classDef entry fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+  classDef orch fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+  classDef data fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+  classDef rebuild fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+  classDef disk fill:#eceff1,stroke:#455a64,stroke-width:2px
+  classDef query fill:#fffde7,stroke:#f9a825,stroke-width:2px
+
+  START(["开始：补丁 Lucene 写 FP 字段 _bfp / _sfp"]):::host
+
+  subgraph S0["阶段0 · 索引上游 token/（writeTerms 之前）"]
+    S0A["FpTokenAnalyzer.createComponents"] --> S0B["FPToken.incrementToken<br/>64B窗/32B步 产出字节"]
+    S0B --> S0C["词项写入段缓冲<br/>已带 13 字节 FP 头 + payload"]
+  end
+  START --> S0
+
+  subgraph S1["阶段1 · 宿主接入"]
+    S1A["BlockTreeTermsWriter 写该字段"] --> S1B["new FPBlockTreeTermsWriter<br/>termWriter, bitOut"]
+    S1B --> S1C["持有 fpblock_list<br/>group_id → FpBlockInfo"]
+    S1B --> S1D["持有 bitOut IndexOutput<br/>ngram 位图侧车文件"]
+  end
+  S0 --> S1
+
+  subgraph S2["阶段2 · FPBlockTreeTermsWriter.writeTerms"]
+    S2A["Terms.iterator_fp<br/>FP 字典序，同组相邻"] --> S2B["new FpTokenBlockOrchestrator<br/>fpblock_list, maxDoc, termsWriter…"]
+    S2B --> S2C["FpTokenBlockLevelPolicy<br/>.resolveTargetBlockLevel"]
+    S2C --> S2D{"max maxDoc,termGuess<br/>≥ 100000 ?"}
+    S2D -->|是| S2E["targetLevel = 3"]
+    S2D -->|否| S2F["targetLevel = 1"]
+    S2E --> S2G["进入词项循环"]
+    S2F --> S2G
+  end
+  S1 --> S2
+
+  subgraph S2H["FpTokenTermLayout · 落盘 term 布局"]
+    direction LR
+    H0["+0..1 index_id"] --> H1["+2..5 group_id"]
+    H1 --> H2["+6 level"]
+    H2 --> H3["+7 hot=1/common=0"]
+    H3 --> H4["+8..11 termIndex|isDel"]
+    H4 --> H5["+12 hotScanLevel=maxDown"]
+    H5 --> H6["+13.. payload 纯字节"]
+  end
+  S2G --> S2H
+
+  subgraph S3["阶段3 · 循环 FpTokenBlockOrchestrator.acceptTerm"]
+    S3A{"group_original 非空<br/>且 indexAndGroupEquals 变组?"}
+    S3A -->|是| S3B["flushHighGroup<br/>先结算高级别候选组"]
+    S3B --> S3C{"group_common 非空<br/>且换组?"}
+    S3A -->|否| S3C2
+    S3C -->|是| S3D["tryFlushCommonIfComplete"]
+    S3C -->|否| S3E
+    S3D --> S3D1{"shouldCompleteBlock<br/>rate=3, doc或term达标?"}
+    S3D1 -->|是| S3D2["flushCommonGroup"]
+    S3D1 -->|否| S3E
+    S3D2 --> S3E
+    S3C2["继续"] --> S3E
+    S3E{"FpTokenTermLayout.readLevel<br/>≥ targetLevel ?"}
+    S3E -->|是| S3F["若无则 new FpGroupKVOriginal"]
+    S3F --> S3G["FpGroupDataOriginal<br/>.ingestTermPostings"]
+    S3G --> S3G1["isHotTerm→hotTermToDocs<br/>否则→commonTermToDocs"]
+    S3G1 --> S3G2["distinctDocUnion.set doc"]
+    S3E -->|否| S3H["若无则 new FpGroupKVRebuild"]
+    S3H --> S3I["FpGroupDataRebuild<br/>.ingestTermPostings"]
+    S3I --> S3I1["isHotTerm → return 跳过"]
+    S3I1 --> S3I2["common→FpTermKey.copyOf<br/>commonTermToDocs.addDoc"]
+    S3G2 --> S3J([本词项结束])
+    S3I2 --> S3J
+    S3J --> S3K{"还有下一个 term?"}
+    S3K -->|是| S3A
+    S3K -->|否| S3L["退出循环"]
+  end
+  S2H --> S3A
+  S3L --> S4A
+
+  subgraph S4["阶段4 · finish"]
+    S4A["flushHighGroup"] --> S4B["flushCommonGroup"]
+  end
+
+  subgraph S4H["flushHighGroup 详细"]
+    FH0{"group_original == null ?"} -->|是| FHX([return])
+    FH0 -->|否| FH1["读 distinctDocUnion.cardinality<br/>与 termCount"]
+    FH1 --> FH2{"shouldCompleteBlock<br/>rate=1, 达标?"}
+    FH2 -->|达标·透传| FH3["Terms.fpBits index_id,group_id"]
+    FH3 --> FH4["FpGroupDataOriginal.flushto"]
+    FH4 --> FH4A["遍历 hotTermToDocs"]
+    FH4A --> FH4B["readLevel/readTermIndex 从原头<br/>make_fp_term + writefp"]
+    FH4 --> FH4C["遍历 commonTermToDocs writefp"]
+    FH4C --> FH5["bitinfo.flushto bitOut"]
+    FH5 --> FH6["fpblock_list.put group_id"]
+    FH2 -->|未达标·降级| FH7["mergeIntoRebuild<br/>并入 FpGroupDataRebuild"]
+    FH7 --> FH8["tryFlushCommonIfComplete"]
+    FH6 --> FH9["group_original=null"]
+    FH8 --> FH9
+    FH9 --> FHX
+  end
+  S4A -.-> S4H
+
+  subgraph S5["阶段5 · flushCommonGroup → FpGroupDataRebuild.flushto"]
+    S5A["flushCommonGroup"] --> S5B["FpGroupDataRebuild.flushto"]
+    S5B --> S5C["FpGroupHotNgramRebuild.execute"]
+    S5C --> S5C1["countNgramOccurrencesInCommon<br/>滑窗 n=1..6 统计词项频次"]
+    S5C1 --> S5C2["buildHotTermsAndAnchorTierIndex<br/>频次≥32→热词+空FPDocList<br/>AnchorTierIndex 分档登记子串"]
+    S5C2 --> S5C3["computeMaxDownLevels<br/>累加各档≤32则maxDown++<br/>→ hotTermToLevel"]
+    S5C3 --> S5C4["mergeCommonDocsIntoHotTerms"]
+    S5C4 --> S5C4A["长→短命中热词 addAllDocsFrom"]
+    S5C4A --> S5C4B["markParentPrefixesSkippedInCommonTerm<br/>extension≤maxDown 标记父前缀skip"]
+    S5C4B --> S5C5["putAll → hotTermToDocs"]
+    S5C5 --> S5D["FpGroupHotNgramBitIndex.execute"]
+    S5D --> S5D1["rebuildHotTermOrderFromHotDocs<br/>键序:长度→字典序 编号1..H"]
+    S5D1 --> S5D2["rebuildCommonTermToOrderFromHotDocs"]
+    S5D2 --> S5D3["allocBanks 6×256 hot/common"]
+    S5D3 --> S5D4["markNgramsForPayload<br/>bucketIndex set order-1"]
+    S5D4 --> S5E["groupIndex++ 新 group_id"]
+    S5E --> S5F["遍历 hotTermToDocs entrySet"]
+    S5F --> S5F1{"docsize==0 ?"}
+    S5F1 -->|是| S5F2["addDoc 占位 del_term_docid"]
+    S5F1 -->|否| S5F3["make_fp_term HOT,index,maxDown"]
+    S5F2 --> S5F4["TermsWriter.writefp"]
+    S5F3 --> S5F4
+    S5F4 --> S5G["遍历 common writefp 跳过空doc"]
+    S5G --> S5H["bitinfo.flushto bitOut → FpBlockInfo"]
+    S5H --> S5I["fpblock_list.put"]
+    S5I --> S5J["resetAfterFlush 清空组"]
+    S5J --> S5K["group_common=null"]
+  end
+  S4B --> S5A
+  FH7 -.->|降级并入| S5C
+
+  subgraph S6["阶段6 · 段内落盘产物"]
+    S6A["BlockTree 倒排 term+posting"] --> S6B["bitOut 文件 6×256×2 套位图"]
+    S6B --> S6C["fpblock_list 查 FpBlockInfo 偏移"]
+  end
+  S5K --> S6
+
+  subgraph S7["阶段7 · 检索（LXDB 查询模块）"]
+    S7A["读 writefp 落盘 term"] --> S7B["读 +12 maxDown"]
+    S7B --> S7C["FpBlockInfo→bitOut 定位桶"]
+    S7C --> S7D["按 maxDown 向下拼子档 posting"]
+    S7E["FpFilteredTermsEnum<br/>合并索引注入2B index_id"] -.-> S7A
+  end
+  S6 --> S7
+
+  END(["写段结束"]):::disk
+  S7 --> END
+
+  class START,S1A,S1B,S2A host
+  class S2B,S2G,S5B entry
+  class S3A,S3B,S4A,S4B,S5A orch
+  class S3G,S3I,S5F,S5G data
+  class S5C,S5D,S5C1,S5C2,S5C3,S5C4 rebuild
+  class S5H,S6A,S6B,S6C,S5F4 disk
+  class S7A,S7D query
