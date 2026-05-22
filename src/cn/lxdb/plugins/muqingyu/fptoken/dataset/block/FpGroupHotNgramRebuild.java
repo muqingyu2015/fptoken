@@ -72,7 +72,7 @@ public final class FpGroupHotNgramRebuild {
 		final TreeMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = buildHotTermsAndAnchorTierIndex(stat,
 				ngramOccurrenceCount, hotFreqThreshold, maxDoc, anchorTierIndexByHotTerm);
 
-		computeMaxDownLevels(hotTermToLevel, anchorTierIndexByHotTerm, hotFreqThreshold);
+		computeMaxDownLevels(stat,hotTermToLevel, anchorTierIndexByHotTerm, hotFreqThreshold);
 
 		mergeCommonDocsIntoHotTerms(stat, commonTermToDocs, hotTermsPendingDocMerge, hotTermToLevel);
 		anchorTierIndexByHotTerm.clear();
@@ -85,7 +85,7 @@ public final class FpGroupHotNgramRebuild {
 	 * 为每个热词锚点计算 {@code hotTermToLevel}：从锚点字节长向下，累加各档已登记子串个数；
 	 * 累加超过 {@code hotFreqThreshold} 前每纳入一档则 {@code maxDownLevel++}，作为查询/merge 可向下扩展的字节层数预算。
 	 */
-	private static void computeMaxDownLevels(TreeMap<FpTermKey, Integer> hotTermToLevel,
+	private static void computeMaxDownLevels(FpStatNgram stat, TreeMap<FpTermKey, Integer> hotTermToLevel,
 			HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm, final long hotFreqThreshold) {
 		for (Map.Entry<FpTermKey, AnchorTierIndex> entry : anchorTierIndexByHotTerm.entrySet()) {
 			final FpTermKey anchorTerm = entry.getKey();
@@ -100,6 +100,8 @@ public final class FpGroupHotNgramRebuild {
 				}
 				maxDownLevel++;
 			}
+			
+			stat.term_level_cnt[anchorTerm.bytesRef().length][maxDownLevel]++;
 			hotTermToLevel.put(anchorTerm, maxDownLevel);
 		}
 	}
