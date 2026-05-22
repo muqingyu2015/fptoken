@@ -38,8 +38,9 @@ public final class FpGroupDataRebuild {
 	/** 热词表，键为 {@link FpTermKey}（独立字节拷贝 + 预计算 hash） */
 	public final TreeMap<FpTermKey, FPDocList> hotTermToDocs = new TreeMap<>();
 	/**
-	 * 以该热词为锚点前缀，向下最多合并几层子档（从 0 起）。
-	 * 0=仅自身（如仅 ab）；1=含 +1 字节档（ab+ab*）；2=含 +2 字节档（ab+ab*+ab**）。见 {@link FpGroupHotNgramRebuild#resolveMaxDownLevelsFromAnchor}。
+	 * 热词锚点向下可遍历/拼回的字节层数预算（maxDown），由 {@link FpGroupHotNgramRebuild} 在 flush 时写入。
+	 * 从锚点字节长起按档累加子串规模，未超过 {@link Lucene80FPSearchConfig#HOT_TIER_TERM_COUNT_THRESHOLD} 的连续档数即为该值；
+	 * 检索与 {@link FpGroupHotNgramRebuild#markParentPrefixesSkippedInCommonTerm} 据此限制向下扩展。
 	 */
 	public final TreeMap<FpTermKey, Integer> hotTermToLevel = new TreeMap<>();
 	public final TreeMap<FpTermKey, Integer> hotTermToOrder = new TreeMap<>();
