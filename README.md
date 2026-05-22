@@ -41,22 +41,142 @@ dataset/block/  FpGroupDataOriginal / Rebuild、FpGroupHotNgramRebuild、FpGroup
 
 ---
 
-## 核心流程（简图）
+## 写段流程（入口：`FPBlockTreeTermsWriter`）
 
-```
-FpTokenAnalyzer → 带 12 字节 FP 头的 term
-       ↓
-iterator_fp 字典序遍历
-       ↓
-FpTokenBlockOrchestrator（按 group_level 与 targetLevel 分流）
-   ├─ 高级别 / 体量达标 → FpGroupDataOriginal（fpBits 透传 writefp）
-   └─ 可合并路径 → FpGroupDataRebuild
-         → FpGroupHotNgramRebuild（common → hot，阈值默认 32）
-         → FpGroupHotNgramBitIndex（hot/common 各 8×256 FixedBitSet）
-         → writefp + termsbit 侧车 + FpBlockInfo → fpblock_list
+LXDB 补丁 Lucene 在写 FP 字段（`Lucene80FPSearchConfig.isFpField`：后缀 `_bfp` / `_sfp`）时，由 `BlockTreeTermsWriter` 构造 `FPBlockTreeTermsWriter`，共享 `bitOut`（n-gram 位图侧车）与 `fpblock_list`（每组 `FpBlockInfo`）。
+
+### 总览
+
+```mermaid
+flowchart TB
+  subgraph upstream["索引上游（段外）"]
+    A["FpTokenAnalyzer / FPToken<br/>term 带 12 字节 FP 头"]
+  end
+
+  subgraph entry["写段入口 api/FPBlockTreeTermsWriter"]
+    B["writeTerms(maxDoc, pool, terms, termsWriter, …)"]
+    C["terms.iterator_fp()<br/>按 FP 字典序遍历"]
+    D["new FpTokenBlockOrchestrator<br/>fpblock_list, targetLevel, …"]
+    E["while next: orchestrator.acceptTerm(term, termsEnum)"]
+    F["orchestrator.finish()"]
+  end
+
+  subgraph orch["编排 api/FpTokenBlockOrchestrator"]
+    G{"词项 level ≥ targetLevel?"}
+    H["FpGroupKVOriginal<br/>ingestTermPostings"]
+    I["FpGroupKVRebuild<br/>ingestTermPostings（仅 common）"]
+    J{"换组 / 闭块?"}
+    K["flushHighGroup"]
+    L["flushCommonGroup"]
+  end
+
+  subgraph highFlush["高级别组 flush"]
+    M{"组内 doc/term 数<br/>达到 targetLevel 阈值?"}
+    N["透传：terms.fpBits +<br/>FpGroupDataOriginal.flushto"]
+    O["降级：mergeIntoRebuild →<br/>并入 FpGroupDataRebuild"]
+  end
+
+  subgraph rebuildFlush["可合并组 flush dataset/block"]
+    P["FpGroupHotNgramRebuild.execute<br/>common → hot + maxDown"]
+    Q["FpGroupHotNgramBitIndex.execute<br/>8×256 双套位图"]
+    R["按热词序 writefp 热词/common<br/>bitinfo.flushto(bitOut)"]
+    S["fpblock_list.put(group_id, FpBlockInfo)"]
+  end
+
+  A --> B
+  B --> C --> D --> E --> F
+  E --> G
+  G -->|是| H
+  G -->|否| I
+  H --> J
+  I --> J
+  J -->|换组或闭块| K
+  J -->|换组或闭块| L
+  K --> M
+  M -->|达标| N --> S
+  M -->|未达标| O --> I
+  L --> P --> Q --> R --> S
 ```
 
-字段识别：`Lucene80FPSearchConfig.isFpField(name)` — 后缀 `_bfp`（二进制）或 `_sfp`（字符串）。
+### 调用顺序与职责
+
+| 顺序 | 调用 | 做什么 | 原理 |
+|:--:|------|--------|------|
+| 0 | （段外）`FpTokenAnalyzer` | 产出带 FP 头的 term 字节 | 头含 `index_id`、`group_id`、`level`、`hot/common` 标记等，供写段与检索共用布局（`FpTokenTermLayout`） |
+| 1 | `FPBlockTreeTermsWriter.writeTerms` | 打开 FP 字段写段会话 | 持有 `bitOut`、`fpblock_list`；不直接写 Lucene 词项，委托编排器 |
+| 2 | `Terms.iterator_fp()` | 按 FP 规则排序遍历全字段词项 | 补丁 Lucene：保证同 `(index_id, group_id)` 连续，便于组缓冲 |
+| 3 | `FpTokenBlockOrchestrator` 构造 | 计算 `targetLevel` | `FpTokenBlockLevelPolicy.resolveTargetBlockLevel(maxDoc, guess_size)`：大段用大闭块阈值（level 3），否则 level 1 |
+| 4 | `acceptTerm`（循环） | 按组缓冲 posting | **换组**时先 `flushHighGroup` / 必要时 `flushCommonGroup`；再按词项 `level` 分流 |
+| 4a | `FpGroupDataOriginal.ingest` | 高级别路径：热词+common 原样累 doc | 保留 term 头里的 index、level、占位标记；组内 `distinctDocUnion` 用于闭块判定 |
+| 4b | `FpGroupDataRebuild.ingest` | 可合并路径：**只** ingest common | 热词不在此阶段写入；`isHotTerm` 的 term 直接 return，避免与后续 n-gram 挖掘重复 |
+| 5 | `tryFlushCommonIfComplete` | 组内 doc/term 达标则提前闭块 | `shouldCompleteBlock(3, targetLevel, …)`：十万级规模才强制凑满再 flush |
+| 6 | `finish` | 刷掉最后一组 high + common | 保证段末无残留缓冲 |
+| 7a | `flushHighGroup` → 透传 | `terms.fpBits` 取已有位图 + `FpGroupDataOriginal.flushto` | 组未因删除等「降级」时，**不重算** n-gram/热词，CPU 最优；`writefp` 写出 term + posting |
+| 7b | `flushHighGroup` → 降级 | `mergeIntoRebuild` 并入当前/新建 `FpGroupDataRebuild` | 高级别组体量不足，与 common 组合并后走重建链路 |
+| 8 | `flushCommonGroup` → `FpGroupDataRebuild.flushto` | 热词重建 + 位图 + 落盘 | 见下节分步 |
+| 9 | `termsWriter.writefp` | 补丁 Lucene 写 FP term 与 doclist | 与标准 BlockTree 并行，payload 为 FP 布局 term |
+| 10 | `FpGroupHotNgramBitIndex.flushto(bitOut)` | 序列化 8×256 banks | `FpBlockInfo` 记录偏移/宽度；写入 `fpblock_list[group_id]` |
+
+### 可合并路径：`FpGroupDataRebuild.flushto` 内部分步
+
+```mermaid
+flowchart LR
+  subgraph ngram["FpGroupHotNgramRebuild.execute"]
+    N1["countNgramOccurrencesInCommon<br/>滑窗统计 ngram 频次"]
+    N2["buildHotTermsAndAnchorTierIndex<br/>频次≥32 → 热词表 + 锚点分档索引"]
+    N3["computeMaxDownLevels<br/>hotTermToLevel（maxDown 预算）"]
+    N4["mergeCommonDocsIntoHotTerms<br/>长→短合并 doc + 父前缀 skip"]
+    N1 --> N2 --> N3 --> N4
+  end
+
+  subgraph bit["FpGroupHotNgramBitIndex.execute"]
+    B1["rebuildHotTermOrderFromHotDocs<br/>热词键序：长度→字典序"]
+    B2["rebuildCommonTermToOrderFromHotDocs"]
+    B3["对每条载荷滑窗 ngram<br/>set(order-1) 到 8×256 FixedBitSet"]
+    B1 --> B3
+    B2 --> B3
+  end
+
+  subgraph write["flushto 写出"]
+    W1["writefp 全部热词<br/>带 index、maxDown、占位 doc"]
+    W2["writefp 非空 common"]
+    W3["bitOut + fpblock_list"]
+    W1 --> W3
+    W2 --> W3
+  end
+
+  ngram --> bit --> write
+```
+
+**热词重建要点**（`FpGroupHotNgramRebuild`）：
+
+- 从 **common 载荷** 挖 byte n-gram（默认长度 1~6，阈值 32），生成扁平热词表（非树形存储）。
+- `hotTermToLevel`：从锚点长度向下，**累加**各档子串规模；未超过阈值则 `maxDown++`，限制查询/写段向下遍历深度。
+- merge 时 `markParentPrefixesSkippedInCommonTerm`：在 `extensionBytes ≤ maxDown` 时，同一 common 内不再向更短父热词重复 merge（空间换时间；深档不拼回时父 posting 仍保留 doc）。
+- 热词 `TreeMap` 使用 `FpTermKey.ORDER_BY_LENGTH_THEN_BYTES`，编号、`writefp`、位图遍历顺序一致。
+
+**位图索引要点**（`FpGroupHotNgramBitIndex`）：
+
+- 热词、common **各一套** `NGRAM_MAX × 256` 的 `FixedBitSet`（1 字节 ngram 按字节分桶，多字节按哈希折叠到 0..255）。
+- common 侧对已是热词整键的 ngram 切片 **跳过**，避免重复标记。
+- 检索侧用 `FpBlockInfo` 偏移按需读 bank（见设计文档）。
+
+### 高级别透传路径（对比）
+
+| 项目 | `FpGroupDataOriginal` | `FpGroupDataRebuild` |
+|------|------------------------|----------------------|
+| 触发 | 词项 `level ≥ targetLevel` 且组闭块时体量达标 | 低级别词项 + 降级合并组 |
+| ingest | 热词 + common 带头入库 | 仅 common |
+| 热词来源 | 索引阶段已有 | flush 时 n-gram 挖掘 |
+| 位图 | `terms.fpBits(index_id, group_id, …)` 复用 | `FpGroupHotNgramBitIndex.execute` 新建 |
+| maxDown | 从原 term 头读取 | `computeMaxDownLevels` 计算 |
+
+### 上游与检索（本 README 不展开）
+
+- **上游**：`token/FpTokenAnalyzer`、`FPToken` 生成 FP 载荷与组号。
+- **检索**：补丁 `Terms` / `FpFilteredTermsEnum` 读 `fpBits` 与 `writefp` 写出的 term；按 `maxDown` 向下拼子档（查询模块在 LXDB 侧）。
+
+更细的落盘字节布局见 [`docs/fp-token-design_20260517.html`](docs/fp-token-design_20260517.html)。
 
 ---
 
