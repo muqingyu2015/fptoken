@@ -10,7 +10,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [本 README § 写段架构与调用详解](#写段架构与调用详解入口fpblocktreetermswriter) | **从 `FPBlockTreeTermsWriter` 起的类职责表、序列图、分阶段原理** |
+| [本 README § 写段架构与调用详解](#写段架构与调用详解入口fpblocktreetermswriter) | **从 `FPBlockTreeTermsWriter` 起的 Mermaid 流程图 / 调用树 / 类职责图** |
 | [`docs/fp-token-design_20260517.html`](docs/fp-token-design_20260517.html) | 技术设计（类职责、数据流、落盘格式） |
 | [`docs/fp-token-review-and-test-report_20260517.html`](docs/fp-token-review-and-test-report_20260517.html) | 代码审查 + 单元测试结果 + 潜在缺陷清单 |
 | [`docs/README.md`](docs/README.md) | 历史/协作文档索引 |
@@ -44,164 +44,249 @@ dataset/block/  FpGroupDataOriginal / Rebuild、FpGroupHotNgramRebuild、FpGroup
 
 ## 写段架构与调用详解（入口：`FPBlockTreeTermsWriter`）
 
-本节从 **`api/FPBlockTreeTermsWriter`** 出发，说明 LXDB 补丁 Lucene 写 FP 字段时的**完整调用顺序**、**每个类的职责**与**实现原理**。字段识别：`Lucene80FPSearchConfig.isFpField(name)`（后缀 `_bfp` / `_sfp`）。更细的落盘格式见 [`docs/fp-token-design_20260517.html`](docs/fp-token-design_20260517.html)。
+本节以流程图说明写段全路径（入口 `api/FPBlockTreeTermsWriter`）。FP 字段：`Lucene80FPSearchConfig.isFpField`（`_bfp` / `_sfp`）。落盘细节见 [`docs/fp-token-design_20260517.html`](docs/fp-token-design_20260517.html)。
+
+> 下图使用 Mermaid。请在支持 Mermaid 的预览中查看（VS Code、GitHub、GitLab 等）。
 
 ### 1. 与宿主 Lucene 的衔接
 
-| 宿主组件（补丁 Lucene，不在本仓库） | 本模块组件 | 关系 |
-|-----------------------------------|------------|------|
-| `BlockTreeTermsWriter` 写某 FP 字段 | 构造 `FPBlockTreeTermsWriter(termWriter, bitOut)` | 共享 `bitOut`（n-gram 位图侧车文件） |
-| `Terms.iterator_fp()` | `FPBlockTreeTermsWriter.writeTerms` 消费 | FP 专用字典序：同 `(index_id, group_id)` 词项相邻 |
-| `BlockTreeTermsWriter$TermsWriter.writefp(...)` | `FpGroupData*.flushto` 内调用 | 写 FP 布局 term + `FPDocList` posting |
-| `Terms.fpBits(index_id, group_id, …)` | `FpGroupDataOriginal.flushto` 透传路径 | 复用索引阶段已建位图，避免重建 |
-| 段目录 `termsbit` 等 | `FpGroupHotNgramBitIndex.flushto(bitOut)` | 写出 `NGRAM_MAX×256` 对 hot/common `FixedBitSet` |
+```mermaid
+flowchart LR
+  subgraph Host["补丁 Lucene（宿主）"]
+    BTW[BlockTreeTermsWriter<br/>写 FP 字段]
+    IT[Terms.iterator_fp]
+    WF[TermsWriter.writefp]
+    FB[Terms.fpBits]
+    BIT[(termsbit / bitOut 文件)]
+  end
 
-**段级产出**：`FPBlockTreeTermsWriter.fpblock_list`：`group_id → FpBlockInfo`（每位图区在 `bitOut` 中的偏移与宽度）。
+  subgraph Module["fptoken 模块"]
+    FPW[FPBlockTreeTermsWriter]
+    FL[fpblock_list<br/>group_id → FpBlockInfo]
+    OR[FpTokenBlockOrchestrator]
+    FLU[FpGroupData*.flushto]
+    IDX[FpGroupHotNgramBitIndex.flushto]
+  end
+
+  BTW -->|构造| FPW
+  FPW -->|遍历| IT
+  FPW --> OR
+  OR --> FLU --> WF
+  FLU -->|透传路径| FB
+  FLU --> IDX --> BIT
+  IDX --> FL
+  FPW --- FL
+  FPW --- BIT
+```
 
 ---
 
-### 2. 类职责总览（按包）
+### 2. 类职责与依赖（按包）
 
-#### `token/` — 索引阶段产生 FP 词项字节
+```mermaid
+flowchart TB
+  subgraph TOK["token/ · 索引上游（不写段）"]
+    direction TB
+    T1[FpTokenAnalyzer<br/>Lucene Analyzer 入口]
+    T2[FPToken<br/>滑窗 → 带 FP 头的 term]
+    T3[FpTokenBytesMode · BinarySlidingWindowApi<br/>字节模式 / 64×32 滑窗]
+    T1 --> T2
+    T2 -.-> T3
+  end
 
-| 类 | 职责 | 关键 API | 写段阶段是否参与 |
-|----|------|----------|------------------|
-| `FpTokenAnalyzer` | FP 字段的 Lucene `Analyzer` 入口 | `createComponents` → `FPToken` | 否（索引上游） |
-| `FPToken` | 对 Reader 文本做滑窗，产出带 FP 头的 `BytesRef` term | `incrementToken` | 否 |
-| `FpTokenBytesMode` | 文本→字节模式（UTF-8 / 十六进制） | `fromCode` | 否 |
-| `BinarySlidingWindowApi` | 64B 窗 / 32B 步的二进制滑窗工具 | `slidingWindows` | 否 |
-| `WindowTerm` / `ByteRef` | 滑窗辅助类型 | — | 否 |
+  subgraph CFG["config/"]
+    C1[Lucene80FPSearchConfig<br/>isFpField · NGRAM 1~6 · 阈值32 · BUCKETS256]
+    C2[FpTokenBlockLevelPolicy<br/>resolveTargetBlockLevel<br/>shouldCompleteBlock]
+  end
 
-#### `config/` — 策略与常量
+  subgraph API["api/ · 写段入口"]
+    A1[FPBlockTreeTermsWriter<br/>writeTerms · fpblock_list · bitOut]
+    A2[FpTokenBlockOrchestrator<br/>acceptTerm · finish · flush*]
+    A3[FpFilteredTermsEnum<br/>合并索引注入 index_id 前缀]
+    A1 --> A2
+  end
 
-| 类 | 职责 | 关键 API | 调用方 |
-|----|------|----------|--------|
-| `Lucene80FPSearchConfig` | FP 字段后缀、`NGRAM_MIN/MAX`（1~6）、热词阈值 32、`BUCKETS=256` | `isFpField` | 宿主 + 全模块 |
-| `FpTokenBlockLevelPolicy` | **目标块级别**与**闭块判定** | `resolveTargetBlockLevel`、`shouldCompleteBlock` | `FpTokenBlockOrchestrator` |
+  subgraph COM["dataset/common/"]
+    direction TB
+    M1[FpTokenTermLayout<br/>13 字节头 + payload]
+    M2[FpTermKey<br/>Map 键 · ORDER_BY_LENGTH_THEN_BYTES]
+    M3[FPDocList<br/>doc 列表 int[] / BitSet]
+    M4[FpBlockInfo<br/>位图区元数据]
+    M5[FpGroupKVOriginal / FpGroupKVRebuild<br/>6 字节组号 + 组数据]
+    M6[FpStat · FpStatNgram<br/>段级 / ngram 统计]
+    M5 --> M1
+    M5 --> M3
+  end
 
-**`resolveTargetBlockLevel`**：`max(maxDoc, termGuess) ≥ 100_000` → `targetLevel=3`，否则 `=1`。  
-**`shouldCompleteBlock(rate, level, docCnt, termCnt)`**：去重 doc 数或不同词项数**任一**达到 `level` 对应阈值（level 3 为 10 万档）即闭块。
+  subgraph BLK["dataset/block/"]
+    B1[FpGroupDataOriginal<br/>高级别缓冲 hot+common]
+    B2[FpGroupDataRebuild<br/>可合并缓冲 仅 common]
+    B3[FpGroupHotNgramRebuild<br/>common→hot · maxDown]
+    B4[FpGroupHotNgramBitIndex<br/>8×256 双套位图]
+    B5[AnchorTierIndex<br/>热词锚点分档索引]
+    B2 --> B3 --> B4
+    B3 -.-> B5
+  end
 
-#### `api/` — 写段与检索入口
+  TOK -.->|产出 term| API
+  CFG --> A2
+  A2 --> M5
+  A2 --> B1
+  A2 --> B2
+  B1 --> M4
+  B2 --> M4
+  A3 -.->|检索侧| M1
+```
 
-| 类 | 职责 | 关键 API | 说明 |
-|----|------|----------|------|
-| **`FPBlockTreeTermsWriter`** | **本模块写段总入口**；持有 `fpblock_list`、`bitOut` | `writeTerms`、`close` | 遍历 `iterator_fp`，委托编排器 |
-| **`FpTokenBlockOrchestrator`** | **组级编排**：缓冲、换组 flush、高级别/可合并分流 | `acceptTerm`、`finish`、`flushHighGroup`、`flushCommonGroup` | 内存中最多一个 `group_common` + 可选 `group_original` |
-| `FpFilteredTermsEnum` | 合并索引时在 term 前 2 字节注入 `index_id` 前缀 | `next` 覆写 `BytesRef` 头 | **检索/合并**侧，不在 `writeTerms` 路径 |
-
-#### `dataset/common/` — 布局、键、doc 列表、组容器
-
-| 类 | 职责 | 关键 API | 说明 |
-|----|------|----------|------|
-| **`FpTokenTermLayout`** | **13 字节 FP 头** + payload 的布局读写 | `make_fp_term`、`readLevel`、`isHotTerm`、`readTermIndex`、`readHotTermScanLevel` | 见 §3 |
-| **`FpTermKey`** | `TreeMap` 键：缓存 hash 的 `BytesRef` | `copyOf`、`viewOf`、`ORDER_BY_LENGTH_THEN_BYTES` | 热词三表统一键序 |
-| **`FPDocList`** | 单 term 的 doc 列表（`int[]` → `SparseFixedBitSet`） | `addDoc`、`addAllDocsFrom`、`docsize` | ingest / merge / writefp |
-| `FpBlockInfo` | 一组 n-gram 位图在 `bitOut` 中的元数据 | `writeto`/`readfrom`、`hotBankOffset` | 写入 `fpblock_list` |
-| `FpGroupKVOriginal` | `(index_id, group_id)` 6 字节键 + `FpGroupDataOriginal` | `key`、`val` | 高级别候选组 |
-| `FpGroupKVRebuild` | 同上 + `FpGroupDataRebuild` | `key`、`val` | 可合并组 |
-| `FpStat` | 编排器段级统计 | `flush_*_cnt`、`doclist_*` | `writeTerms` 日志 |
-| `FpStatNgram` | 热词重建统计 | `freqThreshold_*`、`ngram_level_*` | `FpGroupHotNgramRebuild` |
-| `FpDocListEach` | （辅助） | — | 视具体用法 |
-
-#### `dataset/block/` — 组内数据与重建
-
-| 类 | 职责 | 关键 API | 说明 |
-|----|------|----------|------|
-| **`FpGroupDataRebuild`** | **可合并组**状态机：common 缓冲 → flush 时热词重建 + 写盘 | `ingestTermPostings`、`flushto`、`rebuildHotTermOrderFromHotDocs` | ingest **跳过** `isHotTerm` |
-| **`FpGroupDataOriginal`** | **高级别候选组**：原样缓冲热词+common | `ingestTermPostings`、`flushto`、`mergeIntoRebuild` | 透传或降级合并 |
-| **`FpGroupHotNgramRebuild`** | 从 common 挖 n-gram 热词、算 `maxDown`、merge doc | `execute` 及 4 个私有步骤 | 仅 `FpGroupDataRebuild.flushto` |
-| **`FpGroupHotNgramBitIndex`** | 构建并序列化 hot/common 双套 `8×256` 位图 | `execute`、`flushto`、`readfrom` | `execute` 在 ngram 之后 |
-| `AnchorTierIndex` | 热词锚点按字节长度分档的 `TreeSet` 桶 | 构造 `0..NGRAM_MAX` | `FpGroupHotNgramRebuild` 临时索引 |
+```mermaid
+flowchart TD
+  subgraph Policy["FpTokenBlockLevelPolicy 判定逻辑"]
+    P0{max maxDoc, termGuess<br/>≥ 100000?}
+    P0 -->|是| P3[targetLevel = 3]
+    P0 -->|否| P1[targetLevel = 1]
+    P3 --> P4{distinctDoc ≥ 阈值<br/>或 distinctTerm ≥ 阈值?}
+    P1 --> P4
+    P4 -->|是| P5[闭块：应 flush 写出]
+    P4 -->|否| P6[继续缓冲]
+  end
+```
 
 ---
 
 ### 3. FP 词项字节布局（`FpTokenTermLayout`）
 
-写入 Lucene 的 term = **13 字节头** + **payload**（指纹字节序列）：
-
-```
-[offset+0..1]  index_id     (short sortable，合并时可被替换)
-[offset+2..5]  group_id     (int sortable，flush 时分配新 group_id)
-[offset+6]     group_level  (byte，闭块目标级别等)
-[offset+7]     hot mark     (1=热词，0=common)
-[offset+8..11] term_index<<1 | isDelTerm
-[offset+12]    hotScanLevel (maxDown，重建路径由 FpGroupHotNgramRebuild 写入)
-[offset+13..]  payload      (纯字节 n-gram 内容，无头)
+```mermaid
+flowchart LR
+  subgraph Header["13 字节 FP 头"]
+    direction LR
+    H0["+0..1 index_id"]
+    H1["+2..5 group_id"]
+    H2["+6 level"]
+    H3["+7 hot=1/common=0"]
+    H4["+8..11 termIndex+isDel"]
+    H5["+12 hotScanLevel maxDown"]
+    H0 --> H1 --> H2 --> H3 --> H4 --> H5
+  end
+  Header --> Payload["+13.. payload<br/>纯指纹字节 n-gram"]
 ```
 
 ---
 
-### 4. 端到端调用顺序图（从 `writeTerms` 开始）
+### 4. 主调用树流程图（`writeTerms` 全展开）
+
+```mermaid
+flowchart TD
+  ROOT([BlockTreeTermsWriter 写 FP 字段])
+  ROOT --> W1[FPBlockTreeTermsWriter.writeTerms]
+
+  W1 --> W2[terms.iterator_fp]
+  W1 --> W3[new FpTokenBlockOrchestrator]
+  W3 --> W3a[FpTokenBlockLevelPolicy.resolveTargetBlockLevel]
+
+  W1 --> LOOP{{每个 term}}
+  LOOP --> AT[FpTokenBlockOrchestrator.acceptTerm]
+  AT --> AT1[见 §5 acceptTerm 流程图]
+
+  W1 --> FIN[orchestrator.finish]
+  FIN --> FH[flushHighGroup · §6]
+  FIN --> FC[flushCommonGroup]
+
+  FC --> FT[FpGroupDataRebuild.flushto · §7]
+
+  FT --> NG[FpGroupHotNgramRebuild.execute · §8]
+  NG --> NG1[countNgramOccurrencesInCommon]
+  NG --> NG2[buildHotTermsAndAnchorTierIndex]
+  NG --> NG3[computeMaxDownLevels]
+  NG --> NG4[mergeCommonDocsIntoHotTerms]
+  NG4 --> NG4a[markParentPrefixesSkippedInCommonTerm]
+
+  FT --> BI[FpGroupHotNgramBitIndex.execute · §9]
+  BI --> BI1[rebuildHotTermOrderFromHotDocs]
+  BI --> BI2[rebuildCommonTermToOrderFromHotDocs]
+  BI --> BI3[markNgramsForPayload × hot/common]
+  BI --> BI4[flushto → FpBlockInfo]
+
+  FT --> WH[遍历 hotTermToDocs]
+  WH --> MK[FpTokenTermLayout.make_fp_term]
+  MK --> WP[TermsWriter.writefp]
+
+  FT --> WC[遍历 commonTermToDocs]
+  WC --> MK2[make_fp_term COMMON]
+  MK2 --> WP2[writefp]
+
+  FH --> FH1{体量达标?}
+  FH1 -->|透传| FO[FpGroupDataOriginal.flushto]
+  FO --> FB[terms.fpBits]
+  FO --> WP3[writefp 读原头]
+  FH1 -->|降级| MR[mergeIntoRebuild → Rebuild 路径]
+
+  FT --> PL[fpblock_list.put group_id]
+  BI4 --> PL
+```
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant Host as BlockTreeTermsWriter<br/>(补丁 Lucene)
+  participant Host as BlockTreeTermsWriter
   participant FPW as FPBlockTreeTermsWriter
-  participant Terms as Terms
   participant Orch as FpTokenBlockOrchestrator
-  participant Policy as FpTokenBlockLevelPolicy
-  participant Orig as FpGroupDataOriginal
   participant Reb as FpGroupDataRebuild
-  participant Ngram as FpGroupHotNgramRebuild
-  participant Bit as FpGroupHotNgramBitIndex
-  participant TW as TermsWriter.writefp
-  participant BitOut as IndexOutput bitOut
 
-  Host->>FPW: writeTerms(maxDoc, pool, terms, termsWriter, …)
-  FPW->>Terms: iterator_fp()
-  FPW->>Orch: new(fpblock_list, termWriter, terms, maxDoc, …)
-  Orch->>Policy: resolveTargetBlockLevel(maxDoc, guess_size)
-  Policy-->>Orch: targetLevel
-
-  loop 每个 term（字典序）
-    FPW->>Orch: acceptTerm(term, termsEnum)
-    Note over Orch: 见 §5 活动图
+  Host->>FPW: writeTerms
+  FPW->>Orch: new + resolveTargetBlockLevel
+  loop 每个 term
+    FPW->>Orch: acceptTerm
   end
-
-  FPW->>Orch: finish()
-  Orch->>Orch: flushHighGroup()
-  Orch->>Orch: flushCommonGroup()
-
-  Note over Reb,BitOut: flushCommonGroup 内部见 §7~§9
+  FPW->>Orch: finish → flushHigh → flushCommon
+  Orch->>Reb: flushto → ngram → bitindex → writefp
 ```
 
 ---
 
-### 5. `acceptTerm` 详细流程（组缓冲 + 分流）
+### 5. `acceptTerm` 流程图（组缓冲 + 分流）
 
-**不变量**：`iterator_fp` 保证同一 `(index_id, group_id)` 连续；编排器用 `FpTokenTermLayout.indexAndGroupEquals` 检测换组。
+`iterator_fp` 保证同 `(index_id, group_id)` 连续；`indexAndGroupEquals` 检测换组。
 
 ```mermaid
 flowchart TD
-  Start([acceptTerm term, termsEnum]) --> ChgH{group_original 非空<br/>且组号变化?}
-  ChgH -->|是| FH[flushHighGroup]
+  Start([acceptTerm]) --> ChgH{group_original 存在<br/>且组号变化?}
+  ChgH -->|是| FH[flushHighGroup<br/>原理：先结算上级候选组]
   ChgH -->|否| ChgC
-  FH --> ChgC{group_common 非空<br/>且组号变化?}
-  ChgC -->|是| TC[tryFlushCommonIfComplete]
+  FH --> ChgC{group_common 存在<br/>且组号变化?}
+  ChgC -->|是| TC[tryFlushCommonIfComplete<br/>原理：仅体量达标才提前闭块]
   ChgC -->|否| Lev
-  TC --> Lev{readLevel term<br/>≥ targetLevel?}
+  TC --> Lev{term.level<br/>≥ targetLevel?}
 
-  Lev -->|是| EnsO[group_original 为空则 new FpGroupKVOriginal]
-  EnsO --> IngO[FpGroupDataOriginal.ingestTermPostings<br/>热词→hotTermToDocs<br/>common→commonTermToDocs]
+  Lev -->|是| EnsO[必要时 new FpGroupKVOriginal]
+  EnsO --> IngO[FpGroupDataOriginal.ingest<br/>热词+common 入桶<br/>更新 distinctDocUnion]
   IngO --> End([返回])
 
-  Lev -->|否| EnsC[group_common 为空则 new FpGroupKVRebuild]
-  EnsC --> IngC[FpGroupDataRebuild.ingestTermPostings<br/>isHotTerm→直接 return<br/>否则 commonTermToDocs]
+  Lev -->|否| EnsC[必要时 new FpGroupKVRebuild]
+  EnsC --> IngC[FpGroupDataRebuild.ingest<br/>isHotTerm→跳过<br/>仅 common 累积 posting]
   IngC --> End
 ```
-
-| 步骤 | 方法 | 原理 |
-|------|------|------|
-| 换组刷高级别 | `flushHighGroup` | 上一组高级别候选必须先结算，避免组号串组 |
-| 换组刷 common | `tryFlushCommonIfComplete` | 仅当 `shouldCompleteBlock(3, targetLevel, doc, term)` 为真才 `flushCommonGroup`；小段不强制提前闭块 |
-| 高级别 ingest | `FpGroupDataOriginal.ingestTermPostings` | `clearAndCopyGroupBytes` 保留载荷；热词/common 分桶；更新 `distinctDocUnion` |
-| 可合并 ingest | `FpGroupDataRebuild.ingestTermPostings` | **热词在索引阶段已写出或将在 flush 重建**；此处只累积 common 的 posting，供 n-gram 挖掘 |
 
 ---
 
 ### 6. `flushHighGroup`：透传 vs 降级
+
+```mermaid
+flowchart TD
+  FH([flushHighGroup]) --> E0{group_original<br/>为空?}
+  E0 -->|是| R0([return])
+  E0 -->|否| E1[统计 distinctDocUnion<br/>与 termCount]
+  E1 --> E2{shouldCompleteBlock<br/>体量达标?}
+
+  E2 -->|是 · 透传| P1[Terms.fpBits<br/>复用已有位图]
+  P1 --> P2[FpGroupDataOriginal.flushto<br/>writefp 热词+common<br/>level/index 读原头]
+  P2 --> P3[bitOut + fpblock_list]
+
+  E2 -->|否 · 降级| D1[mergeIntoRebuild<br/>并入 FpGroupDataRebuild]
+  D1 --> D2[tryFlushCommonIfComplete]
+
+  P3 --> CLR[group_original = null]
+  D2 --> CLR
+```
 
 ```mermaid
 sequenceDiagram
@@ -237,11 +322,6 @@ sequenceDiagram
     Orch->>Orch: group_original = null
   end
 ```
-
-| 路径 | 条件 | CPU 行为 | 热词 / 位图来源 |
-|------|------|----------|-----------------|
-| **透传** | 组内 doc 或 term 数达到 `targetLevel` 阈值 | 不重算 n-gram、不重建热词表 | 索引阶段已写入；`terms.fpBits` |
-| **降级** | 未达标（如删除导致组萎缩） | 并入 `FpGroupDataRebuild`，走 §7 重建 | 与纯 common 组相同 |
 
 ---
 
@@ -286,115 +366,186 @@ sequenceDiagram
 
 ---
 
-### 8. `FpGroupHotNgramRebuild.execute` 分步（原理）
+### 8. `FpGroupHotNgramRebuild.execute` 流程图
 
 ```mermaid
 flowchart TB
-  subgraph S1[countNgramOccurrencesInCommon]
-    A1[遍历 commonTermToDocs 每条 payload]
-    A2[滑窗 n=1..NGRAM_MAX]
-    A3[每条 common 内 ngram 去重后<br/>ngramOccurrenceCount++]
+  START([execute 开始<br/>清空 hotTermToDocs / hotTermToLevel])
+
+  subgraph S1["① countNgramOccurrencesInCommon"]
+    direction TB
+    A1[输入: commonTermToDocs]
+    A2[每条 payload 滑窗 n=1..6]
+    A3[单 common 内 ngram 去重]
+    A4[输出: ngramOccurrenceCount<br/>跨 common 词项出现次数]
+    A1 --> A2 --> A3 --> A4
   end
 
-  subgraph S2[buildHotTermsAndAnchorTierIndex]
-    B1[occurrence ≥ 32 → 入选热词]
-    B2[hotTermsPendingDocMerge 空 FPDocList]
-    B3[AnchorTierIndex：热词自身子串<br/>按 byteLen 分档入 TreeSet<br/>单档上限 2×阈值]
+  subgraph S2["② buildHotTermsAndAnchorTierIndex"]
+    direction TB
+    B1[输入: 频次表]
+    B2{count ≥ 32?}
+    B3[输出: 热词键 + 空 FPDocList]
+    B4[AnchorTierIndex 登记子串<br/>按 byteLen 分档 · 单档 cap 64]
+    B1 --> B2
+    B2 -->|是| B3 --> B4
+    B2 -->|否| SKIP[跳过]
   end
 
-  subgraph S3[computeMaxDownLevels]
-    C1[从锚点 byteLen 向下累加各档 size]
-    C2[累加 ≤32 → maxDownLevel++]
-    C3[写入 hotTermToLevel]
+  subgraph S3["③ computeMaxDownLevels"]
+    direction TB
+    C1[输入: anchorTierIndexByHotTerm]
+    C2[从锚点长度向下累加各档 size]
+    C3{累加 > 32?}
+    C4[输出: hotTermToLevel maxDown<br/>控制查询向下遍历深度]
+    C1 --> C2 --> C3
+    C3 -->|否| C2
+    C3 -->|是| C4
   end
 
-  subgraph S4[mergeCommonDocsIntoHotTerms]
-    D1[每条 common：ngram 长→短扫描]
-    D2[命中热词 → addAllDocsFrom]
-    D3[markParentPrefixesSkippedInCommonTerm<br/>extension≤maxDown 则标记父前缀 skip]
-    D4[putAll → hotTermToDocs]
+  subgraph S4["④ mergeCommonDocsIntoHotTerms"]
+    direction TB
+    D1[输入: common doclist]
+    D2[长→短扫描命中热词]
+    D3[addAllDocsFrom]
+    D4{extension ≤ maxDown?}
+    D5[标记父前缀 skip<br/>本 common 内不再重复 merge]
+    D6[输出: hotTermToDocs 含 posting<br/>深档不拼回时父词仍可有 doc]
+    D1 --> D2 --> D3 --> D4
+    D4 -->|是| D5
+    D4 -->|否| D6
+    D5 --> D6
   end
 
-  S1 --> S2 --> S3 --> S4
+  START --> S1 --> S2 --> S3 --> S4
+  S4 --> END([putAll → group.hotTermToDocs])
 ```
-
-| 步骤 | 输入 | 输出 | 原理 |
-|------|------|------|------|
-| count | `commonTermToDocs` | `HashMap<FpTermKey,Integer>` 频次 | 跨 common **词项数**统计（非 doc 频次）；单 common 内同 ngram 只计 1 |
-| build | 频次表 | 热词键 + `AnchorTierIndex` | 阈值 32 与挖掘阈值一致；分档索引供 maxDown 预算 |
-| compute | 分档索引 | `hotTermToLevel` | 控制查询向下拼档深度；写段 merge 用同一预算避免同 common 重复 merge |
-| merge | common doclist | 热词 `FPDocList` | **不**做写段后 posting 剔除；`depth>maxDown` 时父热词仍可保留 doc（空间换时间） |
 
 ---
 
-### 9. `FpGroupHotNgramBitIndex.execute` 分步
+### 9. `FpGroupHotNgramBitIndex` 流程图
 
 ```mermaid
-flowchart LR
-  O1[rebuildHotTermOrderFromHotDocs<br/>按 TreeMap 键序编号 1..H]
-  O2[rebuildCommonTermToOrderFromHotDocs<br/>编号 1..C]
-  M1[allocBanks hot: max1,H+1 bits]
-  M2[allocBanks common: max1,C+1 bits]
-  L1[对每条热词 payload 滑窗 ngram]
-  L2[bucketIndex → banksHot n-1 bucket]
-  L3[set bit = order-1]
-  L4[common 同理，slice 已是热词整键则 skip]
-  O1 --> L1
-  O2 --> L4
-  M1 --> L2
-  M2 --> L4
-```
+flowchart TB
+  E([execute]) --> O1[rebuildHotTermOrderFromHotDocs<br/>热词编号 1..H]
+  O1 --> O2[rebuildCommonTermToOrderFromHotDocs<br/>common 编号 1..C]
+  O2 --> A1[allocBanks<br/>hot: 6×256 · common: 6×256]
 
-**`bucketIndex`**：长度 1 → 字节值 0..255；长度 2~6 → 多项式 hash 折叠到 0..255。  
-**`flushto(bitOut)`**：先写 `[0][0]` hot/common 测字节宽 → 记录 `FpBlockInfo` → 交错写其余 `(lengthIdx, bucket)` 对。
+  A1 --> H1[遍历每条热词 payload]
+  H1 --> H2[滑窗 ngram len 1..6]
+  H2 --> H3[bucketIndex<br/>1B→字节值 · 多B→hash%256]
+  H3 --> H4[FixedBitSet.set order-1]
+
+  A1 --> C1[遍历每条 common payload]
+  C1 --> C2{切片已是热词整键?}
+  C2 -->|是| SKIP[不写 common 侧]
+  C2 -->|否| C3[bucket + set bit]
+
+  H4 --> F([flushto bitOut])
+  C3 --> F
+  F --> F1[写 0,0 测序列化字节宽]
+  F1 --> F2[填充 FpBlockInfo 偏移]
+  F2 --> F3[交错写其余 li,bucket 对]
+  F3 --> F4[fpblock_list.put]
+```
 
 ---
 
-### 10. 运行时数据结构关系（单字段写段）
+### 10. 运行时对象关系图（单字段写段会话）
 
 ```mermaid
-flowchart LR
+flowchart TB
   FPW[FPBlockTreeTermsWriter]
-  FPW --> fpbl[fpblock_list<br/>TreeMap group_id→FpBlockInfo]
-  FPW --> bitOut[(bitOut 侧车文件)]
+  FPW --> fpbl[(fpblock_list)]
+  FPW --> bitOut[(bitOut IndexOutput)]
+  FPW --> Orch[FpTokenBlockOrchestrator]
 
-  Orch[FpTokenBlockOrchestrator]
-  FPW --> Orch
-  Orch --> gO[group_original<br/>FpGroupKVOriginal]
-  Orch --> gC[group_common<br/>FpGroupKVRebuild]
-  gO --> DO[FpGroupDataOriginal<br/>hot + common maps]
-  gC --> DR[FpGroupDataRebuild<br/>common only → flush 扩 hot]
+  Orch --> stat[FpStat 统计]
+  Orch --> gi[groupIndex 递增分配 group_id]
+  Orch --> tw[termsWriter.writefp]
+  Orch --> gO[group_original]
+  Orch --> gC[group_common]
 
-  DR --> H1[hotTermToDocs]
-  DR --> H2[hotTermToLevel]
-  DR --> H3[hotTermToOrder]
-  DR --> CM[commonTermToDocs]
-  DR --> DU[distinctDocUnion]
+  gO --> kO[6B 组号 key]
+  gO --> DO[FpGroupDataOriginal]
+  DO --> DOh[hotTermToDocs]
+  DO --> DOc[commonTermToDocs]
+  DO --> DOu[distinctDocUnion]
+
+  gC --> kC[6B 组号 key]
+  gC --> DR[FpGroupDataRebuild]
+  DR --> DRc[commonTermToDocs · ingest 写入]
+  DR --> DRu[distinctDocUnion]
+  DR -->|flushto 后| DRh[hotTermToDocs]
+  DR --> DRl[hotTermToLevel maxDown]
+  DR --> DRo[hotTermToOrder]
+  DRh --> WP[writefp]
+  DRc --> WP
+  DR --> BI[FpGroupHotNgramBitIndex]
+  BI --> fpbl
+  BI --> bitOut
 ```
 
 ---
 
-### 11. 双路径对照（决策一览）
+### 11. 双路径决策流程图
 
-| 维度 | 高级别透传 `FpGroupDataOriginal` | 可合并重建 `FpGroupDataRebuild` |
-|------|----------------------------------|-----------------------------------|
-| **进入条件** | `term.level ≥ targetLevel` | `term.level < targetLevel` |
-| **ingest** | 热词 + common，保留完整 FP 头 | 仅 common（`isHotTerm` 跳过） |
-| **闭块 flush** | `flushHighGroup` | `flushCommonGroup` / 换组时 `tryFlushCommonIfComplete` |
-| **热词从哪来** | 索引阶段 `FPToken` 已标热词 | `FpGroupHotNgramRebuild` 从 common 挖 |
-| **maxDown** | `readHotTermScanLevel` / 原头 | `computeMaxDownLevels` |
-| **位图** | `Terms.fpBits(...)` | `FpGroupHotNgramBitIndex.execute` 新建 |
-| **term 写出顺序** | `TreeMap` 自然序（原始） | 热词 `ORDER_BY_LENGTH_THEN_BYTES` |
-| **典型目的** | 大组原样落盘，省 CPU | 小组合并、压缩、n-gram 索引 |
+```mermaid
+flowchart TB
+  T([每个 term]) --> Q1{level ≥ targetLevel?}
+
+  Q1 -->|是| PATH_O[高级别路径 FpGroupDataOriginal]
+  Q1 -->|否| PATH_R[可合并路径 FpGroupDataRebuild]
+
+  subgraph ORIG["透传路径 · 目标：大组省 CPU"]
+    direction TB
+    O1[ingest: 热词 + common 保留 FP 头]
+    O2[flushHighGroup]
+    O3{体量达标?}
+    O4[fpBits 复用位图]
+    O5[flushto writefp<br/>maxDown 读原头]
+    O1 --> O2 --> O3
+    O3 -->|是| O4 --> O5
+    O3 -->|否| O6[mergeIntoRebuild → 并入 Rebuild 路径]
+  end
+
+  subgraph REB["重建路径 · 目标：小组合并 + ngram 索引"]
+    direction TB
+    R1[ingest: 仅 common]
+    R2[flushCommonGroup]
+    R3[FpGroupHotNgramRebuild<br/>挖热词 · maxDown]
+    R4[FpGroupHotNgramBitIndex<br/>新建 8×256 位图]
+    R5[writefp 热词序: 长度→字典序]
+    R1 --> R2 --> R3 --> R4 --> R5
+  end
+
+  PATH_O --> ORIG
+  PATH_R --> REB
+  O6 --> REB
+```
 
 ---
 
-### 12. 检索侧（与写段衔接，本仓库仅部分实现）
+### 12. 检索侧流程（写段产出 → 查询消费）
 
-| 类 | 职责 |
-|----|------|
-| `FpFilteredTermsEnum` | 多索引合并写段时，在 term 前注入 2 字节 `index_id`，与 `FpTokenTermLayout` 头内 `index_id` 协同 |
-| 补丁 `Terms` / 查询 FP 搜索 | 读 `writefp` 落盘 term + `FpBlockInfo` 定位 `bitOut` banks；按 `hotScanLevel` 向下拼子档（实现在 LXDB 查询模块） |
+```mermaid
+flowchart LR
+  subgraph Write["写段产出"]
+    W1[writefp terms]
+    W2[bitOut + FpBlockInfo]
+  end
+
+  subgraph Read["检索（LXDB 查询模块 + 本仓库部分类）"]
+    R1[FpFilteredTermsEnum<br/>合并索引注入 2B index_id]
+    R2[读 term + hotScanLevel]
+    R3[FpBlockInfo → 定位 bank]
+    R4[按 maxDown 向下拼子档 posting]
+    R1 --> R2 --> R3 --> R4
+  end
+
+  W1 --> R2
+  W2 --> R3
+```
 
 ---
 
