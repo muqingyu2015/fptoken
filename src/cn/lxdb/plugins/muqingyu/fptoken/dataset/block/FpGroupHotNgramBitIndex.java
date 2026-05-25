@@ -223,7 +223,7 @@ public final class FpGroupHotNgramBitIndex {
 	/**
 	 * @param hotDocs       仅当 {@code skipIfInHot} 为 true 时使用：切片若已是热词整键则跳过
 	 */
-	private static void markNgramsForPayload(FixedBitSet[][] banks, TreeMap<FpTermKey, Integer> termorder, boolean skipIfInHot,
+	private static void markNgramsForPayload(FixedBitSet[][] banks, TreeMap<FpTermKey, Integer> hotTermCheck, boolean skipIfInHot,
 			BytesRef payload, int order, int numBits) {
 		if (order < 1 || order > numBits) {
 			return;
@@ -237,7 +237,7 @@ public final class FpGroupHotNgramBitIndex {
 		for (int start = 0; start < payloadLen; start++) {
 			for (int n = Lucene80FPSearchConfig.NGRAM_MIN; n <= Lucene80FPSearchConfig.NGRAM_MAX && start + n <= payloadLen; n++) {
 				final BytesRef slice = new BytesRef(payload.bytes, base + start, n);
-				if (skipIfInHot && termorder != null && termorder.containsKey(FpTermKey.viewOf(slice))) {
+				if (skipIfInHot && hotTermCheck != null && hotTermCheck.containsKey(FpTermKey.viewOf(slice))) {
 					continue;
 				}
 				final int bucket = bucketIndex(slice.bytes, slice.offset, slice.length);

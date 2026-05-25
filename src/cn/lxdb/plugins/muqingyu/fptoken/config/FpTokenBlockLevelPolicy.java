@@ -9,6 +9,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
  */
 public final class FpTokenBlockLevelPolicy {
 	public final static int BLOCK_LEVEL_HIGH=3;
+	public final static int BLOCK_LEVEL_MID=2;
 	public final static int BLOCK_LEVEL_LOW=1;
 
 	private FpTokenBlockLevelPolicy() {
@@ -29,6 +30,9 @@ public final class FpTokenBlockLevelPolicy {
 		if (check_size >= 100_000) {
 			return BLOCK_LEVEL_HIGH;
 		}
+		if (check_size >= 10_000) {
+			return BLOCK_LEVEL_MID;
+		}
 		return BLOCK_LEVEL_LOW;
 	}
 
@@ -42,6 +46,10 @@ public final class FpTokenBlockLevelPolicy {
 		if(BLOCK_LEVEL_HIGH==level)
 		{
 			return 100_000;
+		}
+		if(BLOCK_LEVEL_MID==level)
+		{
+			return 10_000;
 		}
 		return 1_000;
 
