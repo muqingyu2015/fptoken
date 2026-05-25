@@ -30,14 +30,15 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 public final class FpGroupHotNgramBitIndex {
 
 
-	private final FixedBitSet[][] banksHot;
-	private final FixedBitSet[][] banksCommon;
+	public final FixedBitSet[][] banksHot;
+	public final FixedBitSet[][] banksCommon;
 	private final int hotNumBits;
 	private final int commonNumBits;
 	private final int hotCount;
 	private final int commonCount;
+	private final int targetlevel;
 
-	private FpGroupHotNgramBitIndex(FixedBitSet[][] banksHot, FixedBitSet[][] banksCommon, int hotNumBits, int commonNumBits,
+	private FpGroupHotNgramBitIndex(int targetlevel,FixedBitSet[][] banksHot, FixedBitSet[][] banksCommon, int hotNumBits, int commonNumBits,
 			int hotCount, int commonCount) {
 		this.banksHot = banksHot;
 		this.banksCommon = banksCommon;
@@ -45,6 +46,7 @@ public final class FpGroupHotNgramBitIndex {
 		this.commonNumBits = commonNumBits;
 		this.hotCount = hotCount;
 		this.commonCount = commonCount;
+		this.targetlevel=targetlevel;
 	}
 
 	/**
@@ -61,7 +63,7 @@ public final class FpGroupHotNgramBitIndex {
 				common[li][b] = in.readBits(blkinfo.commonNumBits);
 			}
 		}
-		return new FpGroupHotNgramBitIndex(hot, common, blkinfo.hotNumBits, blkinfo.commonNumBits, blkinfo.hotCount,
+		return new FpGroupHotNgramBitIndex(blkinfo.targetLevel,hot, common, blkinfo.hotNumBits, blkinfo.commonNumBits, blkinfo.hotCount,
 				blkinfo.commonCount);
 	}
 
@@ -103,7 +105,7 @@ public final class FpGroupHotNgramBitIndex {
 				}
 			}
 		}
-		return new FpGroupHotNgramBitIndex(hot, common, blkinfo.hotNumBits, blkinfo.commonNumBits, blkinfo.hotCount,
+		return new FpGroupHotNgramBitIndex(blkinfo.targetLevel,hot, common, blkinfo.hotNumBits, blkinfo.commonNumBits, blkinfo.hotCount,
 				blkinfo.commonCount);
 	}
 
@@ -118,6 +120,7 @@ public final class FpGroupHotNgramBitIndex {
 		info.commonNumBits = commonNumBits;
 		info.hotCount = hotCount;
 		info.commonCount = commonCount;
+		info.targetLevel=this.targetlevel;
 
 		info.fpBanksHot00 = out.getFilePointer();
 		out.writeBits(banksHot[0][0]);
@@ -168,7 +171,7 @@ public final class FpGroupHotNgramBitIndex {
 		}
 	}
 
-	public static FpGroupHotNgramBitIndex execute(FpGroupDataRebuild group) {
+	public static FpGroupHotNgramBitIndex execute(int targetLevel,FpGroupDataRebuild group) {
 		
 
 		group.rebuildHotTermOrderFromHotDocs();
@@ -195,7 +198,7 @@ public final class FpGroupHotNgramBitIndex {
 			markNgramsForPayload(commonBanks, hotOrder, true, e.getKey().bytesRef(), order, numBitsCommon);
 		}
 
-		return new FpGroupHotNgramBitIndex(hotBanks, commonBanks, numBitsHot, numBitsCommon, h, c);
+		return new FpGroupHotNgramBitIndex(targetLevel,hotBanks, commonBanks, numBitsHot, numBitsCommon, h, c);
 	}
 
 	private static FixedBitSet[][] allocBanks(int numBits) {
@@ -209,7 +212,7 @@ public final class FpGroupHotNgramBitIndex {
 	}
 
 	/** 1 字节：桶号即该字节；2~8 字节：多项式哈希折叠到 0..255。 */
-	static int bucketIndex(byte[] buf, int off, int len) {
+	public static int bucketIndex(byte[] buf, int off, int len) {
 		if (len == 1) {
 			return buf[off] & 0xFF;
 		}

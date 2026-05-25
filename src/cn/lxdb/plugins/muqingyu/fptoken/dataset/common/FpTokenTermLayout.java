@@ -22,6 +22,8 @@ public final class FpTokenTermLayout {
 	public static final int HOT_TERM_SCANLEVEL_OFFSET = 12;//byte:1 
 
 	public static final int INDEX_AND_GROUP_BYTES = 6;//short:2 int:4=INDEX_ID_OFFSET+GROUP_ID_OFFSET
+	public static final int TERM_PREFIX_BYTES = 12;//short:2 int:4=INDEX_ID_OFFSET+GROUP_ID_OFFSET
+
 	public static final int FP_HEADER_BYTES = 13;
 
 
@@ -44,6 +46,26 @@ public final class FpTokenTermLayout {
 
 		System.arraycopy(term.bytes, term.offset, reuse.bytes, offset + FP_HEADER_BYTES, term.length);
 		reuse.length = term.length + FP_HEADER_BYTES;
+
+	}
+	
+	
+	public static void make_fp_search_prefix(BytesRef reuse, short index_id, int groupid, byte group_level, boolean hotmark,
+			int termindex, boolean isDelTerm) {
+		int offset = reuse.offset;
+
+		int term_index_tp = termindex << 1;
+		if (isDelTerm) {
+			term_index_tp += 1;
+		}
+
+		NumericUtils.shortToSortableBytes(index_id, reuse.bytes, offset + INDEX_ID_OFFSET);// 仅仅是占位,会在索引合并的时候替换,平时都是0
+		NumericUtils.intToSortableBytes(groupid, reuse.bytes, offset + GROUP_ID_OFFSET);
+		reuse.bytes[offset + LEVEL_BYTE_OFFSET] = (byte) (group_level & 0xFF);
+		reuse.bytes[offset + HOT_TERM_FLAG_BYTE_OFFSET] = (byte) ((hotmark?1:0) & 0xFF);
+		NumericUtils.intToSortableBytes(term_index_tp, reuse.bytes, offset + TERM_INDEX_AND_STATUS_OFFSET);
+
+		reuse.length = TERM_PREFIX_BYTES;
 
 	}
 

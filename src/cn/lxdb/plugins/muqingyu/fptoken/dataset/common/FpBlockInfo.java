@@ -30,6 +30,8 @@ public class FpBlockInfo {
 	public int commonNumBits;
 	public int hotCount;
 	public int commonCount;
+	
+	public int targetLevel;
 
 	public void writeto(DataOutput out) throws IOException {
 		out.writeInt(FORMAT_VERSION);
@@ -41,6 +43,8 @@ public class FpBlockInfo {
 		out.writeInt(commonNumBits);
 		out.writeInt(hotCount);
 		out.writeInt(commonCount);
+		out.writeInt(targetLevel);
+
 	}
 
 	public void readfrom(IndexInput in) throws IOException {
@@ -56,6 +60,8 @@ public class FpBlockInfo {
 		commonNumBits = in.readInt();
 		hotCount = in.readInt();
 		commonCount = in.readInt();
+		targetLevel = in.readInt();
+
 	}
 
 	/** 第 {@code li} 长度、桶 {@code b} 的热词 bitset 在 bit 文件中的起始偏移。 */

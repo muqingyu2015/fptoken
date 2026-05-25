@@ -122,7 +122,7 @@ public final class FpGroupDataRebuild {
 				Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD);
 		long ts_ngram=CLMillisecondClock.CLOCK.now();
 
-		FpGroupHotNgramBitIndex bitinfo=FpGroupHotNgramBitIndex.execute(this);
+		FpGroupHotNgramBitIndex bitinfo=FpGroupHotNgramBitIndex.execute(parentItem.targetLevel,this);
 		long ts_bitset=CLMillisecondClock.CLOCK.now();
 
 		int del_term_docid=distinctDocUnion.nextSetBit(0);
