@@ -148,6 +148,10 @@ public class FpSearch {
 			int status=seekTermAndOrDocs(reusePosting,merger_level,false,termsEnum, reuse, Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
 					false, slice, maxDoc, collect);
 			
+			if (seek_status_ok==status) {
+				anyHit = true;
+			}
+			
 			if (seek_status_break==status) {
 				break;
 			}
@@ -198,7 +202,7 @@ public class FpSearch {
 		final BytesRef found = termsEnum.term();
 		
 		//先匹配是否是满足条件的termIndex，如果不存在这个termIndex是有问题的
-		if (!termHeaderMatches(found, indexId, groupid, groupLevel, hotMark, termIndex, isDelTerm)) {
+		if (!termHeaderMatches(found, groupid, groupLevel, hotMark, termIndex, isDelTerm)) {
 			return seek_status_miss;
 		}
 		BytesRef rawTerms=FpTokenTermLayout.removeHeaderBytes(found);
@@ -219,13 +223,16 @@ public class FpSearch {
 			}
 		}
 		
-		orPostingsInto(reuseposting,termsEnum, maxDoc, collect);
+		if(!isDelTerm)
+		{
+			orPostingsInto(reuseposting,termsEnum, maxDoc, collect);
+		}
 		return seek_status_ok;
 	}
 
 	
 
-	private static boolean termHeaderMatches(BytesRef found, short indexId, int groupid, byte groupLevel, boolean hotMark,
+	private static boolean termHeaderMatches(BytesRef found, int groupid, byte groupLevel, boolean hotMark,
 			int termIndex, boolean isDelTerm) {
 		if (found.length < FpTokenTermLayout.FP_HEADER_BYTES) {
 			return false;

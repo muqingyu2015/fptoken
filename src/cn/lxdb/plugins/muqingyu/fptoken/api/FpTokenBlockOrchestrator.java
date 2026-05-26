@@ -146,13 +146,14 @@ public final class FpTokenBlockOrchestrator {
 		final boolean meets = FpTokenBlockLevelPolicy.shouldCompleteBlock(1, this.targetLevel, distinctDocs,distinctTerms);
 
 		if (meets) {//没变化,每降级直接写入,无需重新计算
-			
-			int index_id=FpTokenTermLayout.read_index_id(group_original.key);
-			int group_id=FpTokenTermLayout.read_group_id(group_original.key);
+			final short index_id = FpTokenTermLayout.read_index_id(group_original.key);
+			// 合并前逻辑组：从当前索引读已有位图（与透传 posting 同源）
+			final int logical_group = FpTokenTermLayout.readGroupIdFromIndexAndGroupKey(group_original.key);
+			final FpGroupHotNgramBitIndex bits = this.terms.fpBits(index_id, logical_group, null, null);
+			// 本段新组号：写出倒排头 + fpblock_list + 本次 bit 区（与查询一致）
+			final int new_group_id = groupIndex.incrementAndGet();
+			group_original.val.flushto(this, bits, new_group_id);
 
-			FpGroupHotNgramBitIndex bits=this.terms.fpBits((short) index_id, group_id, null, null);
-			group_original.val.flushto(this,bits);
-			
 			this.stat.flush_high_cnt_original++;
 		} else {
 			if (group_common == null) {

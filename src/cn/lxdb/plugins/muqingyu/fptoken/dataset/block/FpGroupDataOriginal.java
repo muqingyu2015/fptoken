@@ -70,7 +70,12 @@ public final class FpGroupDataOriginal {
 
 	
 
-	public void flushto(FpTokenBlockOrchestrator parentItem,FpGroupHotNgramBitIndex bitinfo) throws IOException {
+	/**
+	 * 透传写出：位图由调用方按<strong>合并前逻辑组</strong>读出；{@code newGroupId} 为本段新分配的落盘组号
+	 * （倒排头、{@link cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo}、查询 {@code fpBits} 均用此 id）。
+	 */
+	public void flushto(FpTokenBlockOrchestrator parentItem, FpGroupHotNgramBitIndex bitinfo, int newGroupId)
+			throws IOException {
 
 		long ts_begin=CLMillisecondClock.CLOCK.now();
 		int del_term_docid=distinctDocUnion.nextSetBit(0);
@@ -81,12 +86,12 @@ public final class FpGroupDataOriginal {
 		
 		final byte[] reuse_bytes = new byte[1024];
 		BytesRef reuse_term=new BytesRef(reuse_bytes);
-		int group_id=parentItem.groupIndex.incrementAndGet();
+		final int group_id = newGroupId;
 		for(Entry<FpTermKey, FPDocList> e:hotTermToDocs.entrySet())
 		{
 			FpTermKey key=e.getKey();
 			FPDocList val=e.getValue();
-			int level=FpTokenTermLayout.readLevel(key.bytesRef());
+			int scanlevel=FpTokenTermLayout.readHotTermScanLevel(key.bytesRef());
 			boolean isDelTerm=FpTokenTermLayout.readIsDelTerm(key.bytesRef())||val.docsize()<=0;
 			int index=FpTokenTermLayout.readTermIndex(key.bytesRef());
 			if(isDelTerm&&val.docsize()<=0) {//仅仅占位用
@@ -97,7 +102,7 @@ public final class FpGroupDataOriginal {
 			stat_hot_doc_cnt+=val.docsize();
 			
 			BytesRef noheader_term=FpTokenTermLayout.removeHeaderBytes(key.bytesRef());
-			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm,(byte)level, noheader_term);
+			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm,(byte)scanlevel, noheader_term);
 			BlockTermState stat = parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 
 		}

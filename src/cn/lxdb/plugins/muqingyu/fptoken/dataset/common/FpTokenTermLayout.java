@@ -4,8 +4,19 @@ import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.NumericUtils;
 
 /**
- * FP token 词项字节布局：前 6 字节为组号（与 {@link cn.lxdb.plugins.muqingyu.fptoken.utils.FpTokenProcessLocalId} 截断一致），
- * 第 7 字节（下标 6）为块级别 0~3；第 8 字节（下标 7）为热词标记（见 {@link #isHotTerm(BytesRef)}）。
+
++----------+------+---------------------------+-------------------------------------+------------------------------------------------+
+| 偏移     | 长   | 字段                      | 写段                                | 查询                                           |
++----------+------+---------------------------+-------------------------------------+------------------------------------------------+
+| 0        | 2    | index_id                  | 常为 0，合并时可被替换              | 12B 前缀内；建议校验                           |
+| 2        | 4    | group_id（int）           | groupIndex++ 新号写入               | fpblock_list 的 key                            |
+| 6        | 1    | 块级别 group_level        | targetLevel                         | FpBlockInfo.targetLevel                        |
+| 7        | 1    | hotmark                   | 热 / 普                             | 位图 hot / common 分支                         |
+| 8        | 4    | termIndex + del 低位      | order 从 1 编号                     | 位图 bit = order − 1                           |
+| 12       | 1    | hotScanlevel（maxDown）   | 热词=hotTermToLevel；普=0           | readHotTermScanLevel 截断扩展                  |
+| 13+      | —    | payload                   | 纯 ngram / 词字节                   | removeHeaderBytes 后与 slice 比                |
++----------+------+---------------------------+-------------------------------------+------------------------------------------------+
+ *
  */
 public final class FpTokenTermLayout {
 	
@@ -77,18 +88,26 @@ public final class FpTokenTermLayout {
 		return (short) read_index_id;
 	}
 	
-	public static short read_group_id(byte[] term) {
+	public static int read_group_id(byte[] term) {
 
 		int read_index_id=NumericUtils.sortableBytesToInt(term, GROUP_ID_OFFSET);
 		
-		return (short) read_index_id;
+		return read_index_id;
 	}
 	
-	public static short read_group_id(BytesRef term) {
+	public static int read_group_id(BytesRef term) {
 
 		int read_index_id=NumericUtils.sortableBytesToInt(term.bytes, term.offset+GROUP_ID_OFFSET);
 		
-		return (short) read_index_id;
+		return  read_index_id;
+	}
+
+	/**
+	 * 从 {@link #INDEX_AND_GROUP_BYTES}（6 字节）流式组键读 {@code group_id}，与 {@link #make_fp_term} 写出一致（int，不截断）。
+	 * 用于透传路径 {@code fpBits(index_id, logicalGroup, …)}。
+	 */
+	public static int readGroupIdFromIndexAndGroupKey(byte[] indexAndGroup6) {
+		return NumericUtils.sortableBytesToInt(indexAndGroup6, GROUP_ID_OFFSET);
 	}
 	
 	/**

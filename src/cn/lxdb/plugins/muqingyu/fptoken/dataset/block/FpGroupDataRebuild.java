@@ -135,7 +135,7 @@ public final class FpGroupDataRebuild {
 		int group_id=parentItem.groupIndex.incrementAndGet();
 		for (Entry<FpTermKey, FPDocList> e : hotTermToDocs.entrySet()) {
 			final FpTermKey key = e.getKey();
-			final int level = hotTermToLevel.get(key);
+			final int scanlevel = hotTermToLevel.get(key);
 			final FPDocList val = e.getValue();
 			final Integer index = hotTermToOrder.get(key);
 			final boolean isDelTerm = val.docsize() <= 0;
@@ -147,7 +147,7 @@ public final class FpGroupDataRebuild {
 			stat_hot_doc_cnt += val.docsize();
 
 			FpTokenTermLayout.make_fp_term(reuse_term, (short) 0, group_id, (byte) parentItem.targetLevel,
-					FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) level, key.bytesRef());
+					FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) scanlevel, key.bytesRef());
 			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state, parentItem.pool, parentItem.debugList,
 					reuse_term, val, parentItem.norms);
 		}
