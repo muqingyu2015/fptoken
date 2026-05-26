@@ -83,10 +83,10 @@ public class FpSearch {
 	private void searchSliceInGroup(FixedBitSet hot, FixedBitSet common, BytesRef slice, FpBlockInfo blkinfo, int groupid,
 			Terms terms, int maxDoc, FixedBitSet[] collect, int sliceIndex) throws IOException {
 		final FixedBitSet acc = ensureCollect(collect, sliceIndex, maxDoc);
-		
-		final boolean hotHit = searchBank_hot(hot, true, slice, blkinfo, groupid, terms, maxDoc, acc);
-		if (!hotHit) {//如果词已经在热词里面了，就没必要在扫描common了
-			searchBank_common(common, false, slice, blkinfo, groupid, terms, maxDoc, acc);
+
+		final boolean hotHit = searchBankHot(hot, true, slice, blkinfo, groupid, terms, maxDoc, acc);
+		if (!hotHit) {
+			searchBankCommon(common, false, slice, blkinfo, groupid, terms, maxDoc, acc);
 		}
 	}
 
@@ -102,167 +102,138 @@ public class FpSearch {
 	 *
 	 * @return 是否至少一次 seek 命中
 	 */
-	private boolean searchBank_hot(FixedBitSet bank, boolean hotMark, BytesRef slice, FpBlockInfo blkinfo, int groupid,
+	private boolean searchBankHot(FixedBitSet bank, boolean hotMark, BytesRef slice, FpBlockInfo blkinfo, int groupid,
 			Terms terms, int maxDoc, FixedBitSet collect) throws IOException {
 		if (bank == null) {
 			return false;
 		}
-		
-		AtomicReference<PostingsEnum> reusePosting=new AtomicReference<PostingsEnum>(null);
-		final TermsEnum termsEnum = terms.iterator();//这个检索就没必要用iterator_fp了
+
+		final AtomicReference<PostingsEnum> reusePosting = new AtomicReference<PostingsEnum>(null);
+		final TermsEnum termsEnum = terms.iterator();
 		final BytesRef reuse = new BytesRef(new byte[512]);
 		boolean anyHit = false;
-		
-		int first=bank.nextSetBit(0);
-		
-		if(first==DocIdSetIterator.NO_MORE_DOCS)
-		{
-			return false;
-		}
-		AtomicInteger max_scan_term_len=new AtomicInteger(0);
-		{//先读默认，必须完全相等
+		final AtomicInteger maxHotPayloadLen = new AtomicInteger(0);
+		boolean payloadLenCapSet = false;
 
-			final int termIndex = first + 1;
-			
-			int status=seekTermAndOrDocs(reusePosting,max_scan_term_len,true,termsEnum, reuse, Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
-					false, slice, maxDoc, collect);
-			if (seek_status_ok==status) {
-				anyHit = true;
-			}
-			
-			status=seekTermAndOrDocs(reusePosting,max_scan_term_len,true,termsEnum, reuse, Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
-					true, slice, maxDoc, collect);
-			if (seek_status_ok==status) {
-				anyHit = true;
-			}
-		
-		}
-		
-		//在读其他level，必须是不能超过max_level
-		for (int bit = bank.nextSetBit(first+1); ; bit = bank.nextSetBit(bit + 1)) {
-			if(bit==DocIdSetIterator.NO_MORE_DOCS)
-			{
-				break;
-			}
+		for (int bit = bank.nextSetBit(0); bit != DocIdSetIterator.NO_MORE_DOCS; bit = bank.nextSetBit(bit + 1)) {
 			final int termIndex = bit + 1;
-			int status=seekTermAndOrDocs(reusePosting,max_scan_term_len,false,termsEnum, reuse, Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
+			if (!payloadLenCapSet) {
+				int status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, true, termsEnum, reuse,
+						Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
+						false, slice, maxDoc, collect);
+				if (status == SEEK_OK) {
+					anyHit = true;
+					payloadLenCapSet = true;
+					continue;
+				}
+				status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, true, termsEnum, reuse,
+						Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
+						true, slice, maxDoc, collect);
+				if (status == SEEK_OK) {
+					anyHit = true;
+				}
+				continue;
+			}
+			final int status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, false, termsEnum, reuse,
+					Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
 					false, slice, maxDoc, collect);
-			
-			if (seek_status_ok==status) {
+			if (status == SEEK_OK) {
 				anyHit = true;
 			}
-			
-			if (seek_status_break==status) {
+			if (status == SEEK_BREAK_PAYLOAD_LEN) {
 				break;
 			}
 		}
 		return anyHit;
 	}
-	
-	
-	private boolean searchBank_common(FixedBitSet bank, boolean hotMark, BytesRef slice, FpBlockInfo blkinfo, int groupid,
+
+	private boolean searchBankCommon(FixedBitSet bank, boolean hotMark, BytesRef slice, FpBlockInfo blkinfo, int groupid,
 			Terms terms, int maxDoc, FixedBitSet collect) throws IOException {
 		if (bank == null) {
 			return false;
 		}
-		
-		AtomicReference<PostingsEnum> reusePosting=new AtomicReference<PostingsEnum>(null);
 
-		final TermsEnum termsEnum = terms.iterator();//这个检索就没必要用iterator_fp了
+		final AtomicReference<PostingsEnum> reusePosting = new AtomicReference<PostingsEnum>(null);
+		final TermsEnum termsEnum = terms.iterator();
 		final BytesRef reuse = new BytesRef(new byte[512]);
 		boolean anyHit = false;
-		AtomicInteger merger_level=new AtomicInteger(0);
 
-		//在读其他level，必须是不能超过max_level
-		for (int bit = bank.nextSetBit(0); ; bit = bank.nextSetBit(bit + 1)) {
-			if(bit==DocIdSetIterator.NO_MORE_DOCS)
-			{
-				break;
-			}
+		for (int bit = bank.nextSetBit(0); bit != DocIdSetIterator.NO_MORE_DOCS; bit = bank.nextSetBit(bit + 1)) {
 			final int termIndex = bit + 1;
-			int status=seekTermAndOrDocs(reusePosting,merger_level,false,termsEnum, reuse, Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
+			final int status = seekTermAndOrDocs(reusePosting, null, false, termsEnum, reuse,
+					Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
 					false, slice, maxDoc, collect);
-			if (seek_status_ok==status) {
+			if (status == SEEK_OK) {
 				anyHit = true;
 			}
 		}
 		return anyHit;
 	}
-	private static int seek_status_miss=2;
-	private static int seek_status_break=1;
-	private static int seek_status_ok=0;
 
-	private static int seekTermAndOrDocs(AtomicReference<PostingsEnum> reuseposting,AtomicInteger merger_level,boolean must_equals,TermsEnum termsEnum, BytesRef reuse, short indexId, int groupid, byte groupLevel,
-			boolean hotMark, int termIndex, boolean isDelTerm, BytesRef slice, int maxDoc, FixedBitSet collect)
-			throws IOException {
+	private static final int SEEK_OK = 0;
+	private static final int SEEK_BREAK_PAYLOAD_LEN = 1;
+	private static final int SEEK_MISS = 2;
+
+	private static int seekTermAndOrDocs(AtomicReference<PostingsEnum> reusePosting,
+			AtomicInteger maxHotPayloadLenOrNull, boolean requireExactPayloadMatch, TermsEnum termsEnum, BytesRef reuse,
+			short indexId, int groupid, byte groupLevel, boolean hotMark, int termIndex, boolean isDelTerm,
+			BytesRef slice, int maxDoc, FixedBitSet collect) throws IOException {
 		FpTokenTermLayout.make_fp_search_prefix(reuse, indexId, groupid, groupLevel, hotMark, termIndex, isDelTerm);
 		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
-			return seek_status_miss;
+			return SEEK_MISS;
 		}
 		final BytesRef found = termsEnum.term();
-		
-		//先匹配是否是满足条件的termIndex，如果不存在这个termIndex是有问题的
-		if (!termHeaderMatches(found, groupid, groupLevel, hotMark, termIndex, isDelTerm)) {
-			return seek_status_miss;
-		}
-		BytesRef rawTerms=FpTokenTermLayout.removeHeaderBytes(found);
-		if (!payloadContains(must_equals,rawTerms, slice)) {
-			return seek_status_miss;
-		}
-		
-		if(hotMark)
-		{
-			if(must_equals)
-			{
-				merger_level.set(FpTokenTermLayout.readHotTermScanLevel(found)+rawTerms.length-1);
-			}
-			
-			if(merger_level.get()<rawTerms.length)
-			{
-				return seek_status_break;
-			}
-		}
-		
-		if(!isDelTerm)
-		{
-			orPostingsInto(reuseposting,termsEnum, maxDoc, collect);
-		}
-		return seek_status_ok;
-	}
 
-	
+		if (!termHeaderMatches(found, groupid, groupLevel, hotMark, termIndex, isDelTerm)) {
+			return SEEK_MISS;
+		}
+		final BytesRef payload = FpTokenTermLayout.removeHeaderBytes(found);
+		if (!payloadMatchesSlice(requireExactPayloadMatch, payload, slice)) {
+			return SEEK_MISS;
+		}
+
+		if (hotMark && maxHotPayloadLenOrNull != null) {
+			if (requireExactPayloadMatch) {
+				maxHotPayloadLenOrNull.set(FpTokenTermLayout.maxHotPayloadLenFromHeader(found, payload.length));
+			}
+			if (maxHotPayloadLenOrNull.get() < payload.length) {
+				return SEEK_BREAK_PAYLOAD_LEN;
+			}
+		}
+
+		if (!isDelTerm) {
+			orPostingsInto(reusePosting, termsEnum, maxDoc, collect);
+		}
+		return SEEK_OK;
+	}
 
 	private static boolean termHeaderMatches(BytesRef found, int groupid, byte groupLevel, boolean hotMark,
 			int termIndex, boolean isDelTerm) {
 		if (found.length < FpTokenTermLayout.FP_HEADER_BYTES) {
 			return false;
 		}
-		return  FpTokenTermLayout.read_group_id(found) == groupid
+		return FpTokenTermLayout.read_group_id(found) == groupid
 				&& FpTokenTermLayout.readLevel(found) == (groupLevel & 0xFF)
 				&& FpTokenTermLayout.isHotTerm(found) == hotMark
 				&& FpTokenTermLayout.readTermIndex(found) == termIndex
 				&& FpTokenTermLayout.readIsDelTerm(found) == isDelTerm;
 	}
 
-	private static boolean payloadContains(boolean must_equals,BytesRef payload, BytesRef slice) {
-		
+	private static boolean payloadMatchesSlice(boolean requireExactPayloadMatch, BytesRef payload, BytesRef slice) {
 		final int plen = payload.length;
 		final int slen = slice.length;
 		if (plen < slen) {
 			return false;
 		}
-		if(must_equals||plen == slen)
-		{
+		if (requireExactPayloadMatch || plen == slen) {
 			return payload.equals(slice);
 		}
-		
-		
-		//这里是contains的实现
+
 		final byte[] pb = payload.bytes;
 		final int po = payload.offset;
 		final byte[] sb = slice.bytes;
 		final int so = slice.offset;
-		
+
 		for (int i = 0; i <= plen - slen; i++) {
 			boolean match = true;
 			for (int j = 0; j < slen; j++) {
@@ -278,12 +249,13 @@ public class FpSearch {
 		return false;
 	}
 
-	private static void orPostingsInto(AtomicReference<PostingsEnum> reuse,  TermsEnum termsEnum, int maxDoc, FixedBitSet collect) throws IOException {
+	private static void orPostingsInto(AtomicReference<PostingsEnum> reuse, TermsEnum termsEnum, int maxDoc,
+			FixedBitSet collect) throws IOException {
 		final PostingsEnum pe = termsEnum.postings(reuse.get(), PostingsEnum.NONE);
 		if (pe == null) {
 			return;
 		}
-		
+
 		reuse.set(pe);
 		int doc;
 		while ((doc = pe.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {

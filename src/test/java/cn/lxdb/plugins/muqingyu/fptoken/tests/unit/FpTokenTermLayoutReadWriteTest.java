@@ -33,7 +33,7 @@ class FpTokenTermLayoutReadWriteTest {
 		assertTrue(FpTokenTermLayout.isHotTerm(reuse));
 		assertEquals(termIndex, FpTokenTermLayout.readTermIndex(reuse));
 		assertTrue(FpTokenTermLayout.readIsDelTerm(reuse));
-		assertEquals(hotScan & 0xFF, FpTokenTermLayout.readHotTermScanLevel(reuse));
+		assertEquals(hotScan & 0xFF, FpTokenTermLayout.readHotDownTierBudget(reuse));
 		final BytesRef payloadOut = FpTokenTermLayout.removeHeaderBytes(reuse);
 		assertEquals(payload.length, payloadOut.length);
 		for (int i = 0; i < payload.length; i++) {
@@ -55,7 +55,7 @@ class FpTokenTermLayoutReadWriteTest {
 		for (int i = 0; i < FpTokenTermLayout.TERM_PREFIX_BYTES; i++) {
 			assertEquals(full.bytes[full.offset + i], prefix.bytes[prefix.offset + i]);
 		}
-		assertEquals(5, FpTokenTermLayout.readHotTermScanLevel(full));
+		assertEquals(5, FpTokenTermLayout.readHotDownTierBudget(full));
 	}
 
 	@Test

@@ -23,13 +23,13 @@ class FpGroupHotNgramRebuildStaticReviewTest {
 		String rebuildText = Files.readString(rebuild, StandardCharsets.UTF_8);
 		String groupText = Files.readString(group, StandardCharsets.UTF_8);
 
-		assertTrue(rebuildText.contains("computeMaxDownLevels"),
-				"expected hotTermToLevel / maxDown computation");
+		assertTrue(rebuildText.contains("computeHotDownTierBudgets"),
+				"expected hotTermDownTierBudget computation");
 		assertTrue(rebuildText.contains("markParentPrefixesSkippedInCommonTerm"),
-				"expected per-common merge skip by parent maxDown");
-		assertTrue(rebuildText.contains("hotTermToLevel"),
-				"expected hotTermToLevel in rebuild javadoc");
-		assertTrue(groupText.contains("hotTermToLevel"),
-				"expected hotTermToLevel map on FpGroupDataRebuild");
+				"expected per-common merge skip by parent down-tier budget");
+		assertTrue(rebuildText.contains("hotTermDownTierBudget"),
+				"expected hotTermDownTierBudget in rebuild javadoc");
+		assertTrue(groupText.contains("hotTermDownTierBudget"),
+				"expected hotTermDownTierBudget map on FpGroupDataRebuild");
 	}
 }

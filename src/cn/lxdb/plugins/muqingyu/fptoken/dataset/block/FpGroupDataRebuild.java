@@ -38,11 +38,10 @@ public final class FpGroupDataRebuild {
 	/** 热词表，键序见 {@link FpTermKey#ORDER_BY_LENGTH_THEN_BYTES}。 */
 	public final TreeMap<FpTermKey, FPDocList> hotTermToDocs = new TreeMap<>(FpTermKey.ORDER_BY_LENGTH_THEN_BYTES);
 	/**
-	 * 热词锚点向下可遍历/拼回的字节层数预算（maxDown），由 {@link FpGroupHotNgramRebuild} 在 flush 时写入。
-	 * 从锚点字节长起按档累加子串规模，未超过 {@link Lucene80FPSearchConfig#HOT_TIER_TERM_COUNT_THRESHOLD} 的连续档数即为该值；
-	 * 检索与 {@link FpGroupHotNgramRebuild#markParentPrefixesSkippedInCommonTerm} 据此限制向下扩展。
+	 * 热词锚点「向下扩展档」预算（≥1，含锚点档），由 {@link FpGroupHotNgramRebuild} 写入词项头 offset 12。
+	 * 与 {@link FpTokenTermLayout#maxHotPayloadLen(int, int)}、检索热词长度截断一致。
 	 */
-	public final TreeMap<FpTermKey, Integer> hotTermToLevel = new TreeMap<>(FpTermKey.ORDER_BY_LENGTH_THEN_BYTES);
+	public final TreeMap<FpTermKey, Integer> hotTermDownTierBudget = new TreeMap<>(FpTermKey.ORDER_BY_LENGTH_THEN_BYTES);
 	public final TreeMap<FpTermKey, Integer> hotTermToOrder = new TreeMap<>(FpTermKey.ORDER_BY_LENGTH_THEN_BYTES);
 
 	/** 普通词表 */
@@ -73,8 +72,8 @@ public final class FpGroupDataRebuild {
 		return hotTermToOrder;
 	}
 
-	public TreeMap<FpTermKey, Integer> hotTermToLevelInternal() {
-		return hotTermToLevel;
+	public TreeMap<FpTermKey, Integer> hotTermDownTierBudgetInternal() {
+		return hotTermDownTierBudget;
 	}
 	
 	public TreeMap<FpTermKey, Integer> commonTermOrderInternal() {
@@ -135,7 +134,8 @@ public final class FpGroupDataRebuild {
 		int group_id=parentItem.groupIndex.incrementAndGet();
 		for (Entry<FpTermKey, FPDocList> e : hotTermToDocs.entrySet()) {
 			final FpTermKey key = e.getKey();
-			final int scanlevel = hotTermToLevel.get(key);
+			final Integer budgetObj = hotTermDownTierBudget.get(key);
+			final int downTierBudget = budgetObj != null ? budgetObj.intValue() : 0;
 			final FPDocList val = e.getValue();
 			final Integer index = hotTermToOrder.get(key);
 			final boolean isDelTerm = val.docsize() <= 0;
@@ -147,7 +147,7 @@ public final class FpGroupDataRebuild {
 			stat_hot_doc_cnt += val.docsize();
 
 			FpTokenTermLayout.make_fp_term(reuse_term, (short) 0, group_id, (byte) parentItem.targetLevel,
-					FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) scanlevel, key.bytesRef());
+					FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, key.bytesRef());
 			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state, parentItem.pool, parentItem.debugList,
 					reuse_term, val, parentItem.norms);
 		}
@@ -224,7 +224,7 @@ public final class FpGroupDataRebuild {
 
 	public void resetAfterFlush() {
 		hotTermToDocs.clear();
-		hotTermToLevel.clear();
+		hotTermDownTierBudget.clear();
 		hotTermToOrder.clear();
 		commonTermToDocs.clear();
 		commonTermToOrder.clear();

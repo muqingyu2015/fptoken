@@ -28,7 +28,7 @@ class FpGroupDataOriginalPassthroughWriteReadTest {
 				docs);
 
 		assertEquals(99, FpTokenTermLayout.read_group_id(flushed));
-		assertEquals(4, FpTokenTermLayout.readHotTermScanLevel(flushed));
+		assertEquals(4, FpTokenTermLayout.readHotDownTierBudget(flushed));
 		assertEquals(3, FpTokenTermLayout.readTermIndex(flushed));
 		assertEquals(payload, FpTokenTermLayout.removeHeaderBytes(flushed));
 	}

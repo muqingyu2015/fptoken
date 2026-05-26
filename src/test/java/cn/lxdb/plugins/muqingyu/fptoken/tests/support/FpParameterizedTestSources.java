@@ -134,8 +134,8 @@ public final class FpParameterizedTestSources {
 	/** 热词缺 level 时补 0，避免 {@link FpTermFlushEncoding} 与生产 flushto 空指针。 */
 	static void ensureHotTermMetadata(FpGroupDataRebuild group) {
 		for (FpTermKey key : group.hotTermMapInternal().keySet()) {
-			if (!group.hotTermToLevelInternal().containsKey(key)) {
-				group.hotTermToLevelInternal().put(key, 0);
+			if (!group.hotTermDownTierBudgetInternal().containsKey(key)) {
+				group.hotTermDownTierBudgetInternal().put(key, 0);
 			}
 		}
 	}

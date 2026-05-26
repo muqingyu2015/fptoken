@@ -28,7 +28,7 @@ class FpTokenTermLayoutParameterizedTest {
 		assertEquals(hot, FpTokenTermLayout.isHotTerm(reuse));
 		assertEquals(termIndex, FpTokenTermLayout.readTermIndex(reuse));
 		assertFalse(FpTokenTermLayout.readIsDelTerm(reuse));
-		assertEquals(scan & 0xFF, FpTokenTermLayout.readHotTermScanLevel(reuse));
+		assertEquals(scan & 0xFF, FpTokenTermLayout.readHotDownTierBudget(reuse));
 		assertEquals(payload.length, FpTokenTermLayout.removeHeaderBytes(reuse).length);
 	}
 

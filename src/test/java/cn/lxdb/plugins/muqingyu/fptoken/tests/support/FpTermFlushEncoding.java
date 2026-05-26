@@ -21,17 +21,17 @@ public final class FpTermFlushEncoding {
 	public static BytesRef encodeRebuildHot(BytesRef reuse, int groupId, byte targetLevel, Entry<FpTermKey, FPDocList> e,
 			FpGroupDataRebuild group) {
 		final FpTermKey key = e.getKey();
-		final Integer level = group.hotTermToLevelInternal().get(key);
+		final Integer level = group.hotTermDownTierBudgetInternal().get(key);
 		final Integer order = group.hotTermOrderInternal().get(key);
 		if (order == null) {
 			return null;
 		}
-		final int scanlevel = level != null ? level.intValue() : 0;
+		final int downTierBudget = level != null ? level.intValue() : 0;
 		final FPDocList val = e.getValue();
 		final int index = order.intValue();
 		final boolean isDelTerm = val.docsize() <= 0;
 		FpTokenTermLayout.make_fp_term(reuse, (short) 0, groupId, targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index,
-				isDelTerm, (byte) scanlevel, key.bytesRef());
+				isDelTerm, (byte) downTierBudget, key.bytesRef());
 		return BytesRef.deepCopyOf(reuse);
 	}
 
@@ -55,12 +55,12 @@ public final class FpTermFlushEncoding {
 	/** 对齐 {@link cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataOriginal#flushto} 热词透传写出。 */
 	public static BytesRef encodeOriginalHot(BytesRef reuse, int newGroupId, byte targetLevel, FpTermKey key,
 			FPDocList val) {
-		final int scanlevel = FpTokenTermLayout.readHotTermScanLevel(key.bytesRef());
+		final int downTierBudget = FpTokenTermLayout.readHotDownTierBudget(key.bytesRef());
 		final boolean isDelTerm = FpTokenTermLayout.readIsDelTerm(key.bytesRef()) || val.docsize() <= 0;
 		final int index = FpTokenTermLayout.readTermIndex(key.bytesRef());
 		final BytesRef payload = FpTokenTermLayout.removeHeaderBytes(key.bytesRef());
 		FpTokenTermLayout.make_fp_term(reuse, (short) 0, newGroupId, targetLevel, FpTokenTermLayout.TERM_MARK_HOT,
-				index, isDelTerm, (byte) scanlevel, payload);
+				index, isDelTerm, (byte) downTierBudget, payload);
 		return BytesRef.deepCopyOf(reuse);
 	}
 

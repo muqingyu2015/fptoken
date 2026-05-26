@@ -13,7 +13,7 @@ import org.apache.lucene.util.NumericUtils;
 | 6        | 1    | 块级别 group_level        | targetLevel                         | FpBlockInfo.targetLevel                        |
 | 7        | 1    | hotmark                   | 热 / 普                             | 位图 hot / common 分支                         |
 | 8        | 4    | termIndex + del 低位      | order 从 1 编号                     | 位图 bit = order − 1                           |
-| 12       | 1    | hotScanlevel（maxDown）   | 热词=hotTermToLevel；普=0           | readHotTermScanLevel 截断扩展                  |
+| 12       | 1    | hotDownTierBudget         | 热词=hotTermDownTierBudget；普=0    | readHotDownTierBudget；maxHotPayloadLen 截断   |
 | 13+      | —    | payload                   | 纯 ngram / 词字节                   | removeHeaderBytes 后与 slice 比                |
 +----------+------+---------------------------+-------------------------------------+------------------------------------------------+
  *
@@ -30,7 +30,8 @@ public final class FpTokenTermLayout {
 	public static final int LEVEL_BYTE_OFFSET = 6;//byte:1
 	public static final int HOT_TERM_FLAG_BYTE_OFFSET = 7;//byte:1 
 	public static final int TERM_INDEX_AND_STATUS_OFFSET = 8;//int:4 termindex+isDelTerm
-	public static final int HOT_TERM_SCANLEVEL_OFFSET = 12;//byte:1 
+	/** 热词头内「向下扩展档」预算字节（≥1 表示至少含锚点档）；与 {@link #maxHotPayloadLen(int, int)} 配合。 */
+	public static final int HOT_TERM_DOWN_TIER_BUDGET_OFFSET = 12;//byte:1
 
 	public static final int INDEX_AND_GROUP_BYTES = 6;//short:2 int:4=INDEX_ID_OFFSET+GROUP_ID_OFFSET
 	public static final int TERM_PREFIX_BYTES = 12;//short:2 int:4=INDEX_ID_OFFSET+GROUP_ID_OFFSET
@@ -40,7 +41,7 @@ public final class FpTokenTermLayout {
 
 	//[index_id:2][groupid:4][group_level:1][hotmark:1][termindex+isDelTerm:4][termwindow]
 	public static void make_fp_term(BytesRef reuse, short index_id, int groupid, byte group_level, boolean hotmark,
-			int termindex, boolean isDelTerm,byte hotScanlevel, BytesRef term) {
+			int termindex, boolean isDelTerm, byte hotDownTierBudget, BytesRef term) {
 		int offset = reuse.offset;
 
 		int term_index_tp = termindex << 1;
@@ -53,7 +54,7 @@ public final class FpTokenTermLayout {
 		reuse.bytes[offset + LEVEL_BYTE_OFFSET] = (byte) (group_level & 0xFF);
 		reuse.bytes[offset + HOT_TERM_FLAG_BYTE_OFFSET] = (byte) ((hotmark?1:0) & 0xFF);
 		NumericUtils.intToSortableBytes(term_index_tp, reuse.bytes, offset + TERM_INDEX_AND_STATUS_OFFSET);
-		reuse.bytes[offset + HOT_TERM_SCANLEVEL_OFFSET] = hotScanlevel;
+		reuse.bytes[offset + HOT_TERM_DOWN_TIER_BUDGET_OFFSET] = hotDownTierBudget;
 
 		System.arraycopy(term.bytes, term.offset, reuse.bytes, offset + FP_HEADER_BYTES, term.length);
 		reuse.length = term.length + FP_HEADER_BYTES;
@@ -146,8 +147,20 @@ public final class FpTokenTermLayout {
 		return term_index_tp>>1;
 	}
 	
-	public static int readHotTermScanLevel(BytesRef term) {
-		return term.bytes[term.offset + HOT_TERM_SCANLEVEL_OFFSET] & 0xFF;
+	public static int readHotDownTierBudget(BytesRef term) {
+		return term.bytes[term.offset + HOT_TERM_DOWN_TIER_BUDGET_OFFSET] & 0xFF;
+	}
+
+	/**
+	 * 锚点 payload 长 {@code anchorPayloadLen}、头内预算 {@code downTierBudget}（≥1）时，
+	 * 热词扫描允许的最大 payload 字节长（含锚点）。
+	 */
+	public static int maxHotPayloadLen(int downTierBudget, int anchorPayloadLen) {
+		return downTierBudget + anchorPayloadLen - 1;
+	}
+
+	public static int maxHotPayloadLenFromHeader(BytesRef termWithHeader, int anchorPayloadLen) {
+		return maxHotPayloadLen(readHotDownTierBudget(termWithHeader), anchorPayloadLen);
 	}
 
 	

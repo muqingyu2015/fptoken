@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FP Token 遗留缺陷（待处理）</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --border: #2d3a4f;
+      --text: #e6edf3;
+      --muted: #8b9cb3;
+      --accent: #58a6ff;
+      --p1: #f85149;
+      --p2: #d29922;
+      --p3: #8b9cb3;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      font-size: 15px;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+    h1 { font-size: 1.65rem; margin: 0 0 0.5rem; }
+    h2 {
+      font-size: 1.2rem;
+      color: var(--accent);
+      margin: 2rem 0 0.75rem;
+      border-left: 4px solid var(--accent);
+      padding-left: 0.65rem;
+    }
+    .meta { color: var(--muted); font-size: 0.92rem; margin-bottom: 1.25rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.84rem; margin: 0.85rem 0; }
+    th, td { border: 1px solid var(--border); padding: 0.5rem 0.65rem; text-align: left; vertical-align: top; }
+    th { background: var(--card); color: var(--muted); }
+    .box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.15rem;
+      margin: 1rem 0;
+    }
+    .box.ok { border-color: #2a4a2a; background: #101a10; }
+    .tag {
+      display: inline-block;
+      font-size: 0.72rem;
+      padding: 0.12rem 0.45rem;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+    .tag.p1 { background: #3d1a1a; color: var(--p1); }
+    .tag.p2 { background: #3d2a1a; color: var(--p2); }
+    .tag.p3 { background: #2a2a3d; color: var(--p3); }
+    .tag.test { background: #2a1a3d; color: #c9a0ff; }
+    .tag.fixed { background: #1a3d1a; color: #3fb950; }
+    code {
+      background: #0d1117;
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.86em;
+      font-family: Consolas, monospace;
+    }
+    .path { font-family: Consolas, monospace; font-size: 0.8rem; color: #9ecbff; }
+    ul { padding-left: 1.35rem; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>FP Token：遗留缺陷（BUG）</h1>
+  <p class="meta">
+    更新：2026-05-19 · 命名与读写对齐已整理（见下「已关闭」）<br>
+    对照：<a href="fp-token-write-search-alignment-report.html">写查对齐报告</a>
+  </p>
+
+  <div class="box ok">
+    <strong>已关闭（非 BUG）</strong>
+    <ul>
+      <li>单 segment <code>index_id</code> 不比校验。</li>
+      <li>del 占位 + <code>hotHit</code> 跳过 common（设计）。</li>
+      <li>透传 <code>FpGroupDataOriginal</code> 键为 <code>clearAndCopyGroupBytes</code>（保留 offset 12），<code>readHotDownTierBudget</code> 正确。</li>
+      <li><code>hotTermDownTierBudget</code> ↔ <code>maxHotPayloadLen</code>：写 <code>computeHotDownTierBudgets</code>（锚点档=1，再扩档++）与读 <code>FpTokenTermLayout.maxHotPayloadLen</code> 一致。</li>
+      <li>热词 bank 首 bit 非锚点：<code>searchBankHot</code> 先沿位图找到 <code>requireExactPayloadMatch</code> 成功再设长度上限。</li>
+      <li>稀疏 <code>FPDocList.foreach</code> 末 doc（<code>nextSetBitInSparse</code>）。</li>
+    </ul>
+    <strong>命名（当前约定）</strong>
+    <ul>
+      <li>头字段：<code>hotDownTierBudget</code>（offset 12），<code>readHotDownTierBudget</code></li>
+      <li>重建 map：<code>FpGroupDataRebuild.hotTermDownTierBudget</code>，<code>computeHotDownTierBudgets</code></li>
+      <li>检索：<code>maxHotPayloadLen</code>，<code>SEEK_BREAK_PAYLOAD_LEN</code>，<code>searchBankHot</code> / <code>searchBankCommon</code></li>
+    </ul>
+  </div>
+
+  <h2>1. 遗留 BUG 总表</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>级</th>
+        <th>问题</th>
+        <th>原因</th>
+        <th>位置</th>
+        <th>建议</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="tag p2">P2</span></td>
+        <td>无等长热词锚点时 hot 路径不扩扫、也不回退 common</td>
+        <td>若位图仅有「含 slice 的长热词」、始终没有 <code>requireExactPayloadMatch</code> 成功，则 <code>payloadLenCapSet</code> 为 false，扩展循环只做锚点尝试；且 <code>hotHit</code> 可能为 true（del/其它 seek），仍跳过 common，长热词 doc 可能只在 common posting。</td>
+        <td class="path">api/FpSearch.java · searchBankHot<br>api/FpSearch.java · searchSliceInGroup（hotHit 分支）</td>
+        <td>产品约定「有位必有等长热词」并写测；或 <code>!payloadLenCapSet</code> 时视为未 hotHit、允许扫 common；或对仅-contains 命中显式扩扫。</td>
+      </tr>
+      <tr>
+        <td><span class="tag p2">P2</span></td>
+        <td>透传 <code>fpBits</code> / 新 <code>group_id</code> 集成未验证</td>
+        <td>位图按逻辑组读、term 用新 group_id；依赖 LXDB 与 <code>fpBits(0, newId)</code> 同步。</td>
+        <td class="path">api/FpTokenBlockOrchestrator.java · L149–155<br>dataset/block/FpGroupDataOriginal.java · L132–133</td>
+        <td>LXDB 写段 → 打开 reader → <code>FpSearch</code> + 位图 round-trip。</td>
+      </tr>
+      <tr>
+        <td><span class="tag p2">P2</span></td>
+        <td><code>FPDocList.addDoc</code> 无 <code>maxDoc</code> 上界</td>
+        <td>ingest 有界，<code>addDoc</code> 无；稀疏可能越界。</td>
+        <td class="path">dataset/common/FPDocList.java · addDoc</td>
+        <td><code>if (doc &lt; 0 || doc &gt;= maxDoc) return;</code></td>
+      </tr>
+      <tr>
+        <td><span class="tag p2">P2</span></td>
+        <td>selective 加载位图时 bank 可能 null → NPE</td>
+        <td><code>readfromBanksSelective</code> 未选桶为 null；<code>FpSearch</code> 直接取下标。</td>
+        <td class="path">dataset/block/FpGroupHotNgramBitIndex.java · L77–109<br>api/FpSearch.java · L60–61</td>
+        <td>null 当空 <code>FixedBitSet</code>，或生产路径保证非 null。</td>
+      </tr>
+      <tr>
+        <td><span class="tag p3">P3</span></td>
+        <td>空组 del 占位 <code>docid = -1</code></td>
+        <td><code>distinctDocUnion.nextSetBit(0)</code> 无 doc 时为 -1 仍可能 <code>addDoc</code>。</td>
+        <td class="path">FpGroupDataOriginal.java · L81、L97–98<br>FpGroupDataRebuild.java · L128、L142–144</td>
+        <td>无 doc 则跳过 del 占位。</td>
+      </tr>
+      <tr>
+        <td><span class="tag p3">P3</span></td>
+        <td>rebuild flush 缺 <code>hotTermDownTierBudget</code> 时写 0</td>
+        <td>已防空指针；预算 0 时 <code>maxHotPayloadLen</code> 可能异常，属脏数据。</td>
+        <td class="path">FpGroupDataRebuild.java · flushto 热词循环</td>
+        <td>缺项打日志并跳过或默认 1；断言 rebuild 流程必填 map。</td>
+      </tr>
+      <tr>
+        <td><span class="tag test">测试</span></td>
+        <td>未覆盖真实 <code>writefp</code> / 段内 <code>fpBits</code></td>
+        <td>单测多为 <code>InMemoryFpTerms</code>。</td>
+        <td class="path">tests/support/InMemoryFpTerms.java</td>
+        <td>LXDB functional 测试。</td>
+      </tr>
+      <tr>
+        <td><span class="tag test">测试</span></td>
+        <td>缺 hot 长度截断 / 无锚点 回归</td>
+        <td>新语义与 <code>searchBankHot</code> 两轮扫描未参数化。</td>
+        <td class="path">tests/…/FpSearchWriteRead*.java</td>
+        <td>锚点 L、预算 B、<code>maxHotPayloadLen=L+B-1</code>；仅长热词含 slice 时期望。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>2. 读写对齐（当前实现，供核对）</h2>
+  <table>
+    <thead>
+      <tr><th>写</th><th>读</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>downTierBudget=1</code> 仅锚点档；每多纳入一档更长字节长 <code>++</code>（从 <code>anchorLen+1</code> 起累加）</td>
+        <td>锚点命中：<code>maxHotPayloadLen = maxHotPayloadLenFromHeader</code>；更长 payload → <code>SEEK_BREAK_PAYLOAD_LEN</code></td>
+      </tr>
+      <tr>
+        <td>落盘 offset 12：<code>(byte) downTierBudget</code></td>
+        <td><code>readHotDownTierBudget(found)</code></td>
+      </tr>
+      <tr>
+        <td>merge：<code>extensionBytes &lt; parentDownTierBudget</code></td>
+        <td>与「最大 payload = anchorLen + budget − 1」一致</td>
+      </tr>
+      <tr>
+        <td>热词序：<code>ORDER_BY_LENGTH_THEN_BYTES</code> + bit 升序</td>
+        <td>扩展扫描前必须先命中等长锚点设 cap</td>
+      </tr>
+      <tr>
+        <td>Original 键：头尾 6–12 + payload；Rebuild 键：纯 payload</td>
+        <td>—</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="meta">路径相对于仓库根；行号以当前源码为准，改动后请 IDE 复核。</p>
+</div>
+</body>
+</html>

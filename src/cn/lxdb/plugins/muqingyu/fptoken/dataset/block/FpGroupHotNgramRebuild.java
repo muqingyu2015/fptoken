@@ -20,7 +20,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 
 /**
  * 从 {@link FpGroupDataRebuild#commonTermMapInternal()} 按 byte n-gram 挖掘热词，合并 doc，并计算
- * {@link FpGroupDataRebuild#hotTermToLevel}（锚点向下可遍历深度）。
+ * {@link FpGroupDataRebuild#hotTermDownTierBudget}（锚点向下可遍历深度）。
  *
  * <h2>实现原理</h2>
  * <p>
@@ -30,12 +30,12 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
  * <ul>
  *   <li><b>长度档</b>：{@code i=2} 为锚点自身；{@code i=3,4,5…} 依次对应向下扩展的 {@code ab*}、{@code ab**}、{@code ab***}…
  *       （示意：固定总字节长度的一层热词/子串，不把更长档算进更短档的个数里单独去重，但见下「累加预算」）。</li>
- *   <li><b>{@code hotTermToLevel}（maxDown）</b>：从锚点字节长起，按档累加已登记子串个数 {@code cumulativeTierCount}；
- *       若累加仍 ≤ {@link Lucene80FPSearchConfig#HOT_TIER_TERM_COUNT_THRESHOLD}，则允许再向下一档遍历并 {@code maxDownLevel++}；
+ *   <li><b>{@code hotTermDownTierBudget}（maxDown）</b>：从锚点字节长起，按档累加已登记子串个数 {@code cumulativeTierCount}；
+ *       若累加仍 ≤ {@link Lucene80FPSearchConfig#HOT_TIER_TERM_COUNT_THRESHOLD}，则允许再向下一档遍历并 {@code downTierBudget++}；
  *       超过阈值则停止——表示查询侧再向下拼子档的代价过大。该值写入热词 term 布局，供检索按深度截断。</li>
  *   <li><b>写段 merge（空间换时间）</b>：同一 common 载荷内，对命中的热词 ngram 从长到短合并 doc。
  *       较长热词 merge 后，对其真前缀调用 {@link #markParentPrefixesSkippedInCommonTerm}：
- *       若 {@code extensionBytesFromParent = childLen - parentLen <= parentMaxDown}，则在本 common 词内标记父前缀已处理，
+ *       若 {@code extensionBytesFromParent &lt; parentDownTierBudget}，则在本 common 词内标记父前缀已处理，
  *       避免短 ngram 再次 merge 同 doc；若更深则<strong>不</strong>标记，父热词 posting 仍可保留该 doc（深档查询不拼回时不能丢 posting）。</li>
  *   <li><b>不做写段后 doclist 剔除</b>：不在 merge 之后从父热词 posting 物理删除子档 doc；控制粒度是「单 common 内是否重复 merge」+ 查询按 level 拼回。</li>
  * </ul>
@@ -44,22 +44,22 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
  * <ol>
  *   <li>{@link #countNgramOccurrencesInCommon} — 统计 common 滑窗 ngram 出现次数；</li>
  *   <li>{@link #buildHotTermsAndAnchorTierIndex} — 频率达阈值者进入热词表，并建立锚点分档索引；</li>
- *   <li>{@link #computeMaxDownLevels} — 写入 {@code hotTermToLevel}；</li>
+ *   <li>{@link #computeHotDownTierBudgets} — 写入 {@code hotTermDownTierBudget}；</li>
  *   <li>{@link #mergeCommonDocsIntoHotTerms} — common doc 合并到热词，并按 maxDown 标记父前缀 skip。</li>
  * </ol>
  */
 public final class FpGroupHotNgramRebuild {
     public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 	/**
-	 * 热词重建主流程，结果写入 {@code group} 的热词表与 {@code hotTermToLevel}。
+	 * 热词重建主流程，结果写入 {@code group} 的热词表与 {@code hotTermDownTierBudget}。
 	 */
 	public static FpStatNgram execute(FpGroupDataRebuild group, FpTokenBlockOrchestrator parentItem,
 			final long hotFreqThreshold) throws IOException {
 		FpStatNgram stat = new FpStatNgram();
 		final TreeMap<FpTermKey, FPDocList> hotTermToDocs = group.hotTermMapInternal();
-		final TreeMap<FpTermKey, Integer> hotTermToLevel = group.hotTermToLevelInternal();
+		final TreeMap<FpTermKey, Integer> hotTermDownTierBudget = group.hotTermDownTierBudgetInternal();
 		hotTermToDocs.clear();
-		hotTermToLevel.clear();
+		hotTermDownTierBudget.clear();
 
 		final TreeMap<FpTermKey, FPDocList> commonTermToDocs = group.commonTermMapInternal();
 		final int maxDoc = group.maxDocInternal();
@@ -72,9 +72,9 @@ public final class FpGroupHotNgramRebuild {
 		final TreeMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = buildHotTermsAndAnchorTierIndex(stat,
 				ngramOccurrenceCount, hotFreqThreshold, maxDoc, anchorTierIndexByHotTerm);
 
-		computeMaxDownLevels(stat,hotTermToLevel, anchorTierIndexByHotTerm, hotFreqThreshold);
+		computeHotDownTierBudgets(stat,hotTermDownTierBudget, anchorTierIndexByHotTerm, hotFreqThreshold);
 
-		mergeCommonDocsIntoHotTerms(stat, commonTermToDocs, hotTermsPendingDocMerge, hotTermToLevel);
+		mergeCommonDocsIntoHotTerms(stat, commonTermToDocs, hotTermsPendingDocMerge, hotTermDownTierBudget);
 		anchorTierIndexByHotTerm.clear();
 
 		hotTermToDocs.putAll(hotTermsPendingDocMerge);
@@ -82,27 +82,27 @@ public final class FpGroupHotNgramRebuild {
 	}
 
 	/**
-	 * 为每个热词锚点计算 {@code hotTermToLevel}：从锚点字节长向下，累加各档已登记子串个数；
-	 * 累加超过 {@code hotFreqThreshold} 前每纳入一档则 {@code maxDownLevel++}，作为查询/merge 可向下扩展的字节层数预算。
+	 * 为每个热词锚点计算 {@code hotTermDownTierBudget}：从锚点字节长向下，累加各档已登记子串个数；
+	 * 累加超过 {@code hotFreqThreshold} 前每纳入一档则 {@code downTierBudget++}，作为查询/merge 可向下扩展的字节层数预算。
 	 */
-	private static void computeMaxDownLevels(FpStatNgram stat, TreeMap<FpTermKey, Integer> hotTermToLevel,
+	private static void computeHotDownTierBudgets(FpStatNgram stat, TreeMap<FpTermKey, Integer> hotTermDownTierBudget,
 			HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm, final long hotFreqThreshold) {
 		for (Map.Entry<FpTermKey, AnchorTierIndex> entry : anchorTierIndexByHotTerm.entrySet()) {
 			final FpTermKey anchorTerm = entry.getKey();
 			final AnchorTierIndex termsByByteLength = entry.getValue();
 			int cumulativeTierTermCount = 0;
-			int maxDownLevel = 1;
+			int downTierBudget = 1;
 			final int anchorByteLen = anchorTerm.bytesRef().length;
 			for (int byteLen = (anchorByteLen+1); byteLen <= Lucene80FPSearchConfig.NGRAM_MAX; byteLen++) {
 				cumulativeTierTermCount += termsByByteLength.get(byteLen).size();
 				if (cumulativeTierTermCount > hotFreqThreshold) {
 					break;
 				}
-				maxDownLevel++;
+				downTierBudget++;
 			}
 			
-			stat.term_level_cnt[anchorTerm.bytesRef().length][maxDownLevel]++;
-			hotTermToLevel.put(anchorTerm, maxDownLevel);
+			stat.term_level_cnt[anchorTerm.bytesRef().length][downTierBudget]++;
+			hotTermDownTierBudget.put(anchorTerm, downTierBudget);
 		}
 	}
 
@@ -185,7 +185,7 @@ public final class FpGroupHotNgramRebuild {
 	 * 遍历 common，把 doc 合并到热词 ngram（长 ngram 优先）；在 maxDown 预算内的父前缀在本 common 词内标记为已 merge，避免重复写入。
 	 */
 	private static void mergeCommonDocsIntoHotTerms(final FpStatNgram stat, TreeMap<FpTermKey, FPDocList> commonTermToDocs,
-			TreeMap<FpTermKey, FPDocList> hotTermsPendingDocMerge, final TreeMap<FpTermKey, Integer> hotTermToLevel)
+			TreeMap<FpTermKey, FPDocList> hotTermsPendingDocMerge, final TreeMap<FpTermKey, Integer> hotTermDownTierBudget)
 			throws IOException {
 		final Set<FpTermKey> mergedHotKeysThisCommonTerm = new HashSet<>();
 
@@ -215,7 +215,7 @@ public final class FpGroupHotNgramRebuild {
 						stat.hot_doc_cnt_keep++;
 
 						hotDocList.addAllDocsFrom(sourceDocList);
-						markParentPrefixesSkippedInCommonTerm(stat, slice, mergedHotKeysThisCommonTerm, hotTermToLevel);
+						markParentPrefixesSkippedInCommonTerm(stat, slice, mergedHotKeysThisCommonTerm, hotTermDownTierBudget);
 					}
 				}
 			}
@@ -224,11 +224,11 @@ public final class FpGroupHotNgramRebuild {
 
 	/**
 	 * 较长热词 ngram 已 merge 后，对其真前缀判断是否落在父锚点的 maxDown 预算内：
-	 * {@code extensionBytesFromParent <= parentMaxDown} 时在本 common 词内标记父前缀，避免对更短热词重复 merge。
+	 * {@code extensionBytesFromParent &lt; parentDownTierBudget} 时在本 common 词内标记父前缀，避免对更短热词重复 merge。
 	 * 父前缀非热词（无 level）则跳过。
 	 */
 	public static void markParentPrefixesSkippedInCommonTerm(final FpStatNgram stat, final BytesRef matchedHotSlice,
-			final Set<FpTermKey> mergedHotKeysThisCommonTerm, final TreeMap<FpTermKey, Integer> hotTermToLevel) {
+			final Set<FpTermKey> mergedHotKeysThisCommonTerm, final TreeMap<FpTermKey, Integer> hotTermDownTierBudget) {
 		final int childByteLen = matchedHotSlice.length;
 		final int childOffset = matchedHotSlice.offset;
 
@@ -236,12 +236,12 @@ public final class FpGroupHotNgramRebuild {
 			for (int start = 0; start + parentLen <= childByteLen; start++) {
 				final BytesRef parentPrefixSlice = new BytesRef(matchedHotSlice.bytes, childOffset + start, parentLen);
 				final FpTermKey parentHotKey = FpTermKey.viewOf(parentPrefixSlice);
-				final Integer parentMaxDown = hotTermToLevel.get(parentHotKey);
-				if (parentMaxDown == null) {
+				final Integer parentDownTierBudget = hotTermDownTierBudget.get(parentHotKey);
+				if (parentDownTierBudget == null) {
 					continue;
 				}
 				final int extensionBytesFromParent = childByteLen - parentPrefixSlice.length;
-				if (extensionBytesFromParent <= parentMaxDown) {
+				if (extensionBytesFromParent < parentDownTierBudget) {
 					mergedHotKeysThisCommonTerm.add(parentHotKey);
 					stat.ngram_level_ok++;
 				} else {

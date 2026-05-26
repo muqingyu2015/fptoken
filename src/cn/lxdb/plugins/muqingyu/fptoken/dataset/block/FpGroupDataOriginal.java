@@ -91,7 +91,7 @@ public final class FpGroupDataOriginal {
 		{
 			FpTermKey key=e.getKey();
 			FPDocList val=e.getValue();
-			int scanlevel=FpTokenTermLayout.readHotTermScanLevel(key.bytesRef());
+			int downTierBudget = FpTokenTermLayout.readHotDownTierBudget(key.bytesRef());
 			boolean isDelTerm=FpTokenTermLayout.readIsDelTerm(key.bytesRef())||val.docsize()<=0;
 			int index=FpTokenTermLayout.readTermIndex(key.bytesRef());
 			if(isDelTerm&&val.docsize()<=0) {//仅仅占位用
@@ -102,7 +102,7 @@ public final class FpGroupDataOriginal {
 			stat_hot_doc_cnt+=val.docsize();
 			
 			BytesRef noheader_term=FpTokenTermLayout.removeHeaderBytes(key.bytesRef());
-			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm,(byte)scanlevel, noheader_term);
+			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, noheader_term);
 			BlockTermState stat = parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 
 		}
