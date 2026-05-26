@@ -84,6 +84,13 @@ public final class FpTokenTermLayout {
 		return (short) read_index_id;
 	}
 	
+	public static short read_group_id(BytesRef term) {
+
+		int read_index_id=NumericUtils.sortableBytesToInt(term.bytes, term.offset+GROUP_ID_OFFSET);
+		
+		return (short) read_index_id;
+	}
+	
 	/**
 	 * 读取块级别字节（无符号 0~255；业务上常用 0~3）。
 	 *

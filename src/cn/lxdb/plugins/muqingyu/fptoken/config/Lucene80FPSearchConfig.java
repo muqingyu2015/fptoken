@@ -36,4 +36,6 @@ public final class Lucene80FPSearchConfig {
 	public static final int HOT_TIER_TERM_COUNT_THRESHOLD = 32;
 
 	public static final int BUCKETS = 256;
+
+	public static final short DEFAULT_INDEX_ID = 0;
 }
