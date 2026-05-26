@@ -50,7 +50,7 @@ public final class FPDocList {
 
 	public void foreach(FpDocListEach callback) throws IOException {
 		if (docsSparse != null) {
-			for (int d = docsSparse.nextSetBit(0); d >= 0 && d < maxDoc; d = docsSparse.nextSetBit(d + 1)) {
+			for (int d = docsSparse.nextSetBit(0); d >= 0 && d < maxDoc; d = nextSetBitInSparse(docsSparse, maxDoc, d)) {
 				callback.each_doc(d);
 			}
 			return;
@@ -81,7 +81,8 @@ public final class FPDocList {
 		}
 		if (docsSparse != null) {
 			if (other.docsSparse != null) {
-				for (int d = other.docsSparse.nextSetBit(0); d >= 0 && d < maxDoc; d = other.docsSparse.nextSetBit(d + 1)) {
+				for (int d = other.docsSparse.nextSetBit(0); d >= 0 && d < maxDoc; d = nextSetBitInSparse(other.docsSparse,
+						maxDoc, d)) {
 					docsSparse.clear(d);
 				}
 			} else {
@@ -142,6 +143,18 @@ public final class FPDocList {
 		for (int i = 0; i < other.docCount; i++) {
 			addDoc(other.orderedDocs[i]);
 		}
+	}
+
+	/**
+	 * {@link SparseFixedBitSet#nextSetBit(int)} 要求 index &lt; 位图长度；当当前 doc 为 {@code maxDoc - 1}
+	 * 时不可再调用 {@code nextSetBit(maxDoc)}。
+	 */
+	public static int nextSetBitInSparse(SparseFixedBitSet bits, int maxDocExclusive, int currentDoc) {
+		final int next = currentDoc + 1;
+		if (next >= maxDocExclusive) {
+			return -1;
+		}
+		return bits.nextSetBit(next);
 	}
 
 	private void promoteToSparse() {

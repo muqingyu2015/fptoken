@@ -38,6 +38,18 @@ class FPDocListTest {
 	}
 
 	@Test
+	void foreach_sparseWithDocAtMaxExclusiveMinusOne_doesNotAssert() throws IOException {
+		final int maxDoc = 64;
+		final FPDocList list = new FPDocList(maxDoc);
+		list.addDoc(maxDoc - 1);
+		list.addDoc(0);
+		final List<Integer> seen = new ArrayList<>();
+		list.foreach(seen::add);
+		seen.sort(Integer::compareTo);
+		assertEquals(Arrays.asList(0, maxDoc - 1), seen);
+	}
+
+	@Test
 	void addAllDocsFrom_mergesArrayIntoSparse() throws IOException {
 		FPDocList a = new FPDocList(50);
 		a.addDoc(1);

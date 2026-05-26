@@ -167,7 +167,8 @@ public final class FpGroupDataOriginal {
 
 	/** 将本组 doc/term 累加到 target（降级时并入可合并组）。 */
 	public void mergeIntoRebuild(FpGroupDataRebuild target) throws IOException {
-		for (int d = distinctDocUnion.nextSetBit(0); d >= 0 && d < maxDoc; d = distinctDocUnion.nextSetBit(d + 1)) {
+		for (int d = distinctDocUnion.nextSetBit(0); d >= 0 && d < maxDoc; d = FPDocList.nextSetBitInSparse(distinctDocUnion,
+				maxDoc, d)) {
 			target.distinctDocUnion.set(d);
 		}
 		mergeTermBucketInto(hotTermToDocs, target.hotTermToDocs, target);
