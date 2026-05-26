@@ -150,6 +150,10 @@ public final class FpTokenBlockOrchestrator {
 			// 合并前逻辑组：从当前索引读已有位图（与透传 posting 同源）
 			final int logical_group = FpTokenTermLayout.readGroupIdFromIndexAndGroupKey(group_original.key);
 			final FpGroupHotNgramBitIndex bits = this.terms.fpBits(index_id, logical_group, null, null);
+			if(bits==null)
+			{
+				LOG.error("bits =null "+index_id+" "+logical_group);
+			}
 			// 本段新组号：写出倒排头 + fpblock_list + 本次 bit 区（与查询一致）
 			final int new_group_id = groupIndex.incrementAndGet();
 			group_original.val.flushto(this, bits, new_group_id);

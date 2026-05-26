@@ -91,9 +91,9 @@ public final class FpGroupHotNgramRebuild {
 			final FpTermKey anchorTerm = entry.getKey();
 			final AnchorTierIndex termsByByteLength = entry.getValue();
 			int cumulativeTierTermCount = 0;
-			int maxDownLevel = 0;
+			int maxDownLevel = 1;
 			final int anchorByteLen = anchorTerm.bytesRef().length;
-			for (int byteLen = anchorByteLen; byteLen <= Lucene80FPSearchConfig.NGRAM_MAX; byteLen++) {
+			for (int byteLen = (anchorByteLen+1); byteLen <= Lucene80FPSearchConfig.NGRAM_MAX; byteLen++) {
 				cumulativeTierTermCount += termsByByteLength.get(byteLen).size();
 				if (cumulativeTierTermCount > hotFreqThreshold) {
 					break;

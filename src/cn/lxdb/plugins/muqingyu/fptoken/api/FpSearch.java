@@ -119,18 +119,18 @@ public class FpSearch {
 		{
 			return false;
 		}
-		AtomicInteger merger_level=new AtomicInteger(0);
+		AtomicInteger max_scan_term_len=new AtomicInteger(0);
 		{//先读默认，必须完全相等
 
 			final int termIndex = first + 1;
 			
-			int status=seekTermAndOrDocs(reusePosting,merger_level,true,termsEnum, reuse, Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
+			int status=seekTermAndOrDocs(reusePosting,max_scan_term_len,true,termsEnum, reuse, Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
 					false, slice, maxDoc, collect);
 			if (seek_status_ok==status) {
 				anyHit = true;
 			}
 			
-			status=seekTermAndOrDocs(reusePosting,merger_level,true,termsEnum, reuse, Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
+			status=seekTermAndOrDocs(reusePosting,max_scan_term_len,true,termsEnum, reuse, Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
 					true, slice, maxDoc, collect);
 			if (seek_status_ok==status) {
 				anyHit = true;
@@ -145,7 +145,7 @@ public class FpSearch {
 				break;
 			}
 			final int termIndex = bit + 1;
-			int status=seekTermAndOrDocs(reusePosting,merger_level,false,termsEnum, reuse, Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
+			int status=seekTermAndOrDocs(reusePosting,max_scan_term_len,false,termsEnum, reuse, Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
 					false, slice, maxDoc, collect);
 			
 			if (seek_status_ok==status) {
@@ -214,7 +214,7 @@ public class FpSearch {
 		{
 			if(must_equals)
 			{
-				merger_level.set(FpTokenTermLayout.readHotTermScanLevel(found)+rawTerms.length);;
+				merger_level.set(FpTokenTermLayout.readHotTermScanLevel(found)+rawTerms.length-1);
 			}
 			
 			if(merger_level.get()<rawTerms.length)
