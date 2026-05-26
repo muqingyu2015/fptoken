@@ -184,7 +184,7 @@ public class FpSearch {
 		}
 		return anyHit;
 	}
-	private static int seek_status_miss=0;
+	private static int seek_status_miss=2;
 	private static int seek_status_break=1;
 	private static int seek_status_ok=0;
 
@@ -210,7 +210,7 @@ public class FpSearch {
 		{
 			if(must_equals)
 			{
-				merger_level.set(FpTokenTermLayout.readLevel(found)+rawTerms.length);;
+				merger_level.set(FpTokenTermLayout.readHotTermScanLevel(found)+rawTerms.length);;
 			}
 			
 			if(merger_level.get()<rawTerms.length)

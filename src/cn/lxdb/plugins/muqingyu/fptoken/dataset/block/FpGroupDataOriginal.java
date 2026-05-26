@@ -96,7 +96,8 @@ public final class FpGroupDataOriginal {
 			
 			stat_hot_doc_cnt+=val.docsize();
 			
-			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm,(byte)level, key.bytesRef());
+			BytesRef noheader_term=FpTokenTermLayout.removeHeaderBytes(key.bytesRef());
+			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm,(byte)level, noheader_term);
 			BlockTermState stat = parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 
 		}
@@ -114,7 +115,9 @@ public final class FpGroupDataOriginal {
 			int index=FpTokenTermLayout.readTermIndex(key.bytesRef());
 
 			stat_common_doc_cnt+=val.docsize();
-			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, FpTokenTermLayout.removeHeaderBytes(key.bytesRef()));
+			BytesRef noheader_term=FpTokenTermLayout.removeHeaderBytes(key.bytesRef());
+
+			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, noheader_term);
 			BlockTermState stat = parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 
 		}
