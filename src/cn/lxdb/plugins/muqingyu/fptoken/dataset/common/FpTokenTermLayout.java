@@ -88,7 +88,13 @@ public final class FpTokenTermLayout {
 		
 		return (short) read_index_id;
 	}
-	
+
+	public static short read_index_id(BytesRef term) {
+
+		int read_index_id=NumericUtils.sortableBytesToShort(term.bytes, term.offset+INDEX_ID_OFFSET);
+		
+		return  (short)read_index_id;
+	}
 	public static int read_group_id(byte[] term) {
 
 		int read_index_id=NumericUtils.sortableBytesToInt(term, GROUP_ID_OFFSET);

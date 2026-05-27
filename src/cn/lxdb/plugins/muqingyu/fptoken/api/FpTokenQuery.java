@@ -23,7 +23,9 @@ import org.apache.lucene.search.Weight;
 import org.apache.lucene.util.BitDocIdSet;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.FixedBitSet;
+import org.slf4j.Logger;
 
+import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.token.BinarySlidingWindowApi;
 import cn.lxdb.plugins.muqingyu.fptoken.token.FpToken;
@@ -33,8 +35,9 @@ import cn.lxdb.plugins.muqingyu.fptoken.token.FpTokenBytesMode;
 import cn.lxdb.plugins.muqingyu.fptoken.token.WindowTerm;
 
 public class FpTokenQuery extends Query {
-
-    private final String fieldName;
+	public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
+	private static final long serialVersionUID = -4451981415049319577L;
+	private final String fieldName;
     private final BytesRef[] slices;
 
 
@@ -43,6 +46,7 @@ public class FpTokenQuery extends Query {
         byte[] sourceBytes=FpToken.textToSourceBytes(slices, mode);
         List<WindowTerm> windows = BinarySlidingWindowApi.slidingWindows(sourceBytes, 0, sourceBytes.length,BinarySlidingWindowApi.BITSET_STEP_SIZE,BinarySlidingWindowApi.BITSET_STEP_SIZE);
 
+        LOG.info("search in "+slices+" "+fieldName);
 
         Map<FpToken.DedupKey, FpToken.PendingTerm> firstOccurrence = new LinkedHashMap<>();
         for (int i = 0; i < windows.size(); i++) {
@@ -76,7 +80,8 @@ public class FpTokenQuery extends Query {
     }
 
     private class BruteForceWeight extends ConstantScoreWeight {
-        private final IndexSearcher searcher;
+		private static final long serialVersionUID = 6282792942442401760L;
+		private final IndexSearcher searcher;
         private final ScoreMode scoreMode;
         
         public BruteForceWeight(Query query, IndexSearcher searcher, ScoreMode scoreMode, float boost) {
@@ -106,6 +111,7 @@ public class FpTokenQuery extends Query {
             FixedBitSet bitset=search.search(blocklist, terms, 0, slices);
             
             
+            LOG.info("search "+slices[0].utf8ToString() +" "+blocklist.size()+" "+fieldName+" "+bitset.cardinality());
             BitDocIdSet docIdSet = new BitDocIdSet(bitset, 1, context.reader().maxDoc());
             
             

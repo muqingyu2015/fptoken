@@ -15,7 +15,9 @@ import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.offheap.OffheapPoolName;
+import org.slf4j.Logger;
 
+import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
@@ -26,7 +28,37 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
  * {@link Terms#iterator_fp()} seek 倒排并合并 doc，多切片 AND、同切片多组 OR。
  */
 public class FpSearch {
+	
+	public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 
+	
+	private void print_debug(Terms terms) throws IOException
+	{
+		final AtomicReference<PostingsEnum> docsEnum = new AtomicReference<PostingsEnum>(null);
+
+		TermsEnum termsEnum = terms.iterator();
+		BytesRef term = termsEnum.term();
+		int termIndex=1;
+		while (term != null) {
+		
+			short read_index_id=FpTokenTermLayout.read_index_id(term);
+			int group_id=FpTokenTermLayout.read_group_id(term);
+			int level=FpTokenTermLayout.readLevel(term);
+			boolean ishot=FpTokenTermLayout.isHotTerm(term);
+			boolean isdel=FpTokenTermLayout.readIsDelTerm(term);
+			int termindex=FpTokenTermLayout.readTermIndex(term);
+			int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(term);
+			BytesRef ref=FpTokenTermLayout.removeHeaderBytes(term);
+			
+			
+			PostingsEnum pe = termsEnum.postings(docsEnum.get(), PostingsEnum.NONE);
+
+			LOG.info("debug termIndex:"+termIndex+" index_id:"+read_index_id+" group_id:"+group_id+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+pe.freq()+" data:"+ref.utf8ToString());
+			
+			termIndex++;
+			term = termsEnum.next();
+		}
+	}
 	/**
 	 * @param fpblock_list 段内 group_id → 位图区元数据
 	 * @param slices       查询串滑窗切片（长度须在 {@link Lucene80FPSearchConfig#NGRAM_MIN}..{@link Lucene80FPSearchConfig#NGRAM_MAX}）
@@ -34,6 +66,8 @@ public class FpSearch {
 	 */
 	public FixedBitSet search(TreeMap<Integer, FpBlockInfo> fpblock_list, Terms terms, int maxDoc, BytesRef[] slices)
 			throws IOException {
+		
+		print_debug(terms);
 		final boolean[][] choose = new boolean[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.BUCKETS];
 		for (int i = 0; i < choose.length; i++) {
 			Arrays.fill(choose[i], false);
@@ -48,11 +82,14 @@ public class FpSearch {
 		if (slices == null || slices.length == 0) {
 			return rtn;
 		}
+		
 
 		final FixedBitSet[] collect = new FixedBitSet[slices.length];
 
 		for (Entry<Integer, FpBlockInfo> e : fpblock_list.entrySet()) {
 			final FpGroupHotNgramBitIndex bitsetIndex = terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, e.getKey(), choose, choose);
+			
+			
 			for (int i = 0; i < slices.length; i++) {
 				final BytesRef slice = slices[i];
 				final int lenIdx = ngramLengthIndex(slice.length);
