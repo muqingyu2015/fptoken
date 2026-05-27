@@ -6,7 +6,7 @@ import org.apache.lucene.analysis.Analyzer$TokenStreamComponents;
 
 
 /**
- * FP（指纹）二进制域的 Lucene {@link Analyzer}：产生 {@link FPToken} 分词器，将 Reader 文本转为
+ * FP（指纹）二进制域的 Lucene {@link Analyzer}：产生 {@link FpToken} 分词器，将 Reader 文本转为
  * 滑窗字节词项流。
  */
 public class FpTokenAnalyzer extends Analyzer  {
@@ -51,14 +51,14 @@ public class FpTokenAnalyzer extends Analyzer  {
 	}
 
 	/**
-	 * 构造单一 {@link FPToken} 组成的词项流。
+	 * 构造单一 {@link FpToken} 组成的词项流。
 	 *
 	 * @param fieldName Lucene 字段名（当前分词器未区分字段）
 	 * @return {@link TokenStreamComponents}
 	 */
 	@Override
 	protected Analyzer$TokenStreamComponents createComponents(String fieldName) {
-		FPToken toker = new FPToken(this.isQuery, this.bytesMode);
+		FpToken toker = new FpToken(this.isQuery, this.bytesMode);
 		return new Analyzer$TokenStreamComponents(toker);
 	}
 }
