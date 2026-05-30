@@ -59,11 +59,11 @@ class FpGroupHotNgramBitIndexWriteReadTest {
 		final Directory dir = new RAMDirectory();
 		final FpBlockInfo written;
 		try (IndexOutput out = dir.createOutput("bits", IOContext.DEFAULT)) {
-			written = bits.flushto(out);
+			written = bits.flushto(out,"");
 		}
 		assertTrue(written.bytesPerHotSerialized > 0);
 		assertTrue(written.bytesPerCommonSerialized > 0);
-		assertEquals(written.fpBanksHot00 + written.bytesPerHotSerialized, written.fpBanksCommon00);
+		assertEquals(written.fpBanksHot + written.bytesPerHotSerialized, written.fpBanksCommon);
 		assertTrue(bits.banksHot[1][sliceBucket("ab")].nextSetBit(0) >= 0
 				|| bits.banksCommon[1][sliceBucket("ab")].nextSetBit(0) >= 0);
 	}
@@ -74,7 +74,7 @@ class FpGroupHotNgramBitIndexWriteReadTest {
 		final Directory dir = new RAMDirectory();
 		final FpBlockInfo info;
 		try (IndexOutput out = dir.createOutput("bits", IOContext.DEFAULT)) {
-			info = bits.flushto(out);
+			info = bits.flushto(out,"");
 		}
 		final boolean[][] choose = new boolean[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.BUCKETS];
 		for (boolean[] row : choose) {

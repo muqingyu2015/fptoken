@@ -5,7 +5,6 @@ import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.apache.lucene.codecs.BlockTermState;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.util.BytesRef;
@@ -150,6 +149,31 @@ public final class FpGroupDataRebuild {
 					FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, key.bytesRef());
 			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state, parentItem.pool, parentItem.debugList,
 					reuse_term, val, parentItem.norms);
+			
+			
+			if(Lucene80FPSearchConfig.PRINT_DEBUG)
+			{
+				if(reuse_term.length<FpTokenTermLayout.FP_HEADER_BYTES)
+				{
+					
+					LOG.info("debug rebuild:hot:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
+					continue;
+				}
+			
+				short read_index_id=FpTokenTermLayout.read_index_id(reuse_term);
+				int group_id_reuse=FpTokenTermLayout.read_group_id(reuse_term);
+				int level=FpTokenTermLayout.readLevel(reuse_term);
+				boolean ishot=FpTokenTermLayout.isHotTerm(reuse_term);
+				boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
+				int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
+				int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
+				BytesRef ref=FpTokenTermLayout.removeHeaderBytes(reuse_term);
+				
+				
+	
+				LOG.info("debug rebuild:hot:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
+			
+			}
 		}
 		
 		
@@ -167,12 +191,34 @@ public final class FpGroupDataRebuild {
 			stat_common_doc_cnt+=val.docsize();
 
 			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, key.bytesRef());
-			BlockTermState stat = parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
-
+			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
+			if(Lucene80FPSearchConfig.PRINT_DEBUG)
+			{
+				if(reuse_term.length<FpTokenTermLayout.FP_HEADER_BYTES)
+				{
+					
+					LOG.info("debug rebuild:common:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
+					continue;
+				}
+			
+				short read_index_id=FpTokenTermLayout.read_index_id(reuse_term);
+				int group_id_reuse=FpTokenTermLayout.read_group_id(reuse_term);
+				int level=FpTokenTermLayout.readLevel(reuse_term);
+				boolean ishot=FpTokenTermLayout.isHotTerm(reuse_term);
+				boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
+				int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
+				int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
+				BytesRef ref=FpTokenTermLayout.removeHeaderBytes(reuse_term);
+				
+				
+	
+				LOG.info("debug rebuild:common:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
+			
+			}
 		}
 		
 
-		FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut);
+		FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut,"rebuild");
 		parentItem.fpblock_list.put(group_id, blkinfo);
 	
 		parentItem.stat.doclist_hot+=stat_hot_doc_cnt;

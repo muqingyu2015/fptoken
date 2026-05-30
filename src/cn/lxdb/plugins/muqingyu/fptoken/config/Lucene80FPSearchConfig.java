@@ -38,4 +38,6 @@ public final class Lucene80FPSearchConfig {
 	public static final int BUCKETS = 256;
 
 	public static final short DEFAULT_INDEX_ID = 0;
+
+	public static boolean PRINT_DEBUG=true;
 }

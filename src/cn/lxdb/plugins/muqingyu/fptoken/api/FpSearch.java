@@ -31,32 +31,44 @@ public class FpSearch {
 	
 	public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 
-	
 	private void print_debug(Terms terms) throws IOException
 	{
+		if(!Lucene80FPSearchConfig.PRINT_DEBUG)
+		{
+			return ;
+		}
 		final AtomicReference<PostingsEnum> docsEnum = new AtomicReference<PostingsEnum>(null);
 
 		TermsEnum termsEnum = terms.iterator();
 		BytesRef term = termsEnum.term();
 		int termIndex=1;
 		while (term != null) {
-		
-			short read_index_id=FpTokenTermLayout.read_index_id(term);
-			int group_id=FpTokenTermLayout.read_group_id(term);
-			int level=FpTokenTermLayout.readLevel(term);
-			boolean ishot=FpTokenTermLayout.isHotTerm(term);
-			boolean isdel=FpTokenTermLayout.readIsDelTerm(term);
-			int termindex=FpTokenTermLayout.readTermIndex(term);
-			int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(term);
-			BytesRef ref=FpTokenTermLayout.removeHeaderBytes(term);
+			try {
+				if(term.length<FpTokenTermLayout.FP_HEADER_BYTES)
+				{
+					
+					LOG.info("debug termIndex:"+termIndex+" term:"+terms.getClass().getName()+" len:"+term.length+"  data:"+term.utf8ToString());
+					continue;
+				}
 			
-			
-			PostingsEnum pe = termsEnum.postings(docsEnum.get(), PostingsEnum.NONE);
+				short read_index_id=FpTokenTermLayout.read_index_id(term);
+				int group_id=FpTokenTermLayout.read_group_id(term);
+				int level=FpTokenTermLayout.readLevel(term);
+				boolean ishot=FpTokenTermLayout.isHotTerm(term);
+				boolean isdel=FpTokenTermLayout.readIsDelTerm(term);
+				int termindex=FpTokenTermLayout.readTermIndex(term);
+				int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(term);
+				BytesRef ref=FpTokenTermLayout.removeHeaderBytes(term);
+				
+				
+				PostingsEnum pe = termsEnum.postings(docsEnum.get(), PostingsEnum.NONE);
+	
+				LOG.info("debug termIndex:"+termIndex+" index_id:"+read_index_id+" group_id:"+group_id+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+pe.freq()+" data:"+ref.utf8ToString());
+			}finally {
 
-			LOG.info("debug termIndex:"+termIndex+" index_id:"+read_index_id+" group_id:"+group_id+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+pe.freq()+" data:"+ref.utf8ToString());
-			
-			termIndex++;
-			term = termsEnum.next();
+				termIndex++;
+				term = termsEnum.next();	
+			}
 		}
 	}
 	/**
@@ -72,7 +84,7 @@ public class FpSearch {
 		for (int i = 0; i < choose.length; i++) {
 			Arrays.fill(choose[i], false);
 		}
-		for (BytesRef slice : slices) {
+		for (BytesRef slice : slices) {//TODO:这里仅仅根据当前长度判断误差太大，需要往上多判断几个bitset的and，不然在遍历的时候可能会有太多的误命中,但是也没必要每层都要判断，因此向上判断1~2层我觉得是可以的
 			final int lenIdx = ngramLengthIndex(slice.length);
 			final int bucket = FpGroupHotNgramBitIndex.bucketIndex(slice.bytes, slice.offset, slice.length);
 			choose[lenIdx][bucket] = true;
@@ -96,6 +108,10 @@ public class FpSearch {
 				final int bucket = FpGroupHotNgramBitIndex.bucketIndex(slice.bytes, slice.offset, slice.length);
 				final FixedBitSet hot = bitsetIndex.banksHot[lenIdx][bucket];
 				final FixedBitSet common = bitsetIndex.banksCommon[lenIdx][bucket];
+				if(Lucene80FPSearchConfig.PRINT_DEBUG)
+				{  
+					LOG.info("bitset "+hot.cardinality()+" "+hot.nextSetBit(0)+" "+common.cardinality()+" "+common.nextSetBit(0)+" "+lenIdx+" " +bucket +" "+slice.length);;
+				}
 				searchSliceInGroup(hot, common, slice, e.getValue(), e.getKey(), terms, maxDoc, collect, i);
 			}
 		}
@@ -153,7 +169,7 @@ public class FpSearch {
 		boolean payloadLenCapSet = false;
 
 		for (int bit = bank.nextSetBit(0); bit != DocIdSetIterator.NO_MORE_DOCS; bit = bank.nextSetBit(bit + 1)) {
-			final int termIndex = bit + 1;
+			final int termIndex = bit;
 			if (!payloadLenCapSet) {
 				int status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, true, termsEnum, reuse,
 						Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
@@ -196,7 +212,7 @@ public class FpSearch {
 		boolean anyHit = false;
 
 		for (int bit = bank.nextSetBit(0); bit != DocIdSetIterator.NO_MORE_DOCS; bit = bank.nextSetBit(bit + 1)) {
-			final int termIndex = bit + 1;
+			final int termIndex = bit;
 			final int status = seekTermAndOrDocs(reusePosting, null, false, termsEnum, reuse,
 					Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
 					false, slice, maxDoc, collect);
@@ -216,6 +232,11 @@ public class FpSearch {
 			short indexId, int groupid, byte groupLevel, boolean hotMark, int termIndex, boolean isDelTerm,
 			BytesRef slice, int maxDoc, FixedBitSet collect) throws IOException {
 		FpTokenTermLayout.make_fp_search_prefix(reuse, indexId, groupid, groupLevel, hotMark, termIndex, isDelTerm);
+		
+		if(Lucene80FPSearchConfig.PRINT_DEBUG)
+		{  
+			LOG.info("seekCeil indexId:"+indexId+" "+groupid+" "+groupLevel+" " +hotMark +" "+termIndex+" "+isDelTerm+" "+slice.length);;
+		}
 		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
 			return SEEK_MISS;
 		}

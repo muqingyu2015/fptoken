@@ -11,12 +11,12 @@ class FpBlockInfoOffsetTest {
 	@Test
 	void bankOffsets_followInterleavedLayout() {
 		FpBlockInfo info = new FpBlockInfo();
-		info.fpBanksHot00 = 1000L;
+		info.fpBanksHot = 1000L;
 		info.bytesPerHotSerialized = 40;
 		info.bytesPerCommonSerialized = 48;
-		info.fpBanksCommon00 = info.fpBanksHot00 + info.bytesPerHotSerialized;
+		info.fpBanksCommon = info.fpBanksHot + info.bytesPerHotSerialized;
 		assertEquals(1000L + (2L * 256L + 3L) * (40L + 48L), info.hotBankOffset(2, 3));
 		assertEquals(info.hotBankOffset(2, 3) + 40L, info.commonBankOffset(2, 3));
-		assertEquals(1040L, info.fpBanksCommon00);
+		assertEquals(1040L, info.fpBanksCommon);
 	}
 }

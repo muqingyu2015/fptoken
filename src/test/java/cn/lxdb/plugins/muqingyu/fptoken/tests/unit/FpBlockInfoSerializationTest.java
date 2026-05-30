@@ -17,8 +17,8 @@ class FpBlockInfoSerializationTest {
 	@Test
 	void writeto_readfrom_roundTrip() throws Exception {
 		final FpBlockInfo expected = new FpBlockInfo();
-		expected.fpBanksHot00 = 1000L;
-		expected.fpBanksCommon00 = 1040L;
+		expected.fpBanksHot = 1000L;
+		expected.fpBanksCommon = 1040L;
 		expected.bytesPerHotSerialized = 40;
 		expected.bytesPerCommonSerialized = 48;
 		expected.hotNumBits = 5;
@@ -34,8 +34,8 @@ class FpBlockInfoSerializationTest {
 		try (IndexInput in = dir.openInput("meta", IOContext.DEFAULT)) {
 			final FpBlockInfo actual = new FpBlockInfo();
 			actual.readfrom(in);
-			assertEquals(expected.fpBanksHot00, actual.fpBanksHot00);
-			assertEquals(expected.fpBanksCommon00, actual.fpBanksCommon00);
+			assertEquals(expected.fpBanksHot, actual.fpBanksHot);
+			assertEquals(expected.fpBanksCommon, actual.fpBanksCommon);
 			assertEquals(expected.bytesPerHotSerialized, actual.bytesPerHotSerialized);
 			assertEquals(expected.bytesPerCommonSerialized, actual.bytesPerCommonSerialized);
 			assertEquals(expected.hotNumBits, actual.hotNumBits);

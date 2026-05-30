@@ -3,10 +3,9 @@ package cn.lxdb.plugins.muqingyu.fptoken.dataset.block;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicReference;
 
-import org.apache.lucene.codecs.BlockTermState;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.util.BytesRef;
@@ -17,11 +16,11 @@ import org.slf4j.Logger;
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lucene.proguard.keep.lxdb.common.CLMillisecondClock;
 import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
+import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
-import cn.lxdb.stl.v25.common.MillisecondClock;
 
 /**
  * 单组内：组级 doc 并集用 {@link SparseFixedBitSet}；每个 term 对应 {@link FPDocList}，
@@ -103,8 +102,32 @@ public final class FpGroupDataOriginal {
 			
 			BytesRef noheader_term=FpTokenTermLayout.removeHeaderBytes(key.bytesRef());
 			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, noheader_term);
-			BlockTermState stat = parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
+			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 
+			
+			if(Lucene80FPSearchConfig.PRINT_DEBUG)
+			{
+				if(reuse_term.length<FpTokenTermLayout.FP_HEADER_BYTES)
+				{
+					
+					LOG.info("debug original:hot:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
+					continue;
+				}
+			
+				short read_index_id=FpTokenTermLayout.read_index_id(reuse_term);
+				int group_id_reuse=FpTokenTermLayout.read_group_id(reuse_term);
+				int level=FpTokenTermLayout.readLevel(reuse_term);
+				boolean ishot=FpTokenTermLayout.isHotTerm(reuse_term);
+				boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
+				int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
+				int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
+				BytesRef ref=FpTokenTermLayout.removeHeaderBytes(reuse_term);
+				
+				
+	
+				LOG.info("debug original:hot:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
+			
+			}
 		}
 		
 		
@@ -123,13 +146,37 @@ public final class FpGroupDataOriginal {
 			BytesRef noheader_term=FpTokenTermLayout.removeHeaderBytes(key.bytesRef());
 
 			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, noheader_term);
-			BlockTermState stat = parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
+			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 
+			if(Lucene80FPSearchConfig.PRINT_DEBUG)
+			{
+				if(reuse_term.length<FpTokenTermLayout.FP_HEADER_BYTES)
+				{
+					
+					LOG.info("debug original:common:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
+					continue;
+				}
+			
+				short read_index_id=FpTokenTermLayout.read_index_id(reuse_term);
+				int group_id_reuse=FpTokenTermLayout.read_group_id(reuse_term);
+				int level=FpTokenTermLayout.readLevel(reuse_term);
+				boolean ishot=FpTokenTermLayout.isHotTerm(reuse_term);
+				boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
+				int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
+				int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
+				BytesRef ref=FpTokenTermLayout.removeHeaderBytes(reuse_term);
+				
+				
+	
+				LOG.info("debug original:common:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
+			
+			}
+			
 		}
 		
 		parentItem.stat.doclist_hot+=stat_hot_doc_cnt;
 		parentItem.stat.doclist_common+=stat_common_doc_cnt;
-		FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut);
+		FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut,"orginal");
 		parentItem.fpblock_list.put(group_id, blkinfo);
 	
 		long ts_end=CLMillisecondClock.CLOCK.now();

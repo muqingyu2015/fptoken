@@ -18,9 +18,17 @@ public class FpBlockInfo {
 	 * 第 {@code (li * 256 + b)} 对为
 	 * {@code fpBanksHot00 + (li * 256 + b) * (bytesPerHotSerialized + bytesPerCommonSerialized)}。
 	 */
-	public long fpBanksHot00;
+	public long fpBanksHot;
+	@Override
+	public String toString() {
+		return "FpBlockInfo [fpBanksHot=" + fpBanksHot + ", fpBanksCommon=" + fpBanksCommon + ", bytesPerHotSerialized="
+				+ bytesPerHotSerialized + ", bytesPerCommonSerialized=" + bytesPerCommonSerialized + ", hotNumBits="
+				+ hotNumBits + ", commonNumBits=" + commonNumBits + ", hotCount=" + hotCount + ", commonCount="
+				+ commonCount + ", targetLevel=" + targetLevel + ", debug_mark=" + debug_mark + "]";
+	}
+
 	/** {@code banksCommon[0][0]} 的偏移，等于 {@code fpBanksHot00 + bytesPerHotSerialized}。 */
-	public long fpBanksCommon00;
+	public long fpBanksCommon;
 	/** 序列化后单个热词侧 {@link org.apache.lucene.util.FixedBitSet} 的字节数（含首部 int 词数）。 */
 	public int bytesPerHotSerialized;
 	/** 序列化后单个普通词侧 {@link org.apache.lucene.util.FixedBitSet} 的字节数。 */
@@ -30,13 +38,13 @@ public class FpBlockInfo {
 	public int commonNumBits;
 	public int hotCount;
 	public int commonCount;
-	
 	public int targetLevel;
+	public long debug_mark=System.currentTimeMillis();
 
 	public void writeto(DataOutput out) throws IOException {
 		out.writeInt(FORMAT_VERSION);
-		out.writeLong(fpBanksHot00);
-		out.writeLong(fpBanksCommon00);
+		out.writeLong(fpBanksHot);
+		out.writeLong(fpBanksCommon);
 		out.writeInt(bytesPerHotSerialized);
 		out.writeInt(bytesPerCommonSerialized);
 		out.writeInt(hotNumBits);
@@ -44,6 +52,8 @@ public class FpBlockInfo {
 		out.writeInt(hotCount);
 		out.writeInt(commonCount);
 		out.writeInt(targetLevel);
+		out.writeLong(debug_mark);
+
 
 	}
 
@@ -52,8 +62,8 @@ public class FpBlockInfo {
 		if (ver != FORMAT_VERSION) {
 			throw new IOException("FpBlockInfo unsupported format version: " + ver);
 		}
-		fpBanksHot00 = in.readLong();
-		fpBanksCommon00 = in.readLong();
+		fpBanksHot = in.readLong();
+		fpBanksCommon = in.readLong();
 		bytesPerHotSerialized = in.readInt();
 		bytesPerCommonSerialized = in.readInt();
 		hotNumBits = in.readInt();
@@ -61,13 +71,14 @@ public class FpBlockInfo {
 		hotCount = in.readInt();
 		commonCount = in.readInt();
 		targetLevel = in.readInt();
+		debug_mark=in.readLong();
 
 	}
 
 	/** 第 {@code li} 长度、桶 {@code b} 的热词 bitset 在 bit 文件中的起始偏移。 */
 	public long hotBankOffset(int li, int b) {
 		final long pair = (long) li * 256L + (long) b;
-		return fpBanksHot00 + pair * (long) (bytesPerHotSerialized + bytesPerCommonSerialized);
+		return fpBanksHot + pair * (long) (bytesPerHotSerialized + bytesPerCommonSerialized);
 	}
 
 	/** 同上位置的普通词侧起始偏移。 */

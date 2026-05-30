@@ -10,10 +10,13 @@ import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.offheap.OffheapPoolName;
+import org.slf4j.Logger;
 
+import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 
 /**
  * 热词 / 普通词各一套 byte ngram（{@value #NGRAM_MIN}~{@value #NGRAM_MAX}）倒排索引：
@@ -28,6 +31,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
  * 调用：{@code FpGroupHotNgramBitIndex.execute(group, parentItem, 10);}（第三参数预留）。
  */
 public final class FpGroupHotNgramBitIndex {
+    public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 
 
 	public final FixedBitSet[][] banksHot;
@@ -53,14 +57,19 @@ public final class FpGroupHotNgramBitIndex {
 	 * 从 bit 文件按 {@link FpBlockInfo} 中记录的交错布局读回全部 banks。
 	 */
 	public static FpGroupHotNgramBitIndex readfrom(IndexInput in, FpBlockInfo blkinfo) throws IOException {
-		validateBlockInfo(blkinfo);
 		final FixedBitSet[][] hot = new FixedBitSet[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.BUCKETS];
 		final FixedBitSet[][] common = new FixedBitSet[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.BUCKETS];
-		in.seek(blkinfo.fpBanksHot00);
+		in.seek(blkinfo.fpBanksHot);
 		for (int li = 0; li < Lucene80FPSearchConfig.NGRAM_MAX; li++) {
 			for (int b = 0; b < Lucene80FPSearchConfig.BUCKETS; b++) {
 				hot[li][b] = in.readBits(blkinfo.hotNumBits);
 				common[li][b] = in.readBits(blkinfo.commonNumBits);
+				
+				
+				if(Lucene80FPSearchConfig.PRINT_DEBUG)
+				{  
+					LOG.info("bitset readfrom:"+hot[li][b].cardinality()+" "+hot[li][b].nextSetBit(0)+" "+common[li][b].cardinality()+" "+common[li][b].nextSetBit(0)+" "+li+" " +b  +" "+blkinfo);
+				}
 			}
 		}
 		return new FpGroupHotNgramBitIndex(blkinfo.targetLevel,hot, common, blkinfo.hotNumBits, blkinfo.commonNumBits, blkinfo.hotCount,
@@ -76,9 +85,6 @@ public final class FpGroupHotNgramBitIndex {
 	 */
 	public static FpGroupHotNgramBitIndex readfromBanksSelective(IndexInput in, FpBlockInfo blkinfo, boolean[][] loadHot,
 			boolean[][] loadCommon) throws IOException {
-		validateBlockInfo(blkinfo);
-		validateFlagMatrix(loadHot, "loadHot");
-		validateFlagMatrix(loadCommon, "loadCommon");
 		final FixedBitSet[][] hot = new FixedBitSet[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.BUCKETS];
 		final FixedBitSet[][] common = new FixedBitSet[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.BUCKETS];
 		final int bh = blkinfo.bytesPerHotSerialized;
@@ -103,6 +109,12 @@ public final class FpGroupHotNgramBitIndex {
 				} else {
 					common[li][b] = null;
 				}
+				
+				
+				if(Lucene80FPSearchConfig.PRINT_DEBUG&&(rh||rc))
+				{  
+					LOG.info("bitset readfrom:"+(hot[li][b]==null?"null":hot[li][b].cardinality())+" "+(hot[li][b]==null?"null":hot[li][b].nextSetBit(0))+" "+(common[li][b]==null?"null":common[li][b].cardinality())+" "+(common[li][b]==null?"null":common[li][b].nextSetBit(0))+" "+li+" " +b  +" "+blkinfo);
+				}
 			}
 		}
 		return new FpGroupHotNgramBitIndex(blkinfo.targetLevel,hot, common, blkinfo.hotNumBits, blkinfo.commonNumBits, blkinfo.hotCount,
@@ -114,7 +126,7 @@ public final class FpGroupHotNgramBitIndex {
 	 * {@code hot[li][b], common[li][b]} 交错写入 {@code out}，并把偏移与步长写入 {@link FpBlockInfo}（由调用方再
 	 * {@link FpBlockInfo#writeto} 到 meta）。
 	 */
-	public FpBlockInfo flushto(IndexOutput out) throws IOException {
+	public FpBlockInfo flushto(IndexOutput out,String from) throws IOException {
 		final FpBlockInfo info = new FpBlockInfo();
 		info.hotNumBits = hotNumBits;
 		info.commonNumBits = commonNumBits;
@@ -122,54 +134,37 @@ public final class FpGroupHotNgramBitIndex {
 		info.commonCount = commonCount;
 		info.targetLevel=this.targetlevel;
 
-		info.fpBanksHot00 = out.getFilePointer();
+		info.fpBanksHot = out.getFilePointer();
 		out.writeBits(banksHot[0][0]);
 		final long afterFirstHot = out.getFilePointer();
 		out.writeBits(banksCommon[0][0]);
 		final long afterFirstCommon = out.getFilePointer();
 
-		info.fpBanksCommon00 = afterFirstHot;
-		info.bytesPerHotSerialized = (int) (afterFirstHot - info.fpBanksHot00);
+		info.fpBanksCommon = afterFirstHot;
+		info.bytesPerHotSerialized = (int) (afterFirstHot - info.fpBanksHot);
 		info.bytesPerCommonSerialized = (int) (afterFirstCommon - afterFirstHot);
 
 		for (int li = 0; li < Lucene80FPSearchConfig.NGRAM_MAX; li++) {
 			for (int b = 0; b < Lucene80FPSearchConfig.BUCKETS; b++) {
-				if (li == 0 && b == 0) {
+				if(li==0&&b==0)
+				{//第一个已经在之前写进去了
 					continue;
 				}
 				out.writeBits(banksHot[li][b]);
 				out.writeBits(banksCommon[li][b]);
+				
+				if(Lucene80FPSearchConfig.PRINT_DEBUG&&(banksHot[li][b].cardinality()>0||banksCommon[li][b].cardinality()>0))
+				{  
+					LOG.info("bitset "+from+" flushto:"+banksHot[li][b].cardinality()+" "+banksHot[li][b].nextSetBit(0)+" "+banksCommon[li][b].cardinality()+" "+banksCommon[li][b].nextSetBit(0)+" "+li+" " +b  +" "+info);
+				}
 			}
 		}
 		return info;
 	}
 
-	private static void validateBlockInfo(FpBlockInfo blkinfo) throws CorruptIndexException {
-		if (blkinfo.bytesPerHotSerialized <= 0 || blkinfo.bytesPerCommonSerialized <= 0) {
-			throw new CorruptIndexException("FpBlockInfo invalid serialized bank sizes", "FpBlockInfo");
-		}
-		if (blkinfo.fpBanksCommon00 != blkinfo.fpBanksHot00 + blkinfo.bytesPerHotSerialized) {
-			throw new CorruptIndexException(
-					"FpBlockInfo fpBanksCommon00 mismatch: expected fpBanksHot00 + bytesPerHotSerialized", "FpBlockInfo");
-		}
-		if (blkinfo.hotNumBits < 1 || blkinfo.commonNumBits < 1) {
-			throw new CorruptIndexException("FpBlockInfo invalid numBits", "FpBlockInfo");
-		}
-	}
 
-	private static void validateFlagMatrix(boolean[][] flags, String name) {
-		if (flags == null) {
-			throw new IllegalArgumentException(name + " must be non-null");
-		}
-		if (flags.length != Lucene80FPSearchConfig.NGRAM_MAX) {
-			throw new IllegalArgumentException(name + " must have length " + Lucene80FPSearchConfig.NGRAM_MAX);
-		}
-		for (int i = 0; i < Lucene80FPSearchConfig.NGRAM_MAX; i++) {
-			if (flags[i] == null || flags[i].length != Lucene80FPSearchConfig.BUCKETS) {
-				throw new IllegalArgumentException(name + "[" + i + "] must have length " + Lucene80FPSearchConfig.BUCKETS);
-			}
-		}
-	}
+
+	
 
 	public static FpGroupHotNgramBitIndex execute(int targetLevel,FpGroupDataRebuild group) {
 		
@@ -179,8 +174,8 @@ public final class FpGroupHotNgramBitIndex {
 		final int h = group.hotTermOrderSize();
 		
 		final int c = group.commonTermOrderSize();
-		final int numBitsHot = Math.max(1, h+1);
-		final int numBitsCommon = Math.max(1, c+1);
+		final int numBitsHot = bitsLengthAlign(h);
+		final int numBitsCommon = bitsLengthAlign(c);
 
 		final FixedBitSet[][] hotBanks = allocBanks(numBitsHot);
 		final FixedBitSet[][] commonBanks = allocBanks(numBitsCommon);
@@ -199,6 +194,21 @@ public final class FpGroupHotNgramBitIndex {
 		}
 
 		return new FpGroupHotNgramBitIndex(targetLevel,hotBanks, commonBanks, numBitsHot, numBitsCommon, h, c);
+	}
+	
+	private static int BITS_ALIGN_SIZE=128;
+	private static int bitsLengthAlign(int bits)
+	{
+		
+		int rtn=Math.max(1, bits+1);
+		if(rtn%BITS_ALIGN_SIZE==0)
+		{
+			return rtn;
+		}
+		
+		int blks=(rtn/BITS_ALIGN_SIZE)+1;
+		return blks*BITS_ALIGN_SIZE;
+		
 	}
 
 	private static FixedBitSet[][] allocBanks(int numBits) {
@@ -231,7 +241,7 @@ public final class FpGroupHotNgramBitIndex {
 		if (order < 1 || order > numBits) {
 			return;
 		}
-		final int bit = order - 1;
+		final int bit = order;
 		final int payloadLen = payload.length;
 		if (payloadLen <= 0) {
 			return;
@@ -245,6 +255,10 @@ public final class FpGroupHotNgramBitIndex {
 				}
 				final int bucket = bucketIndex(slice.bytes, slice.offset, slice.length);
 				banks[n - 1][bucket].set(bit);
+				if(Lucene80FPSearchConfig.PRINT_DEBUG)
+				{
+					LOG.info("markNgramsForPayload " +(n - 1)+" "+bucket +" "+slice.utf8ToString());
+				}
 			}
 		}
 	}
