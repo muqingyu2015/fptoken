@@ -12,9 +12,10 @@ import org.apache.lucene.util.NumericUtils;
 | 2        | 4    | group_id（int）           | groupIndex++ 新号写入               | fpblock_list 的 key                            |
 | 6        | 1    | 块级别 group_level        | targetLevel                         | FpBlockInfo.targetLevel                        |
 | 7        | 1    | hotmark                   | 热 / 普                             | 位图 hot / common 分支                         |
-| 8        | 4    | termIndex + del 低位      | order 从 1 编号                     | 位图 bit = order − 1                           |
-| 12       | 1    | hotDownTierBudget         | 热词=hotTermDownTierBudget；普=0    | readHotDownTierBudget；maxHotPayloadLen 截断   |
-| 13+      | —    | payload                   | 纯 ngram / 词字节                   | removeHeaderBytes 后与 slice 比                |
+| 8        | 4    | termIndex     | order 从 1 编号                     | 位图 bit                           |
+| 12       | 1    |  del 低位      | boolean                    |                           |
+| 13       | 1    | hotDownTierBudget         | 热词=hotTermDownTierBudget；普=0    | readHotDownTierBudget；maxHotPayloadLen 截断   |
+| 14+      | —    | payload                   | 纯 ngram / 词字节                   | removeHeaderBytes 后与 slice 比                |
 +----------+------+---------------------------+-------------------------------------+------------------------------------------------+
  *
  */
@@ -29,14 +30,16 @@ public final class FpTokenTermLayout {
 	
 	public static final int LEVEL_BYTE_OFFSET = 6;//byte:1
 	public static final int HOT_TERM_FLAG_BYTE_OFFSET = 7;//byte:1 
-	public static final int TERM_INDEX_AND_STATUS_OFFSET = 8;//int:4 termindex+isDelTerm
+	public static final int TERM_INDEX_OFFSET = 8;//int:4 termindex
+	public static final int TERM_STATUS_OFFSET = 12;//byte:1 isDelTerm
+
 	/** 热词头内「向下扩展档」预算字节（≥1 表示至少含锚点档）；与 {@link #maxHotPayloadLen(int, int)} 配合。 */
-	public static final int HOT_TERM_DOWN_TIER_BUDGET_OFFSET = 12;//byte:1
+	public static final int HOT_TERM_DOWN_TIER_BUDGET_OFFSET = 13;//byte:1
 
 	public static final int INDEX_AND_GROUP_BYTES = 6;//short:2 int:4=INDEX_ID_OFFSET+GROUP_ID_OFFSET
-	public static final int TERM_PREFIX_BYTES = 12;//short:2 int:4=INDEX_ID_OFFSET+GROUP_ID_OFFSET
+	public static final int TERM_PREFIX_BYTES = 12;//一直定位到term index,用于根据bitset搜寻某个term
 
-	public static final int FP_HEADER_BYTES = 13;
+	public static final int FP_HEADER_BYTES = 14;
 
 
 	//[index_id:2][groupid:4][group_level:1][hotmark:1][termindex+isDelTerm:4][termwindow]
@@ -44,16 +47,14 @@ public final class FpTokenTermLayout {
 			int termindex, boolean isDelTerm, byte hotDownTierBudget, BytesRef term) {
 		int offset = reuse.offset;
 
-		int term_index_tp = termindex << 1;
-		if (isDelTerm) {
-			term_index_tp += 1;
-		}
+	
 
 		NumericUtils.shortToSortableBytes(index_id, reuse.bytes, offset + INDEX_ID_OFFSET);// 仅仅是占位,会在索引合并的时候替换,平时都是0
 		NumericUtils.intToSortableBytes(groupid, reuse.bytes, offset + GROUP_ID_OFFSET);
 		reuse.bytes[offset + LEVEL_BYTE_OFFSET] = (byte) (group_level & 0xFF);
 		reuse.bytes[offset + HOT_TERM_FLAG_BYTE_OFFSET] = (byte) ((hotmark?1:0) & 0xFF);
-		NumericUtils.intToSortableBytes(term_index_tp, reuse.bytes, offset + TERM_INDEX_AND_STATUS_OFFSET);
+		NumericUtils.intToSortableBytes(termindex, reuse.bytes, offset + TERM_INDEX_OFFSET);
+		reuse.bytes[offset + TERM_STATUS_OFFSET] = (byte) ((isDelTerm?1:0) & 0xFF);
 		reuse.bytes[offset + HOT_TERM_DOWN_TIER_BUDGET_OFFSET] = hotDownTierBudget;
 
 		System.arraycopy(term.bytes, term.offset, reuse.bytes, offset + FP_HEADER_BYTES, term.length);
@@ -63,20 +64,14 @@ public final class FpTokenTermLayout {
 	
 	
 	public static void make_fp_search_prefix(BytesRef reuse, short index_id, int groupid, byte group_level, boolean hotmark,
-			int termindex, boolean isDelTerm) {
+			int termindex) {
 		int offset = reuse.offset;
-
-		int term_index_tp = termindex << 1;
-		if (isDelTerm) {
-			term_index_tp += 1;
-		}
 
 		NumericUtils.shortToSortableBytes(index_id, reuse.bytes, offset + INDEX_ID_OFFSET);// 仅仅是占位,会在索引合并的时候替换,平时都是0
 		NumericUtils.intToSortableBytes(groupid, reuse.bytes, offset + GROUP_ID_OFFSET);
 		reuse.bytes[offset + LEVEL_BYTE_OFFSET] = (byte) (group_level & 0xFF);
 		reuse.bytes[offset + HOT_TERM_FLAG_BYTE_OFFSET] = (byte) ((hotmark?1:0) & 0xFF);
-		NumericUtils.intToSortableBytes(term_index_tp, reuse.bytes, offset + TERM_INDEX_AND_STATUS_OFFSET);
-
+		NumericUtils.intToSortableBytes(termindex, reuse.bytes, offset + TERM_INDEX_OFFSET);
 		reuse.length = TERM_PREFIX_BYTES;
 
 	}
@@ -137,20 +132,18 @@ public final class FpTokenTermLayout {
 		return (term.bytes[term.offset + HOT_TERM_FLAG_BYTE_OFFSET] & 0xFF) == 1;
 	}
 	
-	public static boolean readIsDelTerm(BytesRef term) {
-		int offset = term.offset;
-
-		int term_index_tp=NumericUtils.sortableBytesToInt(term.bytes, offset+TERM_INDEX_AND_STATUS_OFFSET);
-		
-		return (term_index_tp&1)>0;
-	}
+	
 	
 	public static int readTermIndex(BytesRef term) {
 		int offset = term.offset;
 
-		int term_index_tp=NumericUtils.sortableBytesToInt(term.bytes, offset+TERM_INDEX_AND_STATUS_OFFSET);
+		int term_index_tp=NumericUtils.sortableBytesToInt(term.bytes, offset+TERM_INDEX_OFFSET);
 		
-		return term_index_tp>>1;
+		return term_index_tp;
+	}
+	
+	public static boolean readIsDelTerm(BytesRef term) {
+		return (term.bytes[term.offset + TERM_STATUS_OFFSET] & 0xFF) == 1;
 	}
 	
 	public static int readHotDownTierBudget(BytesRef term) {

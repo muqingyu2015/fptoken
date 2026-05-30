@@ -173,23 +173,18 @@ public class FpSearch {
 			if (!payloadLenCapSet) {
 				int status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, true, termsEnum, reuse,
 						Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
-						false, slice, maxDoc, collect);
+						slice, maxDoc, collect);
 				if (status == SEEK_OK) {
 					anyHit = true;
 					payloadLenCapSet = true;
 					continue;
+				}else {
+					break;
 				}
-				status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, true, termsEnum, reuse,
-						Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
-						true, slice, maxDoc, collect);
-				if (status == SEEK_OK) {
-					anyHit = true;
-				}
-				continue;
 			}
 			final int status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, false, termsEnum, reuse,
 					Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
-					false, slice, maxDoc, collect);
+					 slice, maxDoc, collect);
 			if (status == SEEK_OK) {
 				anyHit = true;
 			}
@@ -215,7 +210,7 @@ public class FpSearch {
 			final int termIndex = bit;
 			final int status = seekTermAndOrDocs(reusePosting, null, false, termsEnum, reuse,
 					Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
-					false, slice, maxDoc, collect);
+					 slice, maxDoc, collect);
 			if (status == SEEK_OK) {
 				anyHit = true;
 			}
@@ -229,20 +224,24 @@ public class FpSearch {
 
 	private static int seekTermAndOrDocs(AtomicReference<PostingsEnum> reusePosting,
 			AtomicInteger maxHotPayloadLenOrNull, boolean requireExactPayloadMatch, TermsEnum termsEnum, BytesRef reuse,
-			short indexId, int groupid, byte groupLevel, boolean hotMark, int termIndex, boolean isDelTerm,
+			short indexId, int groupid, byte groupLevel, boolean hotMark, int termIndex,
 			BytesRef slice, int maxDoc, FixedBitSet collect) throws IOException {
-		FpTokenTermLayout.make_fp_search_prefix(reuse, indexId, groupid, groupLevel, hotMark, termIndex, isDelTerm);
+		FpTokenTermLayout.make_fp_search_prefix(reuse, indexId, groupid, groupLevel, hotMark, termIndex);
 		
 		if(Lucene80FPSearchConfig.PRINT_DEBUG)
 		{  
-			LOG.info("seekCeil indexId:"+indexId+" "+groupid+" "+groupLevel+" " +hotMark +" "+termIndex+" "+isDelTerm+" "+slice.length);;
+			LOG.info("seekCeil indexId:"+indexId+" "+groupid+" "+groupLevel+" " +hotMark +" "+termIndex+" "+slice.length);;
 		}
 		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
 			return SEEK_MISS;
 		}
 		final BytesRef found = termsEnum.term();
-
-		if (!termHeaderMatches(found, groupid, groupLevel, hotMark, termIndex, isDelTerm)) {
+		boolean isDelTerm=FpTokenTermLayout.readIsDelTerm(found);
+		if(Lucene80FPSearchConfig.PRINT_DEBUG)
+		{  
+			LOG.info("found indexId:"+indexId+" "+groupid+" "+groupLevel+" " +hotMark +" "+termIndex+" "+slice.length);;
+		}
+		if (!termHeaderMatches(found, groupid, groupLevel, hotMark, termIndex)) {
 			return SEEK_MISS;
 		}
 		final BytesRef payload = FpTokenTermLayout.removeHeaderBytes(found);
@@ -266,15 +265,14 @@ public class FpSearch {
 	}
 
 	private static boolean termHeaderMatches(BytesRef found, int groupid, byte groupLevel, boolean hotMark,
-			int termIndex, boolean isDelTerm) {
+			int termIndex) {
 		if (found.length < FpTokenTermLayout.FP_HEADER_BYTES) {
 			return false;
 		}
 		return FpTokenTermLayout.read_group_id(found) == groupid
 				&& FpTokenTermLayout.readLevel(found) == (groupLevel & 0xFF)
 				&& FpTokenTermLayout.isHotTerm(found) == hotMark
-				&& FpTokenTermLayout.readTermIndex(found) == termIndex
-				&& FpTokenTermLayout.readIsDelTerm(found) == isDelTerm;
+				&& FpTokenTermLayout.readTermIndex(found) == termIndex;
 	}
 
 	private static boolean payloadMatchesSlice(boolean requireExactPayloadMatch, BytesRef payload, BytesRef slice) {
