@@ -112,7 +112,7 @@ public final class FpGroupDataRebuild {
 
 
 
-	public void flushto(FpTokenBlockOrchestrator parentItem, boolean is_nochange_hot) throws IOException {
+	public void flushto(FpTokenBlockOrchestrator parentItem, byte[] groupkey) throws IOException {
 		long ts_begin=CLMillisecondClock.CLOCK.now();
 
 
@@ -145,15 +145,18 @@ public final class FpGroupDataRebuild {
 
 			stat_hot_doc_cnt += val.docsize();
 
-			FpTokenTermLayout.make_fp_term(reuse_term, (short) 0, group_id, (byte) parentItem.targetLevel,
-					FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, key.bytesRef());
+			final BytesRef columnPayload = key.bytesRef();
+			final BytesRef columnName = FpTokenTermLayout.readColumnName(new BytesRef(groupkey));
+
+			FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short) 0, group_id, (byte) parentItem.targetLevel,
+					FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, columnPayload);
 			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state, parentItem.pool, parentItem.debugList,
 					reuse_term, val, parentItem.norms);
 			
 			
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{
-				if(reuse_term.length<FpTokenTermLayout.FP_HEADER_BYTES)
+				if(columnPayload.length<=0)
 				{
 					
 					LOG.info("debug rebuild:hot:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
@@ -167,7 +170,7 @@ public final class FpGroupDataRebuild {
 				boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
 				int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
 				int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
-				BytesRef ref=FpTokenTermLayout.removeHeaderBytes(reuse_term);
+				BytesRef ref=FpTokenTermLayout.removeColumnAndHeaderBytes(reuse_term);
 				
 				
 	
@@ -190,11 +193,14 @@ public final class FpGroupDataRebuild {
 
 			stat_common_doc_cnt+=val.docsize();
 
-			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, key.bytesRef());
+			final BytesRef columnPayload = key.bytesRef();
+			final BytesRef columnName = FpTokenTermLayout.readColumnName(new BytesRef(groupkey));
+
+			FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, columnPayload);
 			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{
-				if(reuse_term.length<FpTokenTermLayout.FP_HEADER_BYTES)
+				if(columnPayload.length<=0)
 				{
 					
 					LOG.info("debug rebuild:common:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
@@ -208,7 +214,7 @@ public final class FpGroupDataRebuild {
 				boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
 				int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
 				int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
-				BytesRef ref=FpTokenTermLayout.removeHeaderBytes(reuse_term);
+				BytesRef ref=FpTokenTermLayout.removeColumnAndHeaderBytes(reuse_term);
 				
 				
 	
@@ -241,7 +247,7 @@ public final class FpGroupDataRebuild {
 			return ;
 		}
 		
-		BytesRef term_noheader=FpTokenTermLayout.removeHeaderBytes(term_withheader);
+		BytesRef term_noheader=FpTokenTermLayout.removeColumnAndHeaderBytes(term_withheader);
 		final PostingsEnum pe = termsEnum.postings(docsEnum_reuse.get(), PostingsEnum.NONE);
 		final TreeMap<FpTermKey, FPDocList> bucket = commonTermToDocs;
 		final FpTermKey probe = FpTermKey.viewOf(term_noheader);

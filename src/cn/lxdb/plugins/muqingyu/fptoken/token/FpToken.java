@@ -13,9 +13,6 @@ import java.util.Queue;
 
 import org.apache.lucene.analysis.Tokenizer;
 import org.apache.lucene.analysis.tokenattributes.BytesTermAttribute;
-// import org.apache.lucene.analysis.tokenattributes.OffsetAttribute;
-// import org.apache.lucene.analysis.tokenattributes.PositionIncrementAttribute;
-import org.apache.lucene.util.AttributeFactory;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.NumericUtils;
 import org.slf4j.Logger;
@@ -38,13 +35,11 @@ public class FpToken extends Tokenizer {
     public static final Logger LOG = LxdbLogerEncrypt.getLogger("cl.28118");
 
     /** 保留与历史构造参数一致；当前索引/查询共用同一分词逻辑。 */
-    @SuppressWarnings("unused")
     private final boolean isQuery;
 
     private final FpTokenBytesMode bytesMode;
 
-    /** 写入每个词项开头的 8 字节（{@link NumericUtils#longToSortableBytes}）；与滑窗内容拼接后参与去重与输出。 */
-    private final static byte[] termBytesPrefix=makePrefix();;
+
 
     private final BytesTermAttribute bytesAtt = addAttribute(BytesTermAttribute.class);
     // private final OffsetAttribute offsetAtt = addAttribute(OffsetAttribute.class);
@@ -56,15 +51,9 @@ public class FpToken extends Tokenizer {
 
     
  
-    public static byte[] makePrefix()
-    {
-    	  BytesRef prefix = new BytesRef(new byte[FpTokenTermLayout.FP_HEADER_BYTES]);
-          
-          FpTokenTermLayout.make_fp_term(prefix, (short)0, 0, (byte)0, false, 0, false, (byte)0, new BytesRef(new byte[0]));
-          
-          return prefix.bytes;
 
-    }
+    
+
     public FpToken(boolean isQuery, FpTokenBytesMode bytesMode) {
         super();
         this.isQuery = isQuery;
@@ -102,20 +91,39 @@ public class FpToken extends Tokenizer {
         super.close();
     }
 
+    private static String JSON_KEY_PREFIX_MARK="@@jsonkey@@";
     @Override
     public void reset() throws IOException {
         super.reset();
         pending.clear();
 
         fillTextBuffer(textBuffer, input);
-        byte[] sourceBytes = textToSourceBytes(textBuffer.toString(), bytesMode);
+        
+        String tokenField="d";
+        String tokentext=textBuffer.toString();
+        if(tokentext.startsWith(JSON_KEY_PREFIX_MARK))
+        {
+        	int pos=tokentext.indexOf("@@",JSON_KEY_PREFIX_MARK.length());
+        	if(pos>0)
+        	{
+        		tokenField=tokentext.substring(JSON_KEY_PREFIX_MARK.length(),pos);
+            	tokentext=tokentext.substring(pos+"@@".length());
+        	}
+        	
+        }
+        byte[] sourceBytes = textToSourceBytes(tokentext, bytesMode);
         List<WindowTerm> windows = BinarySlidingWindowApi.bitsetWindows64Step32(sourceBytes, 0, sourceBytes.length);
 
+        BytesRef columnName=new BytesRef(tokenField);
+        BytesRef reuse=new BytesRef(new byte[1024+columnName.length]);
         Map<DedupKey, PendingTerm> firstOccurrence = new LinkedHashMap<>();
         for (int i = 0; i < windows.size(); i++) {
             WindowTerm window = windows.get(i);
             byte[] padded = window.getWindowBytes();
-            byte[] prefixed = prependTermPrefixLong(termBytesPrefix, padded);
+            FpTokenTermLayout.make_fp_term(reuse, columnName, (short)0, 0, (byte)0, false, 0, false, (byte)0, new BytesRef(padded));
+
+            
+            byte[] prefixed = prependTermPrefixLong(reuse);
             DedupKey probe = new DedupKey(prefixed, prefixed.length);
             if (firstOccurrence.containsKey(probe)) {
                 continue;
@@ -127,7 +135,6 @@ public class FpToken extends Tokenizer {
 
         if (LOG.isDebugEnabled()) {
             LOG.info("fptoken reset isQuery=" + isQuery + " bytesMode=" + bytesMode
-                    + " termPrefixLong=" + termBytesPrefix
                     + " sourceLen=" + sourceBytes.length
                     + " windows=" + windows.size() + " unique=" + pending.size());
         }
@@ -137,12 +144,10 @@ public class FpToken extends Tokenizer {
      * 在负载前拼接 8 字节：{@link NumericUtils#longToSortableBytes(long, byte[], int)}。
      * {@code payload} 可为 {@code null}，视为空数组。
      */
-   private static byte[] prependTermPrefixLong(byte[] prefix, byte[] payload) {
-        byte[] body = payload == null ? new byte[0] : payload;
-        byte[] out = new byte[prefix.length + body.length];
+   private static byte[] prependTermPrefixLong(BytesRef reuse) {
+        byte[] out = new byte[reuse.length];
 //        NumericUtils.longToSortableBytes(prefix, out, 0);
-        System.arraycopy(prefix, 0, out, 0, prefix.length);
-        System.arraycopy(body, 0, out, prefix.length, body.length);
+        System.arraycopy(reuse.bytes, reuse.offset, out, 0, reuse.length);
         return out;
     }
 

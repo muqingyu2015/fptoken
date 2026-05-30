@@ -60,8 +60,6 @@ public final class FpGroupDataOriginal {
 	}
 
 
-
-
 	public int maxDocInternal() {
 		return maxDoc;
 	}
@@ -83,13 +81,15 @@ public final class FpGroupDataOriginal {
 		long stat_hot_doc_cnt=0;
 		long stat_common_doc_cnt=0;
 		
-		final byte[] reuse_bytes = new byte[1024];
+		byte[] reuse_bytes = null;
 		BytesRef reuse_term=new BytesRef(reuse_bytes);
 		final int group_id = newGroupId;
 		for(Entry<FpTermKey, FPDocList> e:hotTermToDocs.entrySet())
 		{
 			FpTermKey key=e.getKey();
 			FPDocList val=e.getValue();
+			
+			
 			int downTierBudget = FpTokenTermLayout.readHotDownTierBudget(key.bytesRef());
 			boolean isDelTerm=FpTokenTermLayout.readIsDelTerm(key.bytesRef())||val.docsize()<=0;
 			int index=FpTokenTermLayout.readTermIndex(key.bytesRef());
@@ -100,14 +100,20 @@ public final class FpGroupDataOriginal {
 			
 			stat_hot_doc_cnt+=val.docsize();
 			
-			BytesRef noheader_term=FpTokenTermLayout.removeHeaderBytes(key.bytesRef());
-			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, noheader_term);
+			BytesRef noheader_term=FpTokenTermLayout.removeColumnAndHeaderBytes(key.bytesRef());
+			
+			if(reuse_bytes==null)
+			{
+				reuse_bytes=new byte[1024+FpTokenTermLayout.headerOffset(key.bytesRef())];
+
+			}
+			FpTokenTermLayout.make_fp_term(reuse_term, FpTokenTermLayout.readColumnName(key.bytesRef()), (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, noheader_term);
 			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 
 			
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{
-				if(reuse_term.length<FpTokenTermLayout.FP_HEADER_BYTES)
+				if(noheader_term.length<=0)
 				{
 					
 					LOG.info("debug original:hot:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
@@ -121,7 +127,7 @@ public final class FpGroupDataOriginal {
 				boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
 				int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
 				int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
-				BytesRef ref=FpTokenTermLayout.removeHeaderBytes(reuse_term);
+				BytesRef ref=FpTokenTermLayout.removeColumnAndHeaderBytes(reuse_term);
 				
 				
 	
@@ -143,14 +149,14 @@ public final class FpGroupDataOriginal {
 			int index=FpTokenTermLayout.readTermIndex(key.bytesRef());
 
 			stat_common_doc_cnt+=val.docsize();
-			BytesRef noheader_term=FpTokenTermLayout.removeHeaderBytes(key.bytesRef());
+			BytesRef noheader_term=FpTokenTermLayout.removeColumnAndHeaderBytes(key.bytesRef());
 
-			FpTokenTermLayout.make_fp_term(reuse_term, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, noheader_term);
+			FpTokenTermLayout.make_fp_term(reuse_term, FpTokenTermLayout.readColumnName(noheader_term), (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, noheader_term);
 			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{
-				if(reuse_term.length<FpTokenTermLayout.FP_HEADER_BYTES)
+				if(noheader_term.length<=0)
 				{
 					
 					LOG.info("debug original:common:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
@@ -164,7 +170,7 @@ public final class FpGroupDataOriginal {
 				boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
 				int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
 				int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
-				BytesRef ref=FpTokenTermLayout.removeHeaderBytes(reuse_term);
+				BytesRef ref=FpTokenTermLayout.removeColumnAndHeaderBytes(reuse_term);
 				
 				
 	
@@ -229,7 +235,7 @@ public final class FpGroupDataOriginal {
 			FPDocList tgt = into.get(e.getKey());
 			if (tgt == null) {
 				tgt = new FPDocList(target.maxDoc);
-				BytesRef key=FpTokenTermLayout.removeHeaderBytes(e.getKey().bytesRef());
+				BytesRef key=FpTokenTermLayout.removeColumnAndHeaderBytes(e.getKey().bytesRef());
 				into.put(FpTermKey.viewOf(key), tgt);
 			}
 			tgt.addAllDocsFrom(e.getValue());

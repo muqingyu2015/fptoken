@@ -10,7 +10,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 public final class AnchorTierIndex extends ArrayList<TreeSet<FpTermKey>> {
 	private static final long serialVersionUID = 1L;
 
-	AnchorTierIndex() {
+	public AnchorTierIndex() {
 		super(Lucene80FPSearchConfig.NGRAM_MAX + 1);
 		for (int byteLen = 0; byteLen <= Lucene80FPSearchConfig.NGRAM_MAX; byteLen++) {
 			add(new TreeSet<>());

@@ -4,156 +4,206 @@ import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.NumericUtils;
 
 /**
-
-+----------+------+---------------------------+-------------------------------------+------------------------------------------------+
-| 偏移     | 长   | 字段                      | 写段                                | 查询                                           |
-+----------+------+---------------------------+-------------------------------------+------------------------------------------------+
-| 0        | 2    | index_id                  | 常为 0，合并时可被替换              | 12B 前缀内；建议校验                           |
-| 2        | 4    | group_id（int）           | groupIndex++ 新号写入               | fpblock_list 的 key                            |
-| 6        | 1    | 块级别 group_level        | targetLevel                         | FpBlockInfo.targetLevel                        |
-| 7        | 1    | hotmark                   | 热 / 普                             | 位图 hot / common 分支                         |
-| 8        | 4    | termIndex     | order 从 1 编号                     | 位图 bit                           |
-| 12       | 1    |  del 低位      | boolean                    |                           |
-| 13       | 1    | hotDownTierBudget         | 热词=hotTermDownTierBudget；普=0    | readHotDownTierBudget；maxHotPayloadLen 截断   |
-| 14+      | —    | payload                   | 纯 ngram / 词字节                   | removeHeaderBytes 后与 slice 比                |
-+----------+------+---------------------------+-------------------------------------+------------------------------------------------+
+ * FP 词项字节布局（UTF-8 列名 + 定长头 + ngram payload）：
  *
+ * <pre>
+ * | 0   | 4    | columnNameLen (int sortable)     |
+ * | 4   | var  | columnName (JSON 字段 key 字节)   |
+ * | 4+N | 14   | FP 定长头（见下表）                |
+ * | 4+N+14 | — | payload（仅 ngram，不含列名）      |
+ * </pre>
+ *
+ * FP 定长头（相对 {@link #headerOffset(BytesRef)}）：
+ *
+ * <pre>
+ * | 0  | 2 | index_id           |
+ * | 2  | 4 | group_id           |
+ * | 6  | 1 | group_level        |
+ * | 7  | 1 | term_flag          |
+ * | 8  | 4 | termIndex          |
+ * | 12 | 1 | isDelTerm          |
+ * | 13 | 1 | hotDownTierBudget  |
+ * </pre>
  */
 public final class FpTokenTermLayout {
-	
-	public static final boolean TERM_MARK_HOT=true;
-	public static final boolean TERM_MARK_COMMON=false;
 
+	private FpTokenTermLayout() {
+	}
 
-	public static final int INDEX_ID_OFFSET = 0;//short:2
-	public static final int GROUP_ID_OFFSET = 2;//int:4
-	
-	public static final int LEVEL_BYTE_OFFSET = 6;//byte:1
-	public static final int HOT_TERM_FLAG_BYTE_OFFSET = 7;//byte:1 
-	public static final int TERM_INDEX_OFFSET = 8;//int:4 termindex
-	public static final int TERM_STATUS_OFFSET = 12;//byte:1 isDelTerm
+	public static final boolean TERM_MARK_HOT = true;
+	public static final boolean TERM_MARK_COMMON = false;
 
-	/** 热词头内「向下扩展档」预算字节（≥1 表示至少含锚点档）；与 {@link #maxHotPayloadLen(int, int)} 配合。 */
-	public static final int HOT_TERM_DOWN_TIER_BUDGET_OFFSET = 13;//byte:1
+	public static final int COLUMN_NAME_LEN_BYTES = 4;
+	public static final int COLUMN_NAME_LEN_OFFSET = 0;
 
-	public static final int INDEX_AND_GROUP_BYTES = 6;//short:2 int:4=INDEX_ID_OFFSET+GROUP_ID_OFFSET
-	public static final int TERM_PREFIX_BYTES = 12;//一直定位到term index,用于根据bitset搜寻某个term
+	public static final int INDEX_ID_OFFSET = 0;
+	public static final int GROUP_ID_OFFSET = 2;
+	public static final int GROUP_LEVEL_OFFSET = 6;
+	public static final int TERM_FLAG_OFFSET = 7;
+	public static final int TERM_INDEX_OFFSET = 8;
+	public static final int TERM_STATUS_OFFSET = 12;
+	public static final int HOT_TERM_DOWN_TIER_BUDGET_OFFSET = 13;
 
+	public static final int INDEX_AND_GROUP_BYTES = 6;
+	/** seek 前缀：列名 + FP 头至 termIndex（不含 del / budget）。 */
+	public static final int TERM_PREFIX_BYTES = 12;
 	public static final int FP_HEADER_BYTES = 14;
 
+	public static int readColumnNameLen(BytesRef term) {
+		if (term.length < COLUMN_NAME_LEN_BYTES) {
+			return 0;
+		}
+		return NumericUtils.sortableBytesToInt(term.bytes, term.offset + COLUMN_NAME_LEN_OFFSET);
+	}
+	public static int readColumnNameLen(byte[] term) {
+		if (term.length < COLUMN_NAME_LEN_BYTES) {
+			return 0;
+		}
+		return NumericUtils.sortableBytesToInt(term,  COLUMN_NAME_LEN_OFFSET);
+	}
+	public static int columnNamePrefixBytes(BytesRef columnName) {
+		return COLUMN_NAME_LEN_BYTES + columnName.length;
+	}
 
-	//[index_id:2][groupid:4][group_level:1][hotmark:1][termindex+isDelTerm:4][termwindow]
-	public static void make_fp_term(BytesRef reuse, short index_id, int groupid, byte group_level, boolean hotmark,
-			int termindex, boolean isDelTerm, byte hotDownTierBudget, BytesRef term) {
-		int offset = reuse.offset;
+	public static int columnNamePrefixBytesFromLen(int columnNameLen) {
+		return COLUMN_NAME_LEN_BYTES + columnNameLen;
+	}
 
-	
+	public static int headerOffset(byte[] term) {
+		return columnNamePrefixBytesFromLen(readColumnNameLen(term));
+	}
+	/** 列名前缀 + FP 头起始偏移。 */
+	public static int headerOffset(BytesRef term) {
+		return columnNamePrefixBytesFromLen(readColumnNameLen(term));
+	}
 
-		NumericUtils.shortToSortableBytes(index_id, reuse.bytes, offset + INDEX_ID_OFFSET);// 仅仅是占位,会在索引合并的时候替换,平时都是0
-		NumericUtils.intToSortableBytes(groupid, reuse.bytes, offset + GROUP_ID_OFFSET);
-		reuse.bytes[offset + LEVEL_BYTE_OFFSET] = (byte) (group_level & 0xFF);
-		reuse.bytes[offset + HOT_TERM_FLAG_BYTE_OFFSET] = (byte) ((hotmark?1:0) & 0xFF);
-		NumericUtils.intToSortableBytes(termindex, reuse.bytes, offset + TERM_INDEX_OFFSET);
-		reuse.bytes[offset + TERM_STATUS_OFFSET] = (byte) ((isDelTerm?1:0) & 0xFF);
-		reuse.bytes[offset + HOT_TERM_DOWN_TIER_BUDGET_OFFSET] = hotDownTierBudget;
+//	public static boolean hasFpHeader(BytesRef term) {
+//		return term.length >= headerOffset(term) + FP_HEADER_BYTES;
+//	}
 
-		System.arraycopy(term.bytes, term.offset, reuse.bytes, offset + FP_HEADER_BYTES, term.length);
-		reuse.length = term.length + FP_HEADER_BYTES;
+	public static BytesRef readColumnName(BytesRef term) {
+		final int len = readColumnNameLen(term);
+		if (len <= 0 || term.length < COLUMN_NAME_LEN_BYTES + len) {
+			return new BytesRef();
+		}
+		return new BytesRef(term.bytes, term.offset + COLUMN_NAME_LEN_BYTES, len);
+	}
 
+	public static boolean columnNameEquals(BytesRef term, BytesRef expectedColumnName) {
+		final BytesRef found = readColumnName(term);
+		return found.equals(expectedColumnName);
+	}
+
+	public static void writeColumnNamePrefix(BytesRef reuse, BytesRef columnName, int destOffset) {
+		NumericUtils.intToSortableBytes(columnName.length, reuse.bytes, destOffset);
+		System.arraycopy(columnName.bytes, columnName.offset, reuse.bytes, destOffset + COLUMN_NAME_LEN_BYTES,
+				columnName.length);
+	}
+
+//	/** Map 键：[4][columnName][ngramPayload]。 */
+//	public static void writeColumnPayloadKey1(BytesRef reuse, BytesRef columnName, BytesRef ngramPayload) {
+//		final int colPrefix = columnNamePrefixBytes(columnName);
+//		writeColumnNamePrefix(reuse, columnName, reuse.offset);
+//		System.arraycopy(ngramPayload.bytes, ngramPayload.offset, reuse.bytes, reuse.offset + colPrefix,
+//				ngramPayload.length);
+//		reuse.length = colPrefix + ngramPayload.length;
+//	}
+
+//	public static BytesRef readNgramPayloadFromColumnKey1(BytesRef columnPayloadKey) {
+//		final int colPrefix = columnNamePrefixBytesFromLen(readColumnNameLen(columnPayloadKey));
+//		if (columnPayloadKey.length <= colPrefix) {
+//			return new BytesRef();
+//		}
+//		return new BytesRef(columnPayloadKey.bytes, columnPayloadKey.offset + colPrefix,
+//				columnPayloadKey.length - colPrefix);
+//	}
+
+	public static void make_fp_term(BytesRef reuse, BytesRef columnName, short index_id, int groupid, byte group_level,
+			boolean hotmark, int termindex, boolean isDelTerm, byte hotDownTierBudget, BytesRef ngramPayload) {
+		final int colPrefix = columnNamePrefixBytes(columnName);
+		final int headerStart = reuse.offset + colPrefix;
+		writeColumnNamePrefix(reuse, columnName, reuse.offset);
+
+		NumericUtils.shortToSortableBytes(index_id, reuse.bytes, headerStart + INDEX_ID_OFFSET);
+		NumericUtils.intToSortableBytes(groupid, reuse.bytes, headerStart + GROUP_ID_OFFSET);
+		reuse.bytes[headerStart + GROUP_LEVEL_OFFSET] = (byte) (group_level & 0xFF);
+		reuse.bytes[headerStart + TERM_FLAG_OFFSET] = (byte) ((hotmark ? 1 : 0) & 0xFF);
+		NumericUtils.intToSortableBytes(termindex, reuse.bytes, headerStart + TERM_INDEX_OFFSET);
+		reuse.bytes[headerStart + TERM_STATUS_OFFSET] = (byte) ((isDelTerm ? 1 : 0) & 0xFF);
+		reuse.bytes[headerStart + HOT_TERM_DOWN_TIER_BUDGET_OFFSET] = hotDownTierBudget;
+
+		System.arraycopy(ngramPayload.bytes, ngramPayload.offset, reuse.bytes, headerStart + FP_HEADER_BYTES,
+				ngramPayload.length);
+		reuse.length = colPrefix + FP_HEADER_BYTES + ngramPayload.length;
+	}
+
+	public static void make_fp_search_prefix(BytesRef reuse, BytesRef columnName, short index_id, int groupid,
+			byte group_level, boolean hotmark, int termindex) {
+		final int colPrefix = columnNamePrefixBytes(columnName);
+		final int headerStart = reuse.offset + colPrefix;
+		writeColumnNamePrefix(reuse, columnName, reuse.offset);
+
+		NumericUtils.shortToSortableBytes(index_id, reuse.bytes, headerStart + INDEX_ID_OFFSET);
+		NumericUtils.intToSortableBytes(groupid, reuse.bytes, headerStart + GROUP_ID_OFFSET);
+		reuse.bytes[headerStart + GROUP_LEVEL_OFFSET] = (byte) (group_level & 0xFF);
+		reuse.bytes[headerStart + TERM_FLAG_OFFSET] = (byte) ((hotmark ? 1 : 0) & 0xFF);
+		NumericUtils.intToSortableBytes(termindex, reuse.bytes, headerStart + TERM_INDEX_OFFSET);
+		reuse.length = colPrefix + TERM_PREFIX_BYTES;
 	}
 	
 	
-	public static void make_fp_search_prefix(BytesRef reuse, short index_id, int groupid, byte group_level, boolean hotmark,
-			int termindex) {
-		int offset = reuse.offset;
-
-		NumericUtils.shortToSortableBytes(index_id, reuse.bytes, offset + INDEX_ID_OFFSET);// 仅仅是占位,会在索引合并的时候替换,平时都是0
-		NumericUtils.intToSortableBytes(groupid, reuse.bytes, offset + GROUP_ID_OFFSET);
-		reuse.bytes[offset + LEVEL_BYTE_OFFSET] = (byte) (group_level & 0xFF);
-		reuse.bytes[offset + HOT_TERM_FLAG_BYTE_OFFSET] = (byte) ((hotmark?1:0) & 0xFF);
-		NumericUtils.intToSortableBytes(termindex, reuse.bytes, offset + TERM_INDEX_OFFSET);
-		reuse.length = TERM_PREFIX_BYTES;
-
+	public static void modify_index_id(BytesRef term, int index_id) {
+		int h=headerOffset(term);
+		if(term.length<(h+INDEX_ID_OFFSET+2))
+		{
+			return ;
+		}
+		NumericUtils.shortToSortableBytes(index_id, term.bytes, headerOffset(term) + INDEX_ID_OFFSET);
 	}
 
-
-	public static short read_index_id(byte[] term) {
-
-		int read_index_id=NumericUtils.sortableBytesToShort(term, INDEX_ID_OFFSET);
-		
-		return (short) read_index_id;
+	public static short read_index_id1(byte[] term) {
+		return (short) NumericUtils.sortableBytesToShort(term, headerOffset(term)+INDEX_ID_OFFSET);
 	}
 
 	public static short read_index_id(BytesRef term) {
-
-		int read_index_id=NumericUtils.sortableBytesToShort(term.bytes, term.offset+INDEX_ID_OFFSET);
-		
-		return  (short)read_index_id;
+		return (short) NumericUtils.sortableBytesToShort(term.bytes, headerOffset(term) + INDEX_ID_OFFSET);
 	}
-	public static int read_group_id(byte[] term) {
 
-		int read_index_id=NumericUtils.sortableBytesToInt(term, GROUP_ID_OFFSET);
-		
-		return read_index_id;
+	public static int read_group_id1(byte[] term) {
+		return NumericUtils.sortableBytesToInt(term, GROUP_ID_OFFSET);
 	}
-	
+
 	public static int read_group_id(BytesRef term) {
-
-		int read_index_id=NumericUtils.sortableBytesToInt(term.bytes, term.offset+GROUP_ID_OFFSET);
-		
-		return  read_index_id;
+		return NumericUtils.sortableBytesToInt(term.bytes, headerOffset(term) + GROUP_ID_OFFSET);
 	}
 
-	/**
-	 * 从 {@link #INDEX_AND_GROUP_BYTES}（6 字节）流式组键读 {@code group_id}，与 {@link #make_fp_term} 写出一致（int，不截断）。
-	 * 用于透传路径 {@code fpBits(index_id, logicalGroup, …)}。
-	 */
-	public static int readGroupIdFromIndexAndGroupKey(byte[] indexAndGroup6) {
-		return NumericUtils.sortableBytesToInt(indexAndGroup6, GROUP_ID_OFFSET);
+	public static int readGroupId(byte[] indexAndGroup6) {
+		return NumericUtils.sortableBytesToInt(indexAndGroup6,headerOffset(indexAndGroup6) + GROUP_ID_OFFSET);
 	}
-	
-	/**
-	 * 读取块级别字节（无符号 0~255；业务上常用 0~3）。
-	 *
-	 * @param term 须满足 {@link #hasFpPrefix(BytesRef)}
-	 * @return 级别字节值
-	 */
+
 	public static int readLevel(BytesRef term) {
-		return term.bytes[term.offset + LEVEL_BYTE_OFFSET] & 0xFF;
+		return term.bytes[headerOffset(term) + GROUP_LEVEL_OFFSET] & 0xFF;
 	}
-	
-	/**
-	 * 根据第 8 字节判断是否为热词：仅当 {@code (bytes[offset+7] & 0xFF) == 1} 时为热词。
-	 *
-	 * @param term 词项；长度过短时视为非热词
-	 * @return 热词为 true
-	 */
+
 	public static boolean isHotTerm(BytesRef term) {
-		return (term.bytes[term.offset + HOT_TERM_FLAG_BYTE_OFFSET] & 0xFF) == 1;
-	}
-	
-	
-	
-	public static int readTermIndex(BytesRef term) {
-		int offset = term.offset;
-
-		int term_index_tp=NumericUtils.sortableBytesToInt(term.bytes, offset+TERM_INDEX_OFFSET);
 		
-		return term_index_tp;
-	}
-	
-	public static boolean readIsDelTerm(BytesRef term) {
-		return (term.bytes[term.offset + TERM_STATUS_OFFSET] & 0xFF) == 1;
-	}
-	
-	public static int readHotDownTierBudget(BytesRef term) {
-		return term.bytes[term.offset + HOT_TERM_DOWN_TIER_BUDGET_OFFSET] & 0xFF;
+		return (term.bytes[headerOffset(term) + TERM_FLAG_OFFSET] & 0xFF) == 1;
 	}
 
-	/**
-	 * 锚点 payload 长 {@code anchorPayloadLen}、头内预算 {@code downTierBudget}（≥1）时，
-	 * 热词扫描允许的最大 payload 字节长（含锚点）。
-	 */
+	public static int readTermIndex(BytesRef term) {
+		return NumericUtils.sortableBytesToInt(term.bytes, headerOffset(term) + TERM_INDEX_OFFSET);
+	}
+
+	public static boolean readIsDelTerm(BytesRef term) {
+		
+		return (term.bytes[headerOffset(term) + TERM_STATUS_OFFSET] & 0xFF) == 1;
+	}
+
+	public static int readHotDownTierBudget(BytesRef term) {
+		
+		return term.bytes[headerOffset(term) + HOT_TERM_DOWN_TIER_BUDGET_OFFSET] & 0xFF;
+	}
+
 	public static int maxHotPayloadLen(int downTierBudget, int anchorPayloadLen) {
 		return downTierBudget + anchorPayloadLen - 1;
 	}
@@ -162,46 +212,53 @@ public final class FpTokenTermLayout {
 		return maxHotPayloadLen(readHotDownTierBudget(termWithHeader), anchorPayloadLen);
 	}
 
+
+
+	/** 仅 ngram payload（不含列名与 FP 头）。 */
+	public static BytesRef removeColumnAndHeaderBytes(BytesRef term) {
 	
-	public static BytesRef removeHeaderBytes(BytesRef term) {
-		return new BytesRef(term.bytes, term.offset+FP_HEADER_BYTES, term.length-FP_HEADER_BYTES);
+		final int h = headerOffset(term);
+		return new BytesRef(term.bytes, term.offset + h + FP_HEADER_BYTES, term.length - h - FP_HEADER_BYTES);
 	}
-	
+
 	public static BytesRef clearAndCopyGroupBytes(BytesRef term) {
-		BytesRef termnew=BytesRef.deepCopyOf(term);
-		for(int i=0;i<INDEX_AND_GROUP_BYTES;i++)
-		{
-			termnew.bytes[i+termnew.offset]=0;
+		final BytesRef termnew = BytesRef.deepCopyOf(term);
+		final int h = headerOffset(termnew);
+		for (int i = 0; i < INDEX_AND_GROUP_BYTES; i++) {
+			termnew.bytes[termnew.offset + h + i] = 0;
 		}
-				
 		return termnew;
 	}
 
-
-
-	
-
-	/**
-	 * 拷贝词项前 {@link #INDEX_AND_GROUP_BYTES} 字节为新的 {@link BytesRef}。
-	 * <p>
-	 * 热路径若可复用缓冲区，请直接对 {@code term.bytes[term.offset + i]} 与已有 {@code byte[6]} 比较，避免分配。
-	 *
-	 * @param term 源词项
-	 * @return 仅含 6 字节组号的副本
-	 */
 	public static BytesRef copyGroupKey(BytesRef term) {
 		final byte[] b = new byte[INDEX_AND_GROUP_BYTES];
-		System.arraycopy(term.bytes, term.offset, b, 0, INDEX_AND_GROUP_BYTES);
+		final int h = headerOffset(term);
+		System.arraycopy(term.bytes, term.offset + h, b, 0, INDEX_AND_GROUP_BYTES);
 		return new BytesRef(b);
 	}
 
-
-	public static void copyIndexAndGroup(BytesRef term, byte[] dest6) {
-		System.arraycopy(term.bytes, term.offset, dest6, 0, INDEX_AND_GROUP_BYTES);
+	public static byte[] column_index_group_copy(BytesRef term) {
+		final int h = headerOffset(term);
+		byte[] dest6=new byte[h+INDEX_AND_GROUP_BYTES];
+		System.arraycopy(term.bytes, term.offset, dest6, 0, h+INDEX_AND_GROUP_BYTES);
+		return dest6;
 	}
-
-	public static boolean indexAndGroupEquals(BytesRef term, byte[] six) {
-		for (int i = 0; i < INDEX_AND_GROUP_BYTES; i++) {
+	public static boolean column_equals(BytesRef term, byte[] six) {
+		
+		final int h = headerOffset(term);
+		int len=h;
+		for (int i = 0; i < len; i++) {
+			if (term.bytes[term.offset + i] != six[i]) {
+				return false;
+			}
+		}
+		return true;
+	}
+	public static boolean column_index_group_equals(BytesRef term, byte[] six) {
+		
+		final int h = headerOffset(term);
+		int len=h+INDEX_AND_GROUP_BYTES;
+		for (int i = 0; i < len; i++) {
 			if (term.bytes[term.offset + i] != six[i]) {
 				return false;
 			}

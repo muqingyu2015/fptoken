@@ -108,7 +108,8 @@ public class FpTokenQuery extends Query {
             TreeMap<Integer, FpBlockInfo> blocklist=terms.getFpblock_list();
             
             FpSearch search=new FpSearch();
-            FixedBitSet bitset=search.search(blocklist, terms, 0, slices);
+            FixedBitSet bitset=search.search(blocklist, terms, context.reader().maxDoc(),
+            		new BytesRef(fieldName), slices);
             
             
             LOG.info("search "+slices[0].utf8ToString() +" "+blocklist.size()+" "+fieldName+" "+bitset.cardinality());

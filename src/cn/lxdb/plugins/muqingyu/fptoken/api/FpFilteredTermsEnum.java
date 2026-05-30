@@ -11,6 +11,8 @@ import org.apache.lucene.util.AttributeSource;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.NumericUtils;
 
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
+
 /**
  * 在 {@link TermsEnum#next()} 返回的词项前部注入 2 字节 sortable 短整型前缀，使不同逻辑索引流合并时
  * 可通过字节序区分来源分片。
@@ -26,7 +28,7 @@ public class FpFilteredTermsEnum extends TermsEnum {
 
 
 	/** 与 {@link #index} 对应的 sortable 2 字节前缀，写入每个 {@link #next()} 返回的 {@link BytesRef}。 */
-	private final byte[] prefix = new byte[2];
+	private final int index_id ;
 
 	/**
 	 * @param it    底层 {@link TermsEnum}
@@ -34,7 +36,7 @@ public class FpFilteredTermsEnum extends TermsEnum {
 	 */
 	public FpFilteredTermsEnum(TermsEnum it, int index) {
 		this.it = it;
-		NumericUtils.shortToSortableBytes(index, prefix, 0);
+		this.index_id=index;
 	}
 
 	@Override
@@ -43,8 +45,8 @@ public class FpFilteredTermsEnum extends TermsEnum {
 		if (rtn == null) {
 			return null;
 		}
-		// 原地覆写词项缓冲区前 2 字节，使合并后各子索引词项空间上可区分
-		System.arraycopy(prefix, 0, rtn.bytes, rtn.offset, prefix.length);
+		
+		FpTokenTermLayout.modify_index_id(rtn, this.index_id);
 		return rtn;
 	}
 

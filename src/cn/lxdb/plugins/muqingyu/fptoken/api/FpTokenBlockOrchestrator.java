@@ -80,14 +80,20 @@ public final class FpTokenBlockOrchestrator {
 
 
 	public void acceptTerm(BytesRef term, TermsEnum termsEnum) throws IOException {
-	
+		boolean high_change_field=group_original != null && !FpTokenTermLayout.column_equals(term, group_original.key);
+		boolean common_change_field=group_common!=null&&!FpTokenTermLayout.column_equals(term, group_common.key);
+		if (high_change_field||common_change_field) {
+			flushHighGroup();
+			flushCommonGroup();
+		}
+		
 		
 		//换组了要刷新high
-		if (group_original != null && !FpTokenTermLayout.indexAndGroupEquals(term, group_original.key)) {
+		if (group_original != null && !FpTokenTermLayout.column_index_group_equals(term, group_original.key)) {
 			flushHighGroup();
 		}
 		//换组了要根据情况看是否刷新common
-		if (group_common!=null&&!FpTokenTermLayout.indexAndGroupEquals(term, group_common.key)) {//如果换组了
+		if (group_common!=null&&!FpTokenTermLayout.column_index_group_equals(term, group_common.key)) {//如果换组了
 			tryFlushCommonIfComplete();
 		}
 
@@ -96,15 +102,13 @@ public final class FpTokenBlockOrchestrator {
 			//如果这个块本身就已经达到了targetLevel,在检查,如果没有因文档删除导致的降级,直接原封写入节省CPU,否则参与合并
 			
 			if (group_original == null) {
-				group_original = new FpGroupKVOriginal(maxDoc);
-				FpTokenTermLayout.copyIndexAndGroup(term, group_original.key);
+				group_original = new FpGroupKVOriginal(FpTokenTermLayout.column_index_group_copy(term),maxDoc);
 			}
 			group_original.val.ingestTermPostings(term, termsEnum, maxDoc);
 		
 		}else {
 			if (group_common == null) {
-				group_common = new FpGroupKVRebuild(maxDoc);
-				FpTokenTermLayout.copyIndexAndGroup(term, group_common.key);
+				group_common = new FpGroupKVRebuild(FpTokenTermLayout.column_index_group_copy(term),maxDoc);
 			}
 			
 			group_common.val.ingestTermPostings(term, termsEnum, maxDoc);
@@ -145,24 +149,29 @@ public final class FpTokenBlockOrchestrator {
 		final int distinctTerms = group_original.val.termCount();
 		final boolean meets = FpTokenBlockLevelPolicy.shouldCompleteBlock(1, this.targetLevel, distinctDocs,distinctTerms);
 
+		boolean needCommonMerger=true;
 		if (meets) {//没变化,每降级直接写入,无需重新计算
-			final short index_id = FpTokenTermLayout.read_index_id(group_original.key);
+			final short index_id = FpTokenTermLayout.read_index_id1(group_original.key);
 			// 合并前逻辑组：从当前索引读已有位图（与透传 posting 同源）
-			final int logical_group = FpTokenTermLayout.readGroupIdFromIndexAndGroupKey(group_original.key);
+			final int logical_group = FpTokenTermLayout.readGroupId(group_original.key);
 			final FpGroupHotNgramBitIndex bits = this.terms.fpBits(index_id, logical_group, null, null);
-			if(bits==null)
+			if(bits!=null)
 			{
-				LOG.error("bits =null "+index_id+" "+logical_group);
-			}
-			// 本段新组号：写出倒排头 + fpblock_list + 本次 bit 区（与查询一致）
-			final int new_group_id = groupIndex.incrementAndGet();
-			group_original.val.flushto(this, bits, new_group_id);
+				// 本段新组号：写出倒排头 + fpblock_list + 本次 bit 区（与查询一致）
+				final int new_group_id = groupIndex.incrementAndGet();
+				group_original.val.flushto(this, bits, new_group_id);
 
-			this.stat.flush_high_cnt_original++;
-		} else {
+				this.stat.flush_high_cnt_original++;
+				needCommonMerger=false;
+			}else {
+				LOG.error("bits =null "+index_id+" "+logical_group);
+
+			}
+			
+		} 
+		if(needCommonMerger){
 			if (group_common == null) {
-				group_common = new FpGroupKVRebuild(maxDoc);
-				FpTokenTermLayout.copyIndexAndGroup(new BytesRef(group_original.key), group_common.key);
+				group_common = new FpGroupKVRebuild(FpTokenTermLayout.column_index_group_copy(new BytesRef(group_original.key)),maxDoc);
 			}
 			group_original.val.mergeIntoRebuild(group_common.val);
 
@@ -182,7 +191,7 @@ public final class FpTokenBlockOrchestrator {
 			return;
 		}
 		
-		group_common.val.flushto(this,false);
+		group_common.val.flushto(this,group_common.key);
 
 		this.stat.flush_common_cnt++;
 		group_common = null;
