@@ -4,6 +4,7 @@ import java.io.IOException;
 
 import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.IndexInput;
+import org.apache.lucene.util.BytesRef;
 
 /**
  * FP 块元数据：与 {@code termsbit} 等侧文件中的 ngram bit 区布局对应。
@@ -24,7 +25,7 @@ public class FpBlockInfo {
 		return "FpBlockInfo [fpBanksHot=" + fpBanksHot + ", fpBanksCommon=" + fpBanksCommon + ", bytesPerHotSerialized="
 				+ bytesPerHotSerialized + ", bytesPerCommonSerialized=" + bytesPerCommonSerialized + ", hotNumBits="
 				+ hotNumBits + ", commonNumBits=" + commonNumBits + ", hotCount=" + hotCount + ", commonCount="
-				+ commonCount + ", targetLevel=" + targetLevel + ", debug_mark=" + debug_mark + "]";
+				+ commonCount + ", docCount=" + docCount  + ", targetLevel=" + targetLevel + ", debug_mark=" + debug_mark +",fieldInfo="+(fieldInfo==null?"":fieldInfo.utf8ToString())+ "]";
 	}
 
 	/** {@code banksCommon[0][0]} 的偏移，等于 {@code fpBanksHot00 + bytesPerHotSerialized}。 */
@@ -39,6 +40,8 @@ public class FpBlockInfo {
 	public int hotCount;
 	public int commonCount;
 	public int targetLevel;
+	public BytesRef fieldInfo=new BytesRef("d");
+	public int docCount;
 	public long debug_mark=System.currentTimeMillis();
 
 	public void writeto(DataOutput out) throws IOException {
@@ -51,9 +54,12 @@ public class FpBlockInfo {
 		out.writeInt(commonNumBits);
 		out.writeInt(hotCount);
 		out.writeInt(commonCount);
+		out.writeInt(docCount);
+
 		out.writeInt(targetLevel);
 		out.writeLong(debug_mark);
-
+		out.writeInt(fieldInfo.length);
+		out.writeBytes(fieldInfo.bytes, fieldInfo.offset, fieldInfo.length);
 
 	}
 
@@ -70,8 +76,12 @@ public class FpBlockInfo {
 		commonNumBits = in.readInt();
 		hotCount = in.readInt();
 		commonCount = in.readInt();
+		docCount=in.readInt();
 		targetLevel = in.readInt();
 		debug_mark=in.readLong();
+		byte[] data=new byte[in.readInt()];
+		in.readBytes(data, 0, data.length);
+		fieldInfo=new BytesRef(data);
 
 	}
 

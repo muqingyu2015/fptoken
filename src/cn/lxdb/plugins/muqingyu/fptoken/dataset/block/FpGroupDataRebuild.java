@@ -115,12 +115,13 @@ public final class FpGroupDataRebuild {
 	public void flushto(FpTokenBlockOrchestrator parentItem, byte[] groupkey) throws IOException {
 		long ts_begin=CLMillisecondClock.CLOCK.now();
 
-
+		final BytesRef columnName = FpTokenTermLayout.readColumnName(new BytesRef(groupkey));
 		FpStatNgram ngramstat=FpGroupHotNgramRebuild.execute(this, parentItem,
 				Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD);
 		long ts_ngram=CLMillisecondClock.CLOCK.now();
 
-		FpGroupHotNgramBitIndex bitinfo=FpGroupHotNgramBitIndex.execute(parentItem.targetLevel,this);
+		int columnLevel=parentItem.getColumnLevel(columnName);
+		FpGroupHotNgramBitIndex bitinfo=FpGroupHotNgramBitIndex.execute(columnLevel,this);
 		long ts_bitset=CLMillisecondClock.CLOCK.now();
 
 		int del_term_docid=distinctDocUnion.nextSetBit(0);
@@ -146,9 +147,8 @@ public final class FpGroupDataRebuild {
 			stat_hot_doc_cnt += val.docsize();
 
 			final BytesRef columnPayload = key.bytesRef();
-			final BytesRef columnName = FpTokenTermLayout.readColumnName(new BytesRef(groupkey));
 
-			FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short) 0, group_id, (byte) parentItem.targetLevel,
+			FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short) 0, group_id, (byte) columnLevel,
 					FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, columnPayload);
 			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state, parentItem.pool, parentItem.debugList,
 					reuse_term, val, parentItem.norms);
@@ -194,9 +194,8 @@ public final class FpGroupDataRebuild {
 			stat_common_doc_cnt+=val.docsize();
 
 			final BytesRef columnPayload = key.bytesRef();
-			final BytesRef columnName = FpTokenTermLayout.readColumnName(new BytesRef(groupkey));
 
-			FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, columnPayload);
+			FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, columnPayload);
 			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{
@@ -224,7 +223,7 @@ public final class FpGroupDataRebuild {
 		}
 		
 
-		FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut,"rebuild");
+		FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut,"rebuild",columnName);
 		parentItem.fpblock_list.put(group_id, blkinfo);
 	
 		parentItem.stat.doclist_hot+=stat_hot_doc_cnt;

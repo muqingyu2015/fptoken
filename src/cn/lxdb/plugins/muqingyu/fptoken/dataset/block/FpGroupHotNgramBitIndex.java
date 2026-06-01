@@ -126,13 +126,14 @@ public final class FpGroupHotNgramBitIndex {
 	 * {@code hot[li][b], common[li][b]} 交错写入 {@code out}，并把偏移与步长写入 {@link FpBlockInfo}（由调用方再
 	 * {@link FpBlockInfo#writeto} 到 meta）。
 	 */
-	public FpBlockInfo flushto(IndexOutput out,String from) throws IOException {
+	public FpBlockInfo flushto(IndexOutput out,String from,BytesRef fieldinfo) throws IOException {
 		final FpBlockInfo info = new FpBlockInfo();
 		info.hotNumBits = hotNumBits;
 		info.commonNumBits = commonNumBits;
 		info.hotCount = hotCount;
 		info.commonCount = commonCount;
 		info.targetLevel=this.targetlevel;
+		info.fieldInfo=fieldinfo;
 
 		info.fpBanksHot = out.getFilePointer();
 		out.writeBits(banksHot[0][0]);

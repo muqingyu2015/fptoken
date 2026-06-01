@@ -1,6 +1,8 @@
 package cn.lxdb.plugins.muqingyu.fptoken.api;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -41,7 +43,7 @@ public final class FpTokenBlockOrchestrator {
 	public final BlockTreeTermsWriter blockTreeWriter;
 	public final Terms terms;
 	public final int maxDoc;
-	public final int targetLevel;
+//	public final int targetLevel;
 	public final ObjectPoolMulti pool;
 	public final BlockTreeTermsWriter$TermsWriter termsWriter;
 	public final AtomicLong[] debugList;
@@ -56,6 +58,9 @@ public final class FpTokenBlockOrchestrator {
 	
 	public AtomicInteger groupIndex=new AtomicInteger(0);
 	
+	public TreeMap<BytesRef,Integer> field_targetlevel=new TreeMap<BytesRef, Integer>();
+
+	
 	public final TreeMap<Integer, FpBlockInfo> fpblock_list;
 	public FpTokenBlockOrchestrator(TreeMap<Integer, FpBlockInfo> fpblock_list,BlockTreeTermsWriter blockTreeWriter, Terms terms, int maxDoc, String fieldName,
 			ObjectPoolMulti pool, BlockTreeTermsWriter$TermsWriter termsWriter, AtomicLong[] debugList, NormsProducer norms) throws IOException {
@@ -63,14 +68,43 @@ public final class FpTokenBlockOrchestrator {
 		this.blockTreeWriter = blockTreeWriter;
 		this.terms = terms;
 		this.maxDoc = Math.max(1, maxDoc);
-		long termGuess;
-		try {
-			termGuess = terms.guess_size();
-		} catch (Throwable e) {
-			termGuess = 0;
+
+		
+		TreeMap<BytesRef, Integer[]> field_status=new TreeMap<BytesRef, Integer[]>();
+		ArrayList<TreeMap<Integer, FpBlockInfo>> listall=terms.getFpblock_listall();
+		if(listall!=null)
+		{
+			for(TreeMap<Integer, FpBlockInfo> listsub:listall)
+			{
+				for(Entry<Integer, FpBlockInfo> e:listsub.entrySet())
+				{
+					FpBlockInfo info=e.getValue();
+					
+					Integer[] fieldInfo=field_status.get(info.fieldInfo);
+					if(fieldInfo==null)
+					{
+						fieldInfo=new Integer[] {0,0};
+						field_status.put(info.fieldInfo, fieldInfo);
+						
+					}
+					
+					fieldInfo[0]+=info.commonCount;
+					fieldInfo[1]+=info.docCount;
+
+					
+				}
+			}
 		}
-		this.targetLevel = FpTokenBlockLevelPolicy.resolveTargetBlockLevel(maxDoc, termGuess);
-		stat.targetLevel=this.targetLevel;
+		
+		for(Entry<BytesRef, Integer[]> e:field_status.entrySet())
+		{
+			Integer[] info=e.getValue();
+			field_targetlevel.put(e.getKey(), FpTokenBlockLevelPolicy.resolveTargetBlockLevel(info[0], info[1]));
+		}
+
+		
+		
+		
 		this.pool = pool;
 		this.termsWriter = termsWriter;
 		this.debugList = debugList;
@@ -98,6 +132,10 @@ public final class FpTokenBlockOrchestrator {
 		}
 
 		final int termLevel = FpTokenTermLayout.readLevel(term);
+		final BytesRef  columName = FpTokenTermLayout.readColumnName(term);
+		Integer targetLevel= this.getColumnLevel(columName);//这里如果影响性能，就考虑优化
+	
+		
 		if (termLevel >= targetLevel) {
 			//如果这个块本身就已经达到了targetLevel,在检查,如果没有因文档删除导致的降级,直接原封写入节省CPU,否则参与合并
 			
@@ -118,10 +156,20 @@ public final class FpTokenBlockOrchestrator {
 		
 	}
 	
+	
+	
 	private boolean tryFlushCommonIfComplete() throws IOException {
 		FpGroupDataRebuild state=group_common.val;
 		final int distinctDocs = state.distinctDocUnion.cardinality();
 		final int distinctTerms = state.termCount();
+		
+		
+		final BytesRef  columName = FpTokenTermLayout.readColumnName(new BytesRef(group_common.key));
+		Integer targetLevel= this.field_targetlevel.get(columName);//这里如果影响性能，就考虑优化
+		if(targetLevel==null)
+		{
+			targetLevel=FpTokenBlockLevelPolicy.BLOCK_LEVEL_LOW;
+		}
 		if (FpTokenBlockLevelPolicy.shouldCompleteBlock(3,targetLevel, distinctDocs, distinctTerms)) {
 			flushCommonGroup();
 			return true;
@@ -134,6 +182,15 @@ public final class FpTokenBlockOrchestrator {
 		flushCommonGroup();
 	}
 
+	public int getColumnLevel(final BytesRef  columName)
+	{
+		Integer targetLevel= this.field_targetlevel.get(columName);//这里如果影响性能，就考虑优化
+		if(targetLevel==null)
+		{
+			targetLevel=FpTokenBlockLevelPolicy.BLOCK_LEVEL_LOW;
+		}
+		return targetLevel;
+	}
 
 	/**
 	 * 结束当前高级别候选组：体量达到该组级别要求则原样写出；否则并入同组号的可合并 {@link FpGroupDataRebuild}。
@@ -147,7 +204,11 @@ public final class FpTokenBlockOrchestrator {
 
 		final int distinctDocs = group_original.val.distinctDocUnion.cardinality();
 		final int distinctTerms = group_original.val.termCount();
-		final boolean meets = FpTokenBlockLevelPolicy.shouldCompleteBlock(1, this.targetLevel, distinctDocs,distinctTerms);
+		
+		final BytesRef  columName = FpTokenTermLayout.readColumnName(new BytesRef(group_original.key));
+		Integer targetLevel= this.getColumnLevel(columName);//这里如果影响性能，就考虑优化
+		
+		final boolean meets = FpTokenBlockLevelPolicy.shouldCompleteBlock(1, targetLevel, distinctDocs,distinctTerms);
 
 		boolean needCommonMerger=true;
 		if (meets) {//没变化,每降级直接写入,无需重新计算
@@ -159,7 +220,7 @@ public final class FpTokenBlockOrchestrator {
 			{
 				// 本段新组号：写出倒排头 + fpblock_list + 本次 bit 区（与查询一致）
 				final int new_group_id = groupIndex.incrementAndGet();
-				group_original.val.flushto(this, bits, new_group_id);
+				group_original.val.flushto(this, bits, new_group_id,group_original.key);
 
 				this.stat.flush_high_cnt_original++;
 				needCommonMerger=false;

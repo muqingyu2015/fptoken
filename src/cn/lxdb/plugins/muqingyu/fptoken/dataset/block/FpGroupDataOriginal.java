@@ -71,8 +71,10 @@ public final class FpGroupDataOriginal {
 	 * 透传写出：位图由调用方按<strong>合并前逻辑组</strong>读出；{@code newGroupId} 为本段新分配的落盘组号
 	 * （倒排头、{@link cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo}、查询 {@code fpBits} 均用此 id）。
 	 */
-	public void flushto(FpTokenBlockOrchestrator parentItem, FpGroupHotNgramBitIndex bitinfo, int newGroupId)
+	public void flushto(FpTokenBlockOrchestrator parentItem, FpGroupHotNgramBitIndex bitinfo, int newGroupId,byte[] groupkey)
 			throws IOException {
+		final BytesRef columnName = FpTokenTermLayout.readColumnName(new BytesRef(groupkey));
+		int columnLevel=parentItem.getColumnLevel(columnName);
 
 		long ts_begin=CLMillisecondClock.CLOCK.now();
 		int del_term_docid=distinctDocUnion.nextSetBit(0);
@@ -107,7 +109,7 @@ public final class FpGroupDataOriginal {
 				reuse_bytes=new byte[1024+FpTokenTermLayout.headerOffset(key.bytesRef())];
 
 			}
-			FpTokenTermLayout.make_fp_term(reuse_term, FpTokenTermLayout.readColumnName(key.bytesRef()), (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, noheader_term);
+			FpTokenTermLayout.make_fp_term(reuse_term, FpTokenTermLayout.readColumnName(key.bytesRef()), (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, noheader_term);
 			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 
 			
@@ -151,7 +153,7 @@ public final class FpGroupDataOriginal {
 			stat_common_doc_cnt+=val.docsize();
 			BytesRef noheader_term=FpTokenTermLayout.removeColumnAndHeaderBytes(key.bytesRef());
 
-			FpTokenTermLayout.make_fp_term(reuse_term, FpTokenTermLayout.readColumnName(noheader_term), (short)0, group_id, (byte)parentItem.targetLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, noheader_term);
+			FpTokenTermLayout.make_fp_term(reuse_term, FpTokenTermLayout.readColumnName(noheader_term), (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, noheader_term);
 			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
@@ -182,7 +184,7 @@ public final class FpGroupDataOriginal {
 		
 		parentItem.stat.doclist_hot+=stat_hot_doc_cnt;
 		parentItem.stat.doclist_common+=stat_common_doc_cnt;
-		FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut,"orginal");
+		FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut,"orginal",columnName);
 		parentItem.fpblock_list.put(group_id, blkinfo);
 	
 		long ts_end=CLMillisecondClock.CLOCK.now();
