@@ -108,7 +108,6 @@ public class FpSearch {
 		final FixedBitSet[] collect = new FixedBitSet[slices.length];
 
 		int maxGroupId = -1;
-		final Set<Integer> indexedGroupIdsForColumn = new HashSet<>();
 
 		for (Entry<Integer, FpBlockInfo> e : fpblock_list.entrySet()) {
 			final FpBlockInfo blkinfo = e.getValue();
@@ -119,7 +118,6 @@ public class FpSearch {
 			if (groupId > maxGroupId) {
 				maxGroupId = groupId;
 			}
-			indexedGroupIdsForColumn.add(groupId);
 
 			final FpGroupHotNgramBitIndex bitsetIndex = terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId,
 					choose, choose);
@@ -146,7 +144,7 @@ public class FpSearch {
 			}
 		}
 
-		searchSparseNoBitIndexTerms(terms, columnName, maxDoc, slices, collect, maxGroupId, indexedGroupIdsForColumn);
+		searchSparseNoBitIndexTerms(terms, columnName, maxDoc, slices, collect, maxGroupId);
 
 		boolean merged = false;
 		for (int i = 0; i < slices.length; i++) {
@@ -222,42 +220,34 @@ public class FpSearch {
 	 * 从 {@code (column, index_id, group_id, level=0, …)} seek 起扫描，校验头字段后按 payload 子串命中 OR 进各 slice 的 doc 集。
 	 */
 	private void searchSparseNoBitIndexTerms(Terms terms, BytesRef columnName, int maxDoc, BytesRef[] slices,
-			FixedBitSet[] collect, int maxGroupId, Set<Integer> indexedGroupIdsForColumn) throws IOException {
+			FixedBitSet[] collect, int maxGroupId) throws IOException {
 		final short indexId = Lucene80FPSearchConfig.DEFAULT_INDEX_ID;
 		final AtomicReference<PostingsEnum> reusePosting = new AtomicReference<PostingsEnum>(null);
 		final TermsEnum termsEnum = terms.iterator();
 		final BytesRef reuse = new BytesRef(new byte[512]);
 
 		// 稀疏列 term 的 group_level=0，按列+index_id+group_id 字典序分散；从 group_id=0 起扫，勿用 maxGroupId 作下界。
-		FpTokenTermLayout.make_fp_search_prefix(reuse, columnName, indexId, 0,
+		FpTokenTermLayout.make_fp_search_prefix(reuse, columnName, indexId, maxGroupId+1,
 				(byte) FpTokenBlockLevelPolicy.BLOCK_LEVEL_NOGROUP, false, 0);
 		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
 			return;
 		}
 
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			LOG.info("sparse scan column=" + columnName.utf8ToString() + " maxGroupId=" + maxGroupId
-					+ " indexedGroups=" + indexedGroupIdsForColumn.size());
+			LOG.info("sparse scan column=" + columnName.utf8ToString() + " maxGroupId=" + maxGroupId);
 		}
 
 		for (BytesRef found = termsEnum.term(); found != null; found = termsEnum.next()) {
 			if (!FpTokenTermLayout.columnNameEquals(found, columnName)) {
 				break;
 			}
-			if (FpTokenTermLayout.read_index_id(found) != indexId) {
-				break;
-			}
-			final int groupId = FpTokenTermLayout.read_group_id(found);
+			
 			final int level = FpTokenTermLayout.readLevel(found);
 			if (level != FpTokenBlockLevelPolicy.BLOCK_LEVEL_NOGROUP) {
 				continue;
 			}
-			if (indexedGroupIdsForColumn.contains(groupId)) {
-				continue;
-			}
-			if (FpTokenTermLayout.readIsDelTerm(found)) {
-				continue;
-			}
+			
+			
 
 			final BytesRef payload = FpTokenTermLayout.removeColumnAndHeaderBytes(found);
 			for (int i = 0; i < slices.length; i++) {
