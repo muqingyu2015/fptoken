@@ -24,6 +24,7 @@ class Lucene80FPSearchConfigTest {
 		assertEquals(6, Lucene80FPSearchConfig.NGRAM_MAX);
 		assertEquals(256, Lucene80FPSearchConfig.BUCKETS);
 		assertEquals(16, Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD);
+		assertEquals(1, Lucene80FPSearchConfig.SEARCH_BITSET_PROBE_LAYERS_DOWN);
 		assertEquals((short) 0, Lucene80FPSearchConfig.DEFAULT_INDEX_ID);
 	}
 }
