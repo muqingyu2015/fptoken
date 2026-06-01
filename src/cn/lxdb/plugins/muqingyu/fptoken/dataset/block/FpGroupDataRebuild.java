@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lucene.proguard.keep.lxdb.common.CLMillisecondClock;
 import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
+import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
@@ -116,124 +117,208 @@ public final class FpGroupDataRebuild {
 		long ts_begin=CLMillisecondClock.CLOCK.now();
 
 		final BytesRef columnName = FpTokenTermLayout.readColumnName(new BytesRef(groupkey));
-		FpStatNgram ngramstat=FpGroupHotNgramRebuild.execute(this, parentItem,
-				Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD);
-		long ts_ngram=CLMillisecondClock.CLOCK.now();
-
-		int columnLevel=parentItem.getColumnLevel(columnName);
-		FpGroupHotNgramBitIndex bitinfo=FpGroupHotNgramBitIndex.execute(columnLevel,this);
-		long ts_bitset=CLMillisecondClock.CLOCK.now();
-
-		int del_term_docid=distinctDocUnion.nextSetBit(0);
-		int stat_del_hotterm_cnt=0;
-		long stat_hot_doc_cnt=0;
-		long stat_common_doc_cnt=0;
-
-		final byte[] reuse_bytes = new byte[1024];
-		BytesRef reuse_term=new BytesRef(reuse_bytes);
-		int group_id=parentItem.groupIndex.incrementAndGet();
-		for (Entry<FpTermKey, FPDocList> e : hotTermToDocs.entrySet()) {
-			final FpTermKey key = e.getKey();
-			final Integer budgetObj = hotTermDownTierBudget.get(key);
-			final int downTierBudget = budgetObj != null ? budgetObj.intValue() : 0;
-			final FPDocList val = e.getValue();
-			final Integer index = hotTermToOrder.get(key);
-			final boolean isDelTerm = val.docsize() <= 0;
-			if (isDelTerm) { // 仅仅占位用
-				val.addDoc(del_term_docid);
-				stat_del_hotterm_cnt++;
-			}
-
-			stat_hot_doc_cnt += val.docsize();
-
-			final BytesRef columnPayload = key.bytesRef();
-
-			FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short) 0, group_id, (byte) columnLevel,
-					FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, columnPayload);
-			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state, parentItem.pool, parentItem.debugList,
-					reuse_term, val, parentItem.norms);
-			
-			
-			if(Lucene80FPSearchConfig.PRINT_DEBUG)
-			{
-				if(columnPayload.length<=0)
-				{
-					
-					LOG.info("debug rebuild:hot:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
-					continue;
-				}
-			
-				short read_index_id=FpTokenTermLayout.read_index_id(reuse_term);
-				int group_id_reuse=FpTokenTermLayout.read_group_id(reuse_term);
-				int level=FpTokenTermLayout.readLevel(reuse_term);
-				boolean ishot=FpTokenTermLayout.isHotTerm(reuse_term);
-				boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
-				int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
-				int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
-				BytesRef ref=FpTokenTermLayout.removeColumnAndHeaderBytes(reuse_term);
-				
-				
-	
-				LOG.info("debug rebuild:hot:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
-			
-			}
-		}
 		
-		
-		for(Entry<FpTermKey, FPDocList> e:commonTermToDocs.entrySet())
+		if(commonTermToDocs.size()<=FpTokenBlockLevelPolicy.NO_INDEX_THRESHOLD)
 		{
-			FpTermKey key=e.getKey();
-			FPDocList val=e.getValue();
-			Integer index=commonTermToOrder.get(key);
-			boolean isDelTerm=val.docsize()<=0;
-			if(isDelTerm)
+			//如果这个field的term数量很少，则采用暴力遍历，用于解决稀疏列
+
+
+			int stat_del_hotterm_cnt=0;
+			long stat_common_doc_cnt=0;
+
+			final byte[] reuse_bytes = new byte[1024];
+			BytesRef reuse_term=new BytesRef(reuse_bytes);
+			int group_id=parentItem.groupIndex.incrementAndGet();
+			
+			
+			for(Entry<FpTermKey, FPDocList> e:commonTermToDocs.entrySet())
 			{
-				continue;
-			}
-
-			stat_common_doc_cnt+=val.docsize();
-
-			final BytesRef columnPayload = key.bytesRef();
-
-			FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, columnPayload);
-			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
-			if(Lucene80FPSearchConfig.PRINT_DEBUG)
-			{
-				if(columnPayload.length<=0)
+				FpTermKey key=e.getKey();
+				FPDocList val=e.getValue();
+				Integer index=commonTermToOrder.get(key);
+				boolean isDelTerm=val.docsize()<=0;
+				if(isDelTerm)
 				{
-					
-					LOG.info("debug rebuild:common:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
 					continue;
 				}
-			
-				short read_index_id=FpTokenTermLayout.read_index_id(reuse_term);
-				int group_id_reuse=FpTokenTermLayout.read_group_id(reuse_term);
-				int level=FpTokenTermLayout.readLevel(reuse_term);
-				boolean ishot=FpTokenTermLayout.isHotTerm(reuse_term);
-				boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
-				int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
-				int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
-				BytesRef ref=FpTokenTermLayout.removeColumnAndHeaderBytes(reuse_term);
+
+				stat_common_doc_cnt+=val.docsize();
+
+				final BytesRef columnPayload = key.bytesRef();
+
+				FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short)0, group_id, (byte)FpTokenBlockLevelPolicy.BLOCK_LEVEL_NOGROUP, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, columnPayload);
+				parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
+				if(Lucene80FPSearchConfig.PRINT_DEBUG)
+				{
+					if(columnPayload.length<=0)
+					{
+						
+						LOG.info("debug rebuild:commonskip:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
+						continue;
+					}
 				
+					short read_index_id=FpTokenTermLayout.read_index_id(reuse_term);
+					int group_id_reuse=FpTokenTermLayout.read_group_id(reuse_term);
+					int level=FpTokenTermLayout.readLevel(reuse_term);
+					boolean ishot=FpTokenTermLayout.isHotTerm(reuse_term);
+					boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
+					int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
+					int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
+					BytesRef ref=FpTokenTermLayout.removeColumnAndHeaderBytes(reuse_term);
+					
+					
+		
+					LOG.info("debug rebuild:commonskip:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
 				
-	
-				LOG.info("debug rebuild:common:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
-			
+				}
 			}
+			
+
+		
+			parentItem.stat.doclist_common+=stat_common_doc_cnt;
+
+		
+			long ts_end=CLMillisecondClock.CLOCK.now();
+
+			LOG.info("rebuild_flush_zero diff:[total@"+(ts_end-ts_begin)+"]ms,doclist:[common@"+stat_common_doc_cnt+"],del_hotterm_cnt:"+stat_del_hotterm_cnt+",distinctDocUnion:"+distinctDocUnion.cardinality()+",commonTermToDocs:"+commonTermToDocs.size());
+
+		
+		}else {
+			FpStatNgram ngramstat=FpGroupHotNgramRebuild.execute(this, parentItem,
+					Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD);
+			long ts_ngram=CLMillisecondClock.CLOCK.now();
+
+			int columnLevel=parentItem.getColumnLevel(columnName);
+			FpGroupHotNgramBitIndex bitinfo=FpGroupHotNgramBitIndex.execute(columnLevel,this);
+			long ts_bitset=CLMillisecondClock.CLOCK.now();
+
+			int del_term_docid=distinctDocUnion.nextSetBit(0);
+			int stat_del_hotterm_cnt=0;
+			long stat_hot_doc_cnt=0;
+			long stat_common_doc_cnt=0;
+
+			final byte[] reuse_bytes = new byte[1024];
+			BytesRef reuse_term=new BytesRef(reuse_bytes);
+			int group_id=parentItem.groupIndex.incrementAndGet();
+			for (Entry<FpTermKey, FPDocList> e : hotTermToDocs.entrySet()) {
+				final FpTermKey key = e.getKey();
+				final Integer budgetObj = hotTermDownTierBudget.get(key);
+				final int downTierBudget = budgetObj != null ? budgetObj.intValue() : 0;
+				final FPDocList val = e.getValue();
+				final Integer index = hotTermToOrder.get(key);
+				final boolean isDelTerm = val.docsize() <= 0;
+				if (isDelTerm) { // 仅仅占位用
+					val.addDoc(del_term_docid);
+					stat_del_hotterm_cnt++;
+				}
+
+				stat_hot_doc_cnt += val.docsize();
+
+				final BytesRef columnPayload = key.bytesRef();
+
+				FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short) 0, group_id, (byte) columnLevel,
+						FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, columnPayload);
+				parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state, parentItem.pool, parentItem.debugList,
+						reuse_term, val, parentItem.norms);
+				
+				
+				if(Lucene80FPSearchConfig.PRINT_DEBUG)
+				{
+					if(columnPayload.length<=0)
+					{
+						
+						LOG.info("debug rebuild:hot:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
+						continue;
+					}
+				
+					short read_index_id=FpTokenTermLayout.read_index_id(reuse_term);
+					int group_id_reuse=FpTokenTermLayout.read_group_id(reuse_term);
+					int level=FpTokenTermLayout.readLevel(reuse_term);
+					boolean ishot=FpTokenTermLayout.isHotTerm(reuse_term);
+					boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
+					int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
+					int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
+					BytesRef ref=FpTokenTermLayout.removeColumnAndHeaderBytes(reuse_term);
+					
+					
+		
+					LOG.info("debug rebuild:hot:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
+				
+				}
+			}
+			
+			
+			for(Entry<FpTermKey, FPDocList> e:commonTermToDocs.entrySet())
+			{
+				FpTermKey key=e.getKey();
+				FPDocList val=e.getValue();
+				Integer index=commonTermToOrder.get(key);
+				boolean isDelTerm=val.docsize()<=0;
+				if(isDelTerm)
+				{
+					continue;
+				}
+
+				stat_common_doc_cnt+=val.docsize();
+
+				final BytesRef columnPayload = key.bytesRef();
+
+				FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, columnPayload);
+				parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
+				if(Lucene80FPSearchConfig.PRINT_DEBUG)
+				{
+					if(columnPayload.length<=0)
+					{
+						
+						LOG.info("debug rebuild:common:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
+						continue;
+					}
+				
+					short read_index_id=FpTokenTermLayout.read_index_id(reuse_term);
+					int group_id_reuse=FpTokenTermLayout.read_group_id(reuse_term);
+					int level=FpTokenTermLayout.readLevel(reuse_term);
+					boolean ishot=FpTokenTermLayout.isHotTerm(reuse_term);
+					boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
+					int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
+					int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
+					BytesRef ref=FpTokenTermLayout.removeColumnAndHeaderBytes(reuse_term);
+					
+					
+		
+					LOG.info("debug rebuild:common:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
+				
+				}
+			}
+			
+
+			FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut,"rebuild",columnName);
+			parentItem.fpblock_list.put(group_id, blkinfo);
+		
+			parentItem.stat.doclist_hot+=stat_hot_doc_cnt;
+			parentItem.stat.doclist_common+=stat_common_doc_cnt;
+
+		
+			long ts_end=CLMillisecondClock.CLOCK.now();
+
+			LOG.info("rebuild_flush diff:[total@"+(ts_end-ts_begin)+"~ngram@"+(ts_ngram-ts_begin)+"~bitset@"+(ts_bitset-ts_ngram)+"]ms,doclist:[hot@"+stat_hot_doc_cnt+"~common@"+stat_common_doc_cnt+"],del_hotterm_cnt:"+stat_del_hotterm_cnt+",distinctDocUnion:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size()+",ngramstat:"+ngramstat);
+
 		}
 		
-
-		FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut,"rebuild",columnName);
-		parentItem.fpblock_list.put(group_id, blkinfo);
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
 	
-		parentItem.stat.doclist_hot+=stat_hot_doc_cnt;
-		parentItem.stat.doclist_common+=stat_common_doc_cnt;
-
-	
-		long ts_end=CLMillisecondClock.CLOCK.now();
-
-		LOG.info("rebuild_flush diff:[total@"+(ts_end-ts_begin)+"~ngram@"+(ts_ngram-ts_begin)+"~bitset@"+(ts_bitset-ts_ngram)+"]ms,doclist:[hot@"+stat_hot_doc_cnt+"~common@"+stat_common_doc_cnt+"],del_hotterm_cnt:"+stat_del_hotterm_cnt+",distinctDocUnion:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size()+",ngramstat:"+ngramstat);
-
 	
 		this.resetAfterFlush();
 	}

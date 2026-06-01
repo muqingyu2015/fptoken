@@ -8,9 +8,14 @@ import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
  * 级别语义（与词项第 7 字节一致）：0 表示未参与合并语义（编排外）；1 千级；2 万级；3 十万级以上规模。
  */
 public final class FpTokenBlockLevelPolicy {
+	
+	
+	public static final int NO_INDEX_THRESHOLD = 128;
+
 	public final static int BLOCK_LEVEL_HIGH=3;
 	public final static int BLOCK_LEVEL_MID=2;
 	public final static int BLOCK_LEVEL_LOW=1;
+	public final static int BLOCK_LEVEL_NOGROUP=0;
 
 	private FpTokenBlockLevelPolicy() {
 	}

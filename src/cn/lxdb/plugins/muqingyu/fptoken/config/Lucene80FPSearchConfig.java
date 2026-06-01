@@ -35,6 +35,7 @@ public final class Lucene80FPSearchConfig {
 	/** 热词频率挖掘阈值（{@link cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild}）及「按档计数」上限。 */
 	public static final int HOT_TIER_TERM_COUNT_THRESHOLD = 16;
 
+
 	public static final int BUCKETS = 256;
 
 	public static final short DEFAULT_INDEX_ID = 0;
