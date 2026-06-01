@@ -39,14 +39,20 @@ public class FpTokenQuery extends Query {
 	private static final long serialVersionUID = -4451981415049319577L;
 	private final String fieldName;
     private final BytesRef[] slices;
+	private final String tokenField;
 
 
     public FpTokenQuery(String fieldName, String slices,FpTokenBytesMode mode) {
         this.fieldName = fieldName;
-        byte[] sourceBytes=FpToken.textToSourceBytes(slices, mode);
+        
+        String[] fieldParse=FpToken.ParseFieldAndText(slices);
+        this.tokenField=fieldParse[0];
+        String tokentext=fieldParse[1];
+       
+        byte[] sourceBytes=FpToken.textToSourceBytes(tokentext, mode);
         List<WindowTerm> windows = BinarySlidingWindowApi.slidingWindows(sourceBytes, 0, sourceBytes.length,BinarySlidingWindowApi.BITSET_STEP_SIZE,BinarySlidingWindowApi.BITSET_STEP_SIZE);
 
-        LOG.info("search in "+slices+" "+fieldName);
+        LOG.info("search in "+tokenField+"@"+tokentext+" "+fieldName);
 
         Map<FpToken.DedupKey, FpToken.PendingTerm> firstOccurrence = new LinkedHashMap<>();
         for (int i = 0; i < windows.size(); i++) {
@@ -109,7 +115,7 @@ public class FpTokenQuery extends Query {
             
             FpSearch search=new FpSearch();
             FixedBitSet bitset=search.search(blocklist, terms, context.reader().maxDoc(),
-            		new BytesRef(fieldName), slices);
+            		new BytesRef(tokenField), slices);
             
             
             LOG.info("search "+slices[0].utf8ToString() +" "+blocklist.size()+" "+fieldName+" "+bitset.cardinality());

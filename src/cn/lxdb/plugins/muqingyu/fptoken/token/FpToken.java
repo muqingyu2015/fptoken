@@ -90,17 +90,11 @@ public class FpToken extends Tokenizer {
     public void close() throws IOException {
         super.close();
     }
-
-    private static String JSON_KEY_PREFIX_MARK="@@jsonkey@@";
-    @Override
-    public void reset() throws IOException {
-        super.reset();
-        pending.clear();
-
-        fillTextBuffer(textBuffer, input);
-        
+    
+    public static String[] ParseFieldAndText(String tokentext)
+    {
+    	  
         String tokenField="d";
-        String tokentext=textBuffer.toString();
         if(tokentext.startsWith(JSON_KEY_PREFIX_MARK))
         {
         	int pos=tokentext.indexOf("@@",JSON_KEY_PREFIX_MARK.length());
@@ -111,6 +105,22 @@ public class FpToken extends Tokenizer {
         	}
         	
         }
+        
+        return new String[] {tokenField,tokentext};
+    }
+
+    private static String JSON_KEY_PREFIX_MARK="@@jsonkey@@";
+    @Override
+    public void reset() throws IOException {
+        super.reset();
+        pending.clear();
+
+        fillTextBuffer(textBuffer, input);
+        
+        String[] fieldParse=ParseFieldAndText(textBuffer.toString());
+        String tokenField=fieldParse[0];
+        String tokentext=fieldParse[1];
+       
         byte[] sourceBytes = textToSourceBytes(tokentext, bytesMode);
         List<WindowTerm> windows = BinarySlidingWindowApi.bitsetWindows64Step32(sourceBytes, 0, sourceBytes.length);
 
