@@ -3,8 +3,10 @@ package cn.lxdb.plugins.muqingyu.fptoken.api;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -22,6 +24,7 @@ import org.apache.lucene.util.offheap.OffheapPoolName;
 import org.slf4j.Logger;
 
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
+import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
@@ -104,9 +107,25 @@ public class FpSearch {
 
 		final FixedBitSet[] collect = new FixedBitSet[slices.length];
 
+		int maxGroupId = -1;
+		final Set<Integer> indexedGroupIdsForColumn = new HashSet<>();
+
 		for (Entry<Integer, FpBlockInfo> e : fpblock_list.entrySet()) {
-			final FpGroupHotNgramBitIndex bitsetIndex = terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, e.getKey(),
+			final FpBlockInfo blkinfo = e.getValue();
+			if (!fieldInfoMatchesColumn(blkinfo, columnName)) {
+				continue;
+			}
+			final int groupId = e.getKey().intValue();
+			if (groupId > maxGroupId) {
+				maxGroupId = groupId;
+			}
+			indexedGroupIdsForColumn.add(groupId);
+
+			final FpGroupHotNgramBitIndex bitsetIndex = terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId,
 					choose, choose);
+			if (bitsetIndex == null) {
+				continue;
+			}
 
 			for (int i = 0; i < slices.length; i++) {
 				final BytesRef slice = slices[i];
@@ -122,10 +141,12 @@ public class FpSearch {
 								+ (common == null ? "null" : common.cardinality()));
 					}
 				}
-				searchSliceInGroup(hotBanks, commonBanks, columnName, slice, e.getValue(), e.getKey(), terms, maxDoc,
-						collect, i);
+				searchSliceInGroup(hotBanks, commonBanks, columnName, slice, blkinfo, groupId, terms, maxDoc, collect,
+						i);
 			}
 		}
+
+		searchSparseNoBitIndexTerms(terms, columnName, maxDoc, slices, collect, maxGroupId, indexedGroupIdsForColumn);
 
 		boolean merged = false;
 		for (int i = 0; i < slices.length; i++) {
@@ -187,6 +208,71 @@ public class FpSearch {
 			}
 		}
 		return false;
+	}
+
+	private static boolean fieldInfoMatchesColumn(FpBlockInfo blkinfo, BytesRef columnName) {
+		if (blkinfo == null || blkinfo.fieldInfo == null) {
+			return false;
+		}
+		return blkinfo.fieldInfo.equals(columnName);
+	}
+
+	/**
+	 * 稀疏列（写段时 common 词数 ≤ {@link FpTokenBlockLevelPolicy#NO_INDEX_THRESHOLD}、无 ngram 位图）：
+	 * 从 {@code (column, index_id, group_id, level=0, …)} seek 起扫描，校验头字段后按 payload 子串命中 OR 进各 slice 的 doc 集。
+	 */
+	private void searchSparseNoBitIndexTerms(Terms terms, BytesRef columnName, int maxDoc, BytesRef[] slices,
+			FixedBitSet[] collect, int maxGroupId, Set<Integer> indexedGroupIdsForColumn) throws IOException {
+		final short indexId = Lucene80FPSearchConfig.DEFAULT_INDEX_ID;
+		final AtomicReference<PostingsEnum> reusePosting = new AtomicReference<PostingsEnum>(null);
+		final TermsEnum termsEnum = terms.iterator();
+		final BytesRef reuse = new BytesRef(new byte[512]);
+
+		// 稀疏列 term 的 group_level=0，按列+index_id+group_id 字典序分散；从 group_id=0 起扫，勿用 maxGroupId 作下界。
+		FpTokenTermLayout.make_fp_search_prefix(reuse, columnName, indexId, 0,
+				(byte) FpTokenBlockLevelPolicy.BLOCK_LEVEL_NOGROUP, false, 0);
+		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
+			return;
+		}
+
+		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
+			LOG.info("sparse scan column=" + columnName.utf8ToString() + " maxGroupId=" + maxGroupId
+					+ " indexedGroups=" + indexedGroupIdsForColumn.size());
+		}
+
+		for (BytesRef found = termsEnum.term(); found != null; found = termsEnum.next()) {
+			if (!FpTokenTermLayout.columnNameEquals(found, columnName)) {
+				break;
+			}
+			if (FpTokenTermLayout.read_index_id(found) != indexId) {
+				break;
+			}
+			final int groupId = FpTokenTermLayout.read_group_id(found);
+			final int level = FpTokenTermLayout.readLevel(found);
+			if (level != FpTokenBlockLevelPolicy.BLOCK_LEVEL_NOGROUP) {
+				continue;
+			}
+			if (indexedGroupIdsForColumn.contains(groupId)) {
+				continue;
+			}
+			if (FpTokenTermLayout.readIsDelTerm(found)) {
+				continue;
+			}
+
+			final BytesRef payload = FpTokenTermLayout.removeColumnAndHeaderBytes(found);
+			for (int i = 0; i < slices.length; i++) {
+				if (!payloadContainsSlice(payload, slices[i])) {
+					continue;
+				}
+				final FixedBitSet acc = ensureCollect(collect, i, maxDoc);
+				orPostingsInto(reusePosting, termsEnum, maxDoc, acc);
+			}
+		}
+	}
+
+	/** payload 是否包含 slice 连续子串（indexOf 语义）。 */
+	private static boolean payloadContainsSlice(BytesRef payload, BytesRef slice) {
+		return payloadMatchesSlice(false, payload, slice);
 	}
 
 	private static FixedBitSet[] resolveBanks(FixedBitSet[][] banksGrid, BytesRef[] probes) {
