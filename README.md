@@ -1,6 +1,8 @@
 # FPToken（FP Token 模块）
 
-面向 **LXDB / 补丁版 Lucene** 的二进制指纹（Fingerprint）索引：在 BlockTree 写段阶段按 **组（index_id + group_id）** 聚合词项，对 common 载荷做 **byte n-gram 热词挖掘** 与 **8×256 双套位图索引**，并支持高级别 term 的 **透传写出**（复用已有 `fpBits`）。
+面向 **LXDB / 补丁版 Lucene** 的二进制指纹（Fingerprint）索引：在 BlockTree 写段阶段按 **列名 + 组（column + index_id + group_id）** 聚合词项，对 common 载荷做 **byte n-gram 热词挖掘** 与 **6×256 双套位图索引**，并支持高级别 term 的 **透传写出**（复用已有 `fpBits`）。
+
+每个倒排词项在 **`FpTokenTermLayout`** 最前携带 **可变长 JSON 列名**（`4B 长度 + UTF-8 字段 key`），使同一 FP 字段下可索引 **海量稀疏列**（例如百万级 JSON key），查询时按 **列名 + ngram 切片** 精确定位，列名 **不参与** ngram 滑窗与位图统计。
 
 > 本仓库为 **2026-05 重写** 后的独立模块源码；须与完整 LXDB 工程（含补丁 Lucene）联编。设计说明见 [`docs/fp-token-design_20260517.html`](docs/fp-token-design_20260517.html)。
 
@@ -10,6 +12,7 @@
 
 | 文档 | 说明 |
 |------|------|
+| [本 README § JSON 稀疏列](#json-稀疏列列名前缀) | **列名前缀布局、百万级 JSON key 检索** |
 | [写段详细流程图 PNG](docs/fp-token-write-path-detailed.png) | **高分辨率整图（约 4324×16694）· 源文件 `docs/fp-token-write-path-detailed.mmd`** |
 | [浏览器查看](docs/fp-token-write-path-detailed.html) | 同上，HTML 页内可缩放滚动 |
 | [本 README § 写段总流程图](#写段总流程图入口fpblocktreetermswriter) | 简版 Mermaid（嵌入 README） |
@@ -32,12 +35,52 @@
 
 ---
 
+## JSON 稀疏列：列名前缀
+
+典型场景：宽表 / JSON 文档有 **极多字段 key**（稀疏、每列文档占比低），若不为列名分区，不同列的相同字节 ngram 会混在同一倒排与位图桶中，查询无法区分「哪个 JSON 列命中」。
+
+### 词项字节布局（`FpTokenTermLayout`）
+
+```
+| 偏移        | 长度   | 字段                 | 说明 |
+|-------------|--------|----------------------|------|
+| 0           | 4      | columnNameLen        | sortable int，列名 UTF-8 字节数 |
+| 4           | 变长   | columnName           | JSON 字段名（如 `user.tags`） |
+| 4+N         | 14     | FP 定长头            | 见下表；`headerOffset(term) = 4+N` |
+| 4+N+14      | 变长   | ngram payload        | 仅指纹字节；**不含**列名 |
+
+FP 定长头（14 字节，相对 headerOffset）：
+
+| 头内偏移 | 长 | 字段 | 写段 / 查询 |
+|----------|----|------|-------------|
+| 0 | 2 | index_id | 段内索引号 |
+| 2 | 4 | group_id | `fpblock_list` 键；闭块时重编号 |
+| 6 | 1 | group_level | 块级别 |
+| 7 | 1 | term_flag | 热词 / 普通 |
+| 8 | 4 | termIndex | 组内序号；位图 bit 对应 |
+| 12 | 1 | isDelTerm | 删除占位 |
+| 13 | 1 | hotDownTierBudget | 热词向下扩展档预算 |
+
+### 写段与查询如何用到列名
+
+| 环节 | 行为 |
+|------|------|
+| **组边界** | `FpTokenBlockOrchestrator` 用 `column_index_group_copy` / `column_index_group_equals`：换 **列名** 或换 **index_id+group_id** 即刷组；列级 `targetLevel` 来自 `field_targetlevel`（按列统计历史 common/doc） |
+| **内存 Map 键** | `FpTermKey` 存 `[列名前缀][ngram payload]`（列名与 payload 在完整 term 中由 14B 头隔开；ingest 侧为列名+载荷键） |
+| **热词 / 位图** | `FpGroupHotNgramRebuild`、`FpGroupHotNgramBitIndex` 只对 **ngram payload** 滑窗；位图标记时切片键仍带列名，避免跨列误命中 |
+| **落盘 term** | `make_fp_term(reuse, columnName, …, ngramPayload)` 写出完整词项；`FpBlockInfo.fieldInfo` 记录列名 |
+| **查询** | `FpTokenQuery(fieldName, …)` → `FpSearch.search(…, new BytesRef(fieldName), slices)`；`seekCeil` 前缀含列名，`termHeaderMatches` 校验列名后再比 payload |
+
+列名长度 **不固定**（每列可不同），因此 term 总长可变；稀疏百万列时，倒排按 **列名字典序 + 组内序** 自然分区，查询只打开目标列对应 seek 前缀，避免全库扫描所有列的同名 ngram。
+
+---
+
 ## 包结构（`cn.lxdb.plugins.muqingyu.fptoken`）
 
 ```
-token/          FPToken、FpTokenAnalyzer、BinarySlidingWindowApi（64B 窗 / 32B 步）
+token/          FpToken、FpTokenAnalyzer、BinarySlidingWindowApi（64B 窗 / 32B 步）
 config/         FpTokenBlockLevelPolicy、Lucene80FPSearchConfig（字段后缀 _bfp / _sfp）
-api/            FPBlockTreeTermsWriter、FpTokenBlockOrchestrator、FpFilteredTermsEnum
+api/            FPBlockTreeTermsWriter、FpTokenBlockOrchestrator、FpSearch、FpTokenQuery
 dataset/common/ FpTokenTermLayout、FpTermKey、FPDocList、FpBlockInfo、组 KV 容器
 dataset/block/  FpGroupDataOriginal / Rebuild、FpGroupHotNgramRebuild、FpGroupHotNgramBitIndex
 ```
@@ -53,8 +96,8 @@ dataset/block/  FpGroupDataOriginal / Rebuild、FpGroupHotNgramRebuild、FpGroup
 ```mermaid
 flowchart TD
   subgraph P0["【阶段0】索引上游 token/ · 写段前完成"]
-    P0A["FpTokenAnalyzer → FPToken<br/>文本切成指纹字节"]
-    P0B["每个 term = 13字节头 + 载荷<br/>头里已有：组号、级别、是否热词…"]
+    P0A["FpTokenAnalyzer → FpToken<br/>文本切成指纹字节"]
+    P0B["每个 term = 列名前缀 + 14B FP头 + ngram载荷<br/>列名=JSON字段key；载荷不含列名"]
     P0A --> P0B
   end
 
@@ -66,7 +109,7 @@ flowchart TD
   P0 --> P1
 
   subgraph P2["【阶段2】FPBlockTreeTermsWriter.writeTerms · 写段总入口"]
-    P2A["iterator_fp 遍历全字段词项<br/>同一 index_id+group_id 必须挨着"]
+    P2A["iterator_fp 遍历全字段词项<br/>同一 列名+index_id+group_id 必须挨着"]
     P2B["new FpTokenBlockOrchestrator"]
     P2C["FpTokenBlockLevelPolicy<br/>段很大→闭块用3级，否则用1级"]
     P2A --> P2B --> P2C
@@ -75,9 +118,10 @@ flowchart TD
 
   subgraph P2H["词项结构 FpTokenTermLayout"]
     direction LR
-    H1["0-1 索引号"] --> H2["2-5 组号"] --> H3["6 级别"]
-    H3 --> H4["7 热词/普通"] --> H5["8-11 编号"] --> H6["12 maxDown"]
-    H6 --> H7["13+ 字节载荷"]
+    H0["0+ 4B列名+UTF-8列名"] --> H1["+0 索引号2B"]
+    H1 --> H2["组号4B"] --> H3["级别1B"]
+    H3 --> H4["热/普1B"] --> H5["termIndex4B"]
+    H5 --> H6["del+budget2B"] --> H7["ngram载荷"]
   end
   P2 --> P2H
 
@@ -114,14 +158,14 @@ flowchart TD
   subgraph P5["【阶段5】flushCommon → Rebuild.flushto · 小组合并主路径"]
     P5A["FpGroupHotNgramRebuild.execute"]
     P5A1["① 统计 common 里各 ngram 在多少个 common 词中出现"]
-    P5A2["② 出现≥32次→热词；建锚点分档索引 AnchorTierIndex"]
-    P5A3["③ 算 maxDown 写入 hotTermToLevel<br/>控制查询向下拼几层，也控制写段 merge"]
-    P5A4["④ 长→短把 common 的 doc 并入热词<br/>在 maxDown 内则本 common 内不再重复 merge 父词"]
+    P5A2["② 出现≥阈值→热词；建锚点分档索引 AnchorTierIndex"]
+    P5A3["③ 算 hotDownTierBudget<br/>控制查询向下拼几层，也控制写段 merge"]
+    P5A4["④ 长→短把 common 的 doc 并入热词<br/>在 hotDownTierBudget 内则本 common 内不再重复 merge 父词"]
     P5A --> P5A1 --> P5A2 --> P5A3 --> P5A4
 
     P5B["FpGroupHotNgramBitIndex.execute"]
     P5B1["热词/common 编号；热词按 长度→字典序"]
-    P5B2["两套 6×256 位图；common 侧跳过已是热词的切片"]
+    P5B2["两套 NGRAM_MAX×256 位图；common 侧跳过已是热词的切片"]
     P5B --> P5B1 --> P5B2
 
     P5A4 --> P5B
@@ -151,22 +195,25 @@ flowchart TD
   CLS --> P6
 
   subgraph P7["【阶段7】检索 LXDB 查询侧"]
-    R1["读 term 头里 maxDown"]
-    R2["FpBlockInfo 定位位图桶"]
-    R3["按 maxDown 向下拼子档 posting"]
-    R1 --> R2 --> R3
+    R0["FpTokenQuery：fieldName=列名"]
+    R1["FpSearch：seek 前缀含列名"]
+    R2["位图桶 → hot/common seek"]
+    R3["校验列名 + hotDownTierBudget 比 payload"]
+    R0 --> R1 --> R2 --> R3
   end
   P6 --> P7
 ```
 
 **怎么读这张图（从上到下）**
 
-- **阶段0~1**：索引先把带 FP 头的词写好；Lucene 写段时创建 `FPBlockTreeTermsWriter`。
-- **阶段2**：`writeTerms` 里创建编排器，算本段用几级闭块阈值（`targetLevel`）。
-- **阶段3**：每个词项 `acceptTerm`——换组就先刷旧组；高级别词进 `FpGroupDataOriginal`，低级词只把 common 的 posting 攒起来。
-- **阶段4~flushHigh**：大组够大就**透传**（不重挖热词、复用位图）；不够就**降级**进下面重建路径。
-- **阶段5**：从 common **现挖热词**（≥32）、算 **maxDown**、合并 doc、建 **8×256 位图**，再 **writefp**。
-- **阶段6~7**：倒排 + 位图侧车 + 元数据；查询按 maxDown 和位图拼档。
+- **阶段0~1**：索引为每个 JSON 列写出 **列名前缀 + FP 头 + ngram 载荷**；Lucene 写段时创建 `FPBlockTreeTermsWriter`。
+- **阶段2**：`writeTerms` 里创建编排器；按列维护 `field_targetlevel`（闭块阈值）。
+- **阶段3**：每个词项 `acceptTerm`——换 **列** 或换 **列+组** 先刷旧缓冲；高级别词进 `FpGroupDataOriginal`，低级词攒 common posting。
+- **阶段4~flushHigh**：大组够大就**透传**（复用 `fpBits`）；不够**降级**进重建。
+- **阶段5**：在 **单列组内** 从 common 挖热词、写 `hotDownTierBudget`、建位图、**writefp**（`FpBlockInfo.fieldInfo` 记列名）。
+- **阶段6~7**：倒排 + 位图 + 元数据；`FpTokenQuery` 传入列名，`FpSearch` 只在对应列的 term 上 seek 与比对 payload。
+
+更细的列名字节 API 见源码 [`FpTokenTermLayout.java`](src/cn/lxdb/plugins/muqingyu/fptoken/dataset/common/FpTokenTermLayout.java)（`readColumnName`、`make_fp_term`、`make_fp_search_prefix`、`column_index_group_*`）。
 
 ---
 
