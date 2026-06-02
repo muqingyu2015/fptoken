@@ -84,7 +84,7 @@ public final class FpGroupDataOriginal {
 		long stat_common_doc_cnt=0;
 		
 		byte[] reuse_bytes = null;
-		BytesRef reuse_term=new BytesRef(reuse_bytes);
+		BytesRef reuse_term=null;
 		final int group_id = newGroupId;
 		for(Entry<FpTermKey, FPDocList> e:hotTermToDocs.entrySet())
 		{
@@ -107,7 +107,7 @@ public final class FpGroupDataOriginal {
 			if(reuse_bytes==null)
 			{
 				reuse_bytes=new byte[1024+FpTokenTermLayout.headerOffset(key.bytesRef())];
-
+				reuse_term=new BytesRef(reuse_bytes);
 			}
 			FpTokenTermLayout.make_fp_term(reuse_term, FpTokenTermLayout.readColumnName(key.bytesRef()), (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, noheader_term);
 			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);

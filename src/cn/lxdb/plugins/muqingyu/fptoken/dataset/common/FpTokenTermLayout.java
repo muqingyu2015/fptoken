@@ -128,8 +128,9 @@ public final class FpTokenTermLayout {
 		NumericUtils.shortToSortableBytes(index_id, reuse.bytes, headerStart + INDEX_ID_OFFSET);
 		NumericUtils.intToSortableBytes(groupid, reuse.bytes, headerStart + GROUP_ID_OFFSET);
 		reuse.bytes[headerStart + GROUP_LEVEL_OFFSET] = (byte) (group_level & 0xFF);
-		reuse.bytes[headerStart + TERM_FLAG_OFFSET] = (byte) ((hotmark ? 1 : 0) & 0xFF);
+		reuse.bytes[headerStart + TERM_FLAG_OFFSET] = (byte) ((hotmark ? 0 : 1) & 0xFF);
 		NumericUtils.intToSortableBytes(termindex, reuse.bytes, headerStart + TERM_INDEX_OFFSET);
+		
 		reuse.bytes[headerStart + TERM_STATUS_OFFSET] = (byte) ((isDelTerm ? 1 : 0) & 0xFF);
 		reuse.bytes[headerStart + HOT_TERM_DOWN_TIER_BUDGET_OFFSET] = hotDownTierBudget;
 
@@ -144,11 +145,11 @@ public final class FpTokenTermLayout {
 		final int headerStart = reuse.offset + colPrefix;
 		writeColumnNamePrefix(reuse, columnName, reuse.offset);
 
-		NumericUtils.shortToSortableBytes(index_id, reuse.bytes, headerStart + INDEX_ID_OFFSET);
-		NumericUtils.intToSortableBytes(groupid, reuse.bytes, headerStart + GROUP_ID_OFFSET);
-		reuse.bytes[headerStart + GROUP_LEVEL_OFFSET] = (byte) (group_level & 0xFF);
-		reuse.bytes[headerStart + TERM_FLAG_OFFSET] = (byte) ((hotmark ? 1 : 0) & 0xFF);
-		NumericUtils.intToSortableBytes(termindex, reuse.bytes, headerStart + TERM_INDEX_OFFSET);
+		NumericUtils.shortToSortableBytes(index_id, reuse.bytes, headerStart + INDEX_ID_OFFSET);//2
+		NumericUtils.intToSortableBytes(groupid, reuse.bytes, headerStart + GROUP_ID_OFFSET);//4
+		reuse.bytes[headerStart + GROUP_LEVEL_OFFSET] = (byte) (group_level & 0xFF);//1
+		reuse.bytes[headerStart + TERM_FLAG_OFFSET] = (byte) ((hotmark ? 0 : 1) & 0xFF);//1
+		NumericUtils.intToSortableBytes(termindex, reuse.bytes, headerStart + TERM_INDEX_OFFSET);//4
 		reuse.length = colPrefix + TERM_PREFIX_BYTES;
 	}
 	
@@ -210,7 +211,7 @@ public final class FpTokenTermLayout {
 
 	public static boolean isHotTerm(BytesRef term) {
 		
-		return (term.bytes[headerOffset(term) + TERM_FLAG_OFFSET] & 0xFF) == 1;
+		return (term.bytes[headerOffset(term) + TERM_FLAG_OFFSET] & 0xFF) == 0;
 	}
 
 	public static int readTermIndex(BytesRef term) {

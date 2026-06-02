@@ -5,6 +5,7 @@ import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.lucene.codecs.BlockTermState;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.util.BytesRef;
@@ -147,12 +148,12 @@ public final class FpGroupDataRebuild {
 				final BytesRef columnPayload = key.bytesRef();
 
 				FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short)0, group_id, (byte)FpTokenBlockLevelPolicy.BLOCK_LEVEL_NOGROUP, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, columnPayload);
-				parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
+				BlockTermState stat=parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 				if(Lucene80FPSearchConfig.PRINT_DEBUG)
 				{
 				
 		
-					LOG.info("debug rebuild:commonskip:"+index+" freq:"+val.docsize()+" data:"+FpTokenTermLayout.toReadableString(reuse_term));
+					LOG.info("debug rebuild:commonskip:"+index+" freq:"+val.docsize()+",stat:"+stat.docFreq+" data:"+FpTokenTermLayout.toReadableString(reuse_term));
 				
 				}
 			}

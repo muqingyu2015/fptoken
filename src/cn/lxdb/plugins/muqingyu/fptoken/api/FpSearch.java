@@ -38,6 +38,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 public class FpSearch {
 
 	public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
+	public String DEBUG_UUID=Lucene80FPSearchConfig.PRINT_DEBUG?java.util.UUID.randomUUID().toString():"";
 
 	private void print_debug(Terms terms) throws IOException {
 		if (!Lucene80FPSearchConfig.PRINT_DEBUG) {
@@ -53,7 +54,7 @@ public class FpSearch {
 			
 				PostingsEnum pe = termsEnum.postings(docsEnum.get(), PostingsEnum.NONE);
 
-				LOG.info("debug termIndex:" + termIndex + " freq:" + pe.freq() + " info:" +FpTokenTermLayout.toReadableString(term));
+				LOG.info(DEBUG_UUID+" termIndex:" + termIndex + " cost:" + pe.cost() + " info:" +FpTokenTermLayout.toReadableString(term));
 			} finally {
 
 				termIndex++;
@@ -112,16 +113,18 @@ public class FpSearch {
 				final FixedBitSet[] hotBanks = resolveBanks(bitsetIndex.banksHot, probes);
 				final FixedBitSet[] commonBanks = resolveBanks(bitsetIndex.banksCommon, probes);
 				if (Lucene80FPSearchConfig.PRINT_DEBUG) {
+					StringBuffer buff=new StringBuffer();
 					for (int p = 0; p < probes.length; p++) {
 						final FixedBitSet hot = hotBanks[p];
 						final FixedBitSet common = commonBanks[p];
-						LOG.info("bitset probe " + p + " len=" + probes[p].length + " hot="
-								+ (hot == null ? "null" : hot.cardinality()) + " common="
-								+ (common == null ? "null" : common.cardinality()));
+						buff.append(" [probe=" + probes[p].utf8ToString() + " len=" + probes[p].length + " hot="
+								+ (hot == null ? "null" : hot.cardinality()+"@"+hot.length()) + " common="
+								+ (common == null ? "null" : common.cardinality()+"@"+common.length())+"]");
 					}
+					
+					LOG.info(DEBUG_UUID+" bitset slice:" +slice.utf8ToString()+" "+buff);
 				}
-				searchSliceInGroup(hotBanks, commonBanks, columnName, slice, blkinfo, groupId, terms, maxDoc, collect,
-						i);
+				searchSliceInGroup(hotBanks, commonBanks, columnName, slice, blkinfo, groupId, terms, maxDoc, collect,i);
 			}
 		}
 
@@ -215,7 +218,7 @@ public class FpSearch {
 		}
 
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			LOG.info("sparse scan column=" + columnName.utf8ToString() + " maxGroupId=" + maxGroupId);
+			LOG.info(DEBUG_UUID+"sparse scan column=" + columnName.utf8ToString() + " maxGroupId=" + maxGroupId);
 		}
 
 		for (BytesRef found = termsEnum.term(); found != null; found = termsEnum.next()) {
@@ -263,10 +266,13 @@ public class FpSearch {
 			int sliceIndex) throws IOException {
 		final FixedBitSet acc = ensureCollect(collect, sliceIndex, maxDoc);
 
-		final boolean hotHit = searchBankHot(hotBanks, true, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc,
-				acc);
+		final boolean hotHit = searchBankHot(hotBanks, true, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc,acc);
+		LOG.info(DEBUG_UUID+" searchBankHot " +hotHit+" "+anchorSlice.utf8ToString());
+
 		if (!hotHit) {
-			searchBankCommon(commonBanks, false, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, acc);
+			boolean common_hit=searchBankCommon(commonBanks, false, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, acc);
+			LOG.info(DEBUG_UUID+" searchBankCommon " +common_hit+" "+anchorSlice.utf8ToString());
+
 		}
 	}
 
@@ -297,6 +303,7 @@ public class FpSearch {
 		boolean payloadLenCapSet = false;
 
 		for (int bit = bits.nextDoc(); bit != DocIdSetIterator.NO_MORE_DOCS; bit = bits.nextDoc()) {
+			//遍历每个term
 			final int termIndex = bit;
 			if (!payloadLenCapSet) {
 				int status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, true, termsEnum, reuse,
@@ -325,6 +332,8 @@ public class FpSearch {
 			FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet collect) throws IOException {
 		final DocIdSetIterator bits = intersectBankIterators(banks);
 		if (bits == null) {
+			LOG.info(DEBUG_UUID+" searchBankCommon bits == null "+anchorSlice.utf8ToString());
+
 			return false;
 		}
 
@@ -335,9 +344,12 @@ public class FpSearch {
 
 		for (int bit = bits.nextDoc(); bit != DocIdSetIterator.NO_MORE_DOCS; bit = bits.nextDoc()) {
 			final int termIndex = bit;
+
 			final int status = seekTermAndOrDocs(reusePosting, null, false, termsEnum, reuse,
 					Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
 					columnName, anchorSlice, maxDoc, collect);
+			LOG.info(DEBUG_UUID+" searchBankCommon termIndex = "+termIndex+" status="+status+" "+anchorSlice.utf8ToString());
+
 			if (status == SEEK_OK) {
 				anyHit = true;
 			}
@@ -367,24 +379,29 @@ public class FpSearch {
 	private static final int SEEK_BREAK_PAYLOAD_LEN = 1;
 	private static final int SEEK_MISS = 2;
 
-	private static int seekTermAndOrDocs(AtomicReference<PostingsEnum> reusePosting,
+	private  int seekTermAndOrDocs(AtomicReference<PostingsEnum> reusePosting,
 			AtomicInteger maxHotPayloadLenOrNull, boolean requireExactPayloadMatch, TermsEnum termsEnum, BytesRef reuse,
 			short indexId, int groupid, byte groupLevel, boolean hotMark, int termIndex, BytesRef columnName,
 			BytesRef slice, int maxDoc, FixedBitSet collect) throws IOException {
 		FpTokenTermLayout.make_fp_search_prefix(reuse, columnName, indexId, groupid, groupLevel, hotMark, termIndex);
 
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			LOG.info("seekCeil indexId:" + indexId + " " + groupid + " " + groupLevel + " " + hotMark + " " + termIndex
-					+ " " + slice.length);
+			LOG.info(DEBUG_UUID+" seekCeil indexId:" + indexId + " " + groupid + " " + groupLevel + " " + hotMark + " " + termIndex
+					+ " " + slice.utf8ToString());
 		}
 		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
+			
+			if (Lucene80FPSearchConfig.PRINT_DEBUG) {
+				LOG.info(DEBUG_UUID+" seekCeil SEEK_MISS indexId:" + indexId + " " + groupid + " " + groupLevel + " " + hotMark + " " + termIndex
+						+ " " + slice.utf8ToString());
+			}
 			return SEEK_MISS;
 		}
 		final BytesRef found = termsEnum.term();
 		boolean isDelTerm = FpTokenTermLayout.readIsDelTerm(found);
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			LOG.info("found indexId:" + indexId + " " + groupid + " " + groupLevel + " " + hotMark + " " + termIndex
-					+ " " + slice.length+" info:"+FpTokenTermLayout.toReadableString(found));
+			LOG.info(DEBUG_UUID+"found indexId:" + indexId + " " + groupid + " " + groupLevel + " " + hotMark + " " + termIndex
+					+ " " + slice.utf8ToString()+" info:"+FpTokenTermLayout.toReadableString(found));
 		}
 		if (!termHeaderMatches(found, columnName, groupid, groupLevel, hotMark, termIndex)) {
 			return SEEK_MISS;
