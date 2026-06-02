@@ -1,5 +1,6 @@
 package cn.lxdb.plugins.muqingyu.fptoken.dataset.common;
 
+import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.NumericUtils;
 
@@ -151,6 +152,28 @@ public final class FpTokenTermLayout {
 		reuse.length = colPrefix + TERM_PREFIX_BYTES;
 	}
 	
+	public static String toReadableString(BytesRef term)
+	{
+		if (term.length <= 0) {
+			return new String("term_zero:"+term.length);
+		}
+		
+		BytesRef column_name = FpTokenTermLayout.readColumnName(term);
+
+		short read_index_id = FpTokenTermLayout.read_index_id(term);
+		int group_id = FpTokenTermLayout.read_group_id(term);
+		int level = FpTokenTermLayout.readLevel(term);
+		boolean ishot = FpTokenTermLayout.isHotTerm(term);
+		boolean isdel = FpTokenTermLayout.readIsDelTerm(term);
+		int termindex = FpTokenTermLayout.readTermIndex(term);
+		int hot_down_tier = FpTokenTermLayout.readHotDownTierBudget(term);
+		BytesRef ref = FpTokenTermLayout.removeColumnAndHeaderBytes(term);
+
+
+		return new String("column_name:"+column_name.utf8ToString()+" index_id:" + read_index_id + " group_id:" + group_id
+				+ " level:" + level + " hot:" + ishot + " isdel:" + isdel + " termindex:" + termindex
+				+ " hot_down_tier:" + hot_down_tier + " data:" + ref.utf8ToString());
+	}
 	
 	public static void modify_index_id(BytesRef term, int index_id) {
 		int h=headerOffset(term);

@@ -18,6 +18,7 @@ import org.apache.lucene.util.NumericUtils;
 import org.slf4j.Logger;
 
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
+import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 
 /**
@@ -133,7 +134,14 @@ public class FpToken extends Tokenizer {
             FpTokenTermLayout.make_fp_term(reuse, columnName, (short)0, 0, (byte)0, false, 0, false, (byte)0, new BytesRef(padded));
 
             
-            byte[] prefixed = prependTermPrefixLong(reuse);
+            byte[] prefixed = copyBytes(reuse);
+            
+            if(Lucene80FPSearchConfig.PRINT_DEBUG)
+			{
+				LOG.info("token: data:"+FpTokenTermLayout.toReadableString(new BytesRef(prefixed)));
+
+			
+			}
             DedupKey probe = new DedupKey(prefixed, prefixed.length);
             if (firstOccurrence.containsKey(probe)) {
                 continue;
@@ -154,7 +162,7 @@ public class FpToken extends Tokenizer {
      * 在负载前拼接 8 字节：{@link NumericUtils#longToSortableBytes(long, byte[], int)}。
      * {@code payload} 可为 {@code null}，视为空数组。
      */
-   private static byte[] prependTermPrefixLong(BytesRef reuse) {
+   private static byte[] copyBytes(BytesRef reuse) {
         byte[] out = new byte[reuse.length];
 //        NumericUtils.longToSortableBytes(prefix, out, 0);
         System.arraycopy(reuse.bytes, reuse.offset, out, 0, reuse.length);

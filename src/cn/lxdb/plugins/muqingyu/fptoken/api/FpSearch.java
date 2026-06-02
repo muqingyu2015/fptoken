@@ -3,10 +3,8 @@ package cn.lxdb.plugins.muqingyu.fptoken.api;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map.Entry;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -52,27 +50,10 @@ public class FpSearch {
 		int termIndex = 1;
 		while (term != null) {
 			try {
-				if (term.length <= 0) {
-
-					LOG.info("debug termIndex:" + termIndex + " term:" + terms.getClass().getName() + " len:"
-							+ term.length + "  data:" + term.utf8ToString());
-					continue;
-				}
-
-				short read_index_id = FpTokenTermLayout.read_index_id(term);
-				int group_id = FpTokenTermLayout.read_group_id(term);
-				int level = FpTokenTermLayout.readLevel(term);
-				boolean ishot = FpTokenTermLayout.isHotTerm(term);
-				boolean isdel = FpTokenTermLayout.readIsDelTerm(term);
-				int termindex = FpTokenTermLayout.readTermIndex(term);
-				int hot_down_tier = FpTokenTermLayout.readHotDownTierBudget(term);
-				BytesRef ref = FpTokenTermLayout.removeColumnAndHeaderBytes(term);
-
+			
 				PostingsEnum pe = termsEnum.postings(docsEnum.get(), PostingsEnum.NONE);
 
-				LOG.info("debug termIndex:" + termIndex + " index_id:" + read_index_id + " group_id:" + group_id
-						+ " level:" + level + " hot:" + ishot + " isdel:" + isdel + " termindex:" + termindex
-						+ " hot_down_tier:" + hot_down_tier + " freq:" + pe.freq() + " data:" + ref.utf8ToString());
+				LOG.info("debug termIndex:" + termIndex + " freq:" + pe.freq() + " info:" +FpTokenTermLayout.toReadableString(term));
 			} finally {
 
 				termIndex++;
@@ -403,7 +384,7 @@ public class FpSearch {
 		boolean isDelTerm = FpTokenTermLayout.readIsDelTerm(found);
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
 			LOG.info("found indexId:" + indexId + " " + groupid + " " + groupLevel + " " + hotMark + " " + termIndex
-					+ " " + slice.length);
+					+ " " + slice.length+" info:"+FpTokenTermLayout.toReadableString(found));
 		}
 		if (!termHeaderMatches(found, columnName, groupid, groupLevel, hotMark, termIndex)) {
 			return SEEK_MISS;

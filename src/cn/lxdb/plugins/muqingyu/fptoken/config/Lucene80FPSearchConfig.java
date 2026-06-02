@@ -46,5 +46,5 @@ public final class Lucene80FPSearchConfig {
 	 */
 	public static final int SEARCH_BITSET_PROBE_LAYERS_DOWN = 1;
 
-	public static boolean PRINT_DEBUG = false;
+	public static boolean PRINT_DEBUG = true;
 }
