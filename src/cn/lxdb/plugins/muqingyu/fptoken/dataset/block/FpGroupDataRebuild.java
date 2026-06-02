@@ -121,7 +121,7 @@ public final class FpGroupDataRebuild {
 		if(commonTermToDocs.size()<=FpTokenBlockLevelPolicy.NO_INDEX_THRESHOLD)
 		{
 			//如果这个field的term数量很少，则采用暴力遍历，用于解决稀疏列
-
+			this.rebuildCommonTermToOrderFromHotDocs();
 
 			int stat_del_hotterm_cnt=0;
 			long stat_common_doc_cnt=0;
@@ -188,6 +188,9 @@ public final class FpGroupDataRebuild {
 					Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD);
 			long ts_ngram=CLMillisecondClock.CLOCK.now();
 
+			
+			this.rebuildHotTermOrderFromHotDocs();
+			this.rebuildCommonTermToOrderFromHotDocs();
 			int columnLevel=parentItem.getColumnLevel(columnName);
 			FpGroupHotNgramBitIndex bitinfo=FpGroupHotNgramBitIndex.execute(columnLevel,this);
 			long ts_bitset=CLMillisecondClock.CLOCK.now();

@@ -162,14 +162,13 @@ public class FpToken extends Tokenizer {
     }
 
     public static byte[] textToSourceBytes(String text, FpTokenBytesMode mode) {
-        switch (mode) {
-            case UTF8:
-                return text.getBytes(StandardCharsets.UTF_8);
-            case HEX_STRING:
-                return parseHexStringToBytes(text);
-            default:
-                throw new AssertionError(mode);
+        if (mode == FpTokenBytesMode.UTF8) {
+            return text.getBytes(StandardCharsets.UTF_8);
         }
+        if (mode == FpTokenBytesMode.HEX_STRING) {
+            return parseHexStringToBytes(text);
+        }
+        throw new IllegalArgumentException("unknown FpTokenBytesMode: " + mode);
     }
 
     /**

@@ -170,8 +170,7 @@ public final class FpGroupHotNgramBitIndex {
 	public static FpGroupHotNgramBitIndex execute(int targetLevel,FpGroupDataRebuild group) {
 		
 
-		group.rebuildHotTermOrderFromHotDocs();
-		group.rebuildCommonTermToOrderFromHotDocs();
+		
 		final int h = group.hotTermOrderSize();
 		
 		final int c = group.commonTermOrderSize();
