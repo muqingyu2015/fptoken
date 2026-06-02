@@ -126,37 +126,35 @@ public final class FpGroupHotNgramBitIndex {
 	 * {@code hot[li][b], common[li][b]} 交错写入 {@code out}，并把偏移与步长写入 {@link FpBlockInfo}（由调用方再
 	 * {@link FpBlockInfo#writeto} 到 meta）。
 	 */
-	public FpBlockInfo flushto(IndexOutput out,String from,BytesRef fieldinfo) throws IOException {
-		final FpBlockInfo info = new FpBlockInfo();
-		info.hotNumBits = hotNumBits;
-		info.commonNumBits = commonNumBits;
-		info.hotCount = hotCount;
-		info.commonCount = commonCount;
-		info.targetLevel=this.targetlevel;
-		info.fieldInfo=fieldinfo;
+	public FpBlockInfo flushto(IndexOutput out, String from, BytesRef fieldInfo, int docCount) throws IOException {
 
-		info.fpBanksHot = out.getFilePointer();
+		long fpBanksHot = out.getFilePointer();
 		out.writeBits(banksHot[0][0]);
-		final long afterFirstHot = out.getFilePointer();
+		long afterFirstHot = out.getFilePointer();
 		out.writeBits(banksCommon[0][0]);
-		final long afterFirstCommon = out.getFilePointer();
+		long afterFirstCommon = out.getFilePointer();
 
-		info.fpBanksCommon = afterFirstHot;
-		info.bytesPerHotSerialized = (int) (afterFirstHot - info.fpBanksHot);
-		info.bytesPerCommonSerialized = (int) (afterFirstCommon - afterFirstHot);
+		long fpBanksCommon = afterFirstHot;
+		int bytesPerHotSerialized = (int) (afterFirstHot - fpBanksHot);
+		int bytesPerCommonSerialized = (int) (afterFirstCommon - afterFirstHot);
+
+		final FpBlockInfo info = new FpBlockInfo(fpBanksHot, fpBanksCommon, bytesPerHotSerialized,
+				bytesPerCommonSerialized, hotNumBits, commonNumBits, hotCount, commonCount, this.targetlevel, fieldInfo,
+				docCount);
 
 		for (int li = 0; li < Lucene80FPSearchConfig.NGRAM_MAX; li++) {
 			for (int b = 0; b < Lucene80FPSearchConfig.BUCKETS; b++) {
-				if(li==0&&b==0)
-				{//第一个已经在之前写进去了
+				if (li == 0 && b == 0) {// 第一个已经在之前写进去了
 					continue;
 				}
 				out.writeBits(banksHot[li][b]);
 				out.writeBits(banksCommon[li][b]);
-				
-				if(Lucene80FPSearchConfig.PRINT_DEBUG&&(banksHot[li][b].cardinality()>0||banksCommon[li][b].cardinality()>0))
-				{  
-					LOG.info("bitset "+from+" flushto:"+banksHot[li][b].cardinality()+" "+banksHot[li][b].nextSetBit(0)+" "+banksCommon[li][b].cardinality()+" "+banksCommon[li][b].nextSetBit(0)+" "+li+" " +b  +" "+info);
+
+				if (Lucene80FPSearchConfig.PRINT_DEBUG
+						&& (banksHot[li][b].cardinality() > 0 || banksCommon[li][b].cardinality() > 0)) {
+					LOG.info("bitset " + from + " flushto:" + banksHot[li][b].cardinality() + " "
+							+ banksHot[li][b].nextSetBit(0) + " " + banksCommon[li][b].cardinality() + " "
+							+ banksCommon[li][b].nextSetBit(0) + " " + li + " " + b + " " + info);
 				}
 			}
 		}

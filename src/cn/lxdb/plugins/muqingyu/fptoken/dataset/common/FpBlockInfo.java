@@ -19,30 +19,58 @@ public class FpBlockInfo {
 	 * 第 {@code (li * 256 + b)} 对为
 	 * {@code fpBanksHot00 + (li * 256 + b) * (bytesPerHotSerialized + bytesPerCommonSerialized)}。
 	 */
-	public long fpBanksHot;
+	public  long fpBanksHot;
 	@Override
 	public String toString() {
 		return "FpBlockInfo [fpBanksHot=" + fpBanksHot + ", fpBanksCommon=" + fpBanksCommon + ", bytesPerHotSerialized="
 				+ bytesPerHotSerialized + ", bytesPerCommonSerialized=" + bytesPerCommonSerialized + ", hotNumBits="
 				+ hotNumBits + ", commonNumBits=" + commonNumBits + ", hotCount=" + hotCount + ", commonCount="
-				+ commonCount + ", docCount=" + docCount  + ", targetLevel=" + targetLevel + ", debug_mark=" + debug_mark +",fieldInfo="+(fieldInfo==null?"":fieldInfo.utf8ToString())+ "]";
+				+ commonCount + ", docCount=" + docCount  + ", targetLevel=" + targetLevel  +",fieldInfo="+(fieldInfo==null?"":fieldInfo.utf8ToString())+ "]";
 	}
 
 	/** {@code banksCommon[0][0]} 的偏移，等于 {@code fpBanksHot00 + bytesPerHotSerialized}。 */
-	public long fpBanksCommon;
+	public  long fpBanksCommon;
 	/** 序列化后单个热词侧 {@link org.apache.lucene.util.FixedBitSet} 的字节数（含首部 int 词数）。 */
-	public int bytesPerHotSerialized;
+	public  int bytesPerHotSerialized;
 	/** 序列化后单个普通词侧 {@link org.apache.lucene.util.FixedBitSet} 的字节数。 */
-	public int bytesPerCommonSerialized;
+	public  int bytesPerCommonSerialized;
+	public FpBlockInfo() {
+		this.fpBanksHot = 0;
+		this.fpBanksCommon = 0;
+		this.bytesPerHotSerialized = 0;
+		this.bytesPerCommonSerialized = 0;
+		this.hotNumBits = 0;
+		this.commonNumBits = 0;
+		this.hotCount = 0;
+		this.commonCount = 0;
+		this.targetLevel = 0;
+		this.fieldInfo = new BytesRef("d");
+		this.docCount = 0;
+	}
+	public FpBlockInfo(long fpBanksHot, long fpBanksCommon, int bytesPerHotSerialized, int bytesPerCommonSerialized,
+			int hotNumBits, int commonNumBits, int hotCount, int commonCount, int targetLevel, BytesRef fieldInfo,
+			int docCount) {
+		this.fpBanksHot = fpBanksHot;
+		this.fpBanksCommon = fpBanksCommon;
+		this.bytesPerHotSerialized = bytesPerHotSerialized;
+		this.bytesPerCommonSerialized = bytesPerCommonSerialized;
+		this.hotNumBits = hotNumBits;
+		this.commonNumBits = commonNumBits;
+		this.hotCount = hotCount;
+		this.commonCount = commonCount;
+		this.targetLevel = targetLevel;
+		this.fieldInfo = fieldInfo;
+		this.docCount = docCount;
+	}
 
-	public int hotNumBits;
-	public int commonNumBits;
-	public int hotCount;
-	public int commonCount;
-	public int targetLevel;
-	public BytesRef fieldInfo=new BytesRef("d");
-	public int docCount;
-	public long debug_mark=System.currentTimeMillis();
+	public   int hotNumBits;
+	public   int commonNumBits;
+	public  int hotCount;
+	public  int commonCount;
+	public  int targetLevel;
+	public  BytesRef fieldInfo;
+	public  int docCount;
+	public  long debug_mark=System.currentTimeMillis();
 
 	public void writeto(DataOutput out) throws IOException {
 		out.writeInt(FORMAT_VERSION);

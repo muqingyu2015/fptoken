@@ -10,7 +10,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
 public final class FpTokenBlockLevelPolicy {
 	
 	
-	public static final int NO_INDEX_THRESHOLD = 128;
+	public static final int NO_INDEX_THRESHOLD = 0;
 
 	public final static int BLOCK_LEVEL_HIGH=3;
 	public final static int BLOCK_LEVEL_MID=2;

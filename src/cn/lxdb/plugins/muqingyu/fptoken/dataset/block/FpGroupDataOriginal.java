@@ -184,7 +184,7 @@ public final class FpGroupDataOriginal {
 		
 		parentItem.stat.doclist_hot+=stat_hot_doc_cnt;
 		parentItem.stat.doclist_common+=stat_common_doc_cnt;
-		FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut,"orginal",columnName);
+		FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut,"orginal",columnName,del_term_docid);
 		parentItem.fpblock_list.put(group_id, blkinfo);
 	
 		long ts_end=CLMillisecondClock.CLOCK.now();

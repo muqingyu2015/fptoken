@@ -294,7 +294,7 @@ public final class FpGroupDataRebuild {
 			}
 			
 
-			FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut,"rebuild",columnName);
+			FpBlockInfo blkinfo=bitinfo.flushto(parentItem.blockTreeWriter.bitOut,"rebuild",columnName,del_term_docid);
 			parentItem.fpblock_list.put(group_id, blkinfo);
 		
 			parentItem.stat.doclist_hot+=stat_hot_doc_cnt;
