@@ -109,7 +109,7 @@ public final class FpGroupDataOriginal {
 				reuse_bytes=new byte[1024+FpTokenTermLayout.headerOffset(key.bytesRef())];
 				reuse_term=new BytesRef(reuse_bytes);
 			}
-			FpTokenTermLayout.make_fp_term(reuse_term, FpTokenTermLayout.readColumnName(key.bytesRef()), (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, noheader_term);
+			FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, noheader_term);
 			parentItem.writefpChecked(reuse_term, val, debug_msg + " original:hot");
 
 			
@@ -157,7 +157,7 @@ public final class FpGroupDataOriginal {
 				reuse_bytes=new byte[1024+FpTokenTermLayout.headerOffset(key.bytesRef())];
 				reuse_term=new BytesRef(reuse_bytes);
 			}
-			FpTokenTermLayout.make_fp_term(reuse_term, FpTokenTermLayout.readColumnName(noheader_term), (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, noheader_term);
+			FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, noheader_term);
 			parentItem.writefpChecked(reuse_term, val, debug_msg + " original:common");
 
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
