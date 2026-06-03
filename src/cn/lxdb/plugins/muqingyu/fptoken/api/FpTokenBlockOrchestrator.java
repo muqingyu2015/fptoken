@@ -2,6 +2,7 @@ package cn.lxdb.plugins.muqingyu.fptoken.api;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -72,12 +73,16 @@ public final class FpTokenBlockOrchestrator {
 		
 		TreeMap<BytesRef, Integer[]> field_status=new TreeMap<BytesRef, Integer[]>();
 		ArrayList<TreeMap<Integer, FpBlockInfo>> listall=terms.getFpblock_listall();
+		int cnt1=0;
+		int cnt2=0;
 		if(listall!=null)
 		{
 			for(TreeMap<Integer, FpBlockInfo> listsub:listall)
 			{
+				cnt1++;
 				for(Entry<Integer, FpBlockInfo> e:listsub.entrySet())
 				{
+					cnt2++;
 					FpBlockInfo info=e.getValue();
 					
 					Integer[] fieldInfo=field_status.get(info.fieldInfo);
@@ -99,7 +104,9 @@ public final class FpTokenBlockOrchestrator {
 		for(Entry<BytesRef, Integer[]> e:field_status.entrySet())
 		{
 			Integer[] info=e.getValue();
-			field_targetlevel.put(e.getKey(), FpTokenBlockLevelPolicy.resolveTargetBlockLevel(info[0], info[1]));
+			int level=FpTokenBlockLevelPolicy.resolveTargetBlockLevel(info[0], info[1]);
+			field_targetlevel.put(e.getKey(),level );
+			LOG.info("guess_level:"+Arrays.toString(info) +" ["+cnt1+","+cnt2+"] ["+level +"] "+e.getKey().utf8ToString());
 		}
 
 		
@@ -117,14 +124,14 @@ public final class FpTokenBlockOrchestrator {
 		boolean high_change_field=group_original != null && !FpTokenTermLayout.column_equals(term, group_original.key);
 		boolean common_change_field=group_common!=null&&!FpTokenTermLayout.column_equals(term, group_common.key);
 		if (high_change_field||common_change_field) {
-			flushHighGroup();
-			flushCommonGroup();
+			flushHighGroup("changefield");
+			flushCommonGroup("changefield");
 		}
 		
 		
 		//换组了要刷新high
 		if (group_original != null && !FpTokenTermLayout.column_index_group_equals(term, group_original.key)) {
-			flushHighGroup();
+			flushHighGroup("changegroup");
 		}
 		//换组了要根据情况看是否刷新common
 		if (group_common!=null&&!FpTokenTermLayout.column_index_group_equals(term, group_common.key)) {//如果换组了
@@ -166,20 +173,22 @@ public final class FpTokenBlockOrchestrator {
 		
 		final BytesRef  columName = FpTokenTermLayout.readColumnName(new BytesRef(group_common.key));
 		Integer targetLevel= this.field_targetlevel.get(columName);//这里如果影响性能，就考虑优化
+		String debug_msg="";
 		if(targetLevel==null)
 		{
+			debug_msg="nocolum";
 			targetLevel=FpTokenBlockLevelPolicy.BLOCK_LEVEL_LOW;
 		}
 		if (FpTokenBlockLevelPolicy.shouldCompleteBlock(FpTokenBlockLevelPolicy.REBUID_OVER_RATE,targetLevel, distinctDocs, distinctTerms)) {
-			flushCommonGroup();
+			flushCommonGroup(debug_msg);
 			return true;
 		}
 		return false;
 	}
 
 	public void finish() throws IOException {
-		flushHighGroup();
-		flushCommonGroup();
+		flushHighGroup("finish");
+		flushCommonGroup("finish");
 	}
 
 	public int getColumnLevel(final BytesRef  columName)
@@ -195,7 +204,7 @@ public final class FpTokenBlockOrchestrator {
 	/**
 	 * 结束当前高级别候选组：体量达到该组级别要求则原样写出；否则并入同组号的可合并 {@link FpGroupDataRebuild}。
 	 */
-	private void flushHighGroup() throws IOException {
+	private void flushHighGroup(String debugmsg) throws IOException {
 		if (group_original == null) {
 			group_original = null;
 			return;
@@ -220,7 +229,7 @@ public final class FpTokenBlockOrchestrator {
 			{
 				// 本段新组号：写出倒排头 + fpblock_list + 本次 bit 区（与查询一致）
 				final int new_group_id = groupIndex.incrementAndGet();
-				group_original.val.flushto(this, bits, new_group_id,group_original.key);
+				group_original.val.flushto(this, bits, new_group_id,group_original.key,"flushHighGroup_"+debugmsg);
 
 				this.stat.flush_high_cnt_original++;
 				needCommonMerger=false;
@@ -246,13 +255,13 @@ public final class FpTokenBlockOrchestrator {
 
 
 
-	private void flushCommonGroup() throws IOException {
+	private void flushCommonGroup(String debugmsg) throws IOException {
 		if (group_common == null ) {
 			group_common = null;
 			return;
 		}
 		
-		group_common.val.flushto(this,group_common.key);
+		group_common.val.flushto(this,group_common.key,"flushCommonGroup_"+debugmsg);
 
 		this.stat.flush_common_cnt++;
 		group_common = null;

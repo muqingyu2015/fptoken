@@ -71,7 +71,7 @@ public final class FpGroupDataOriginal {
 	 * 透传写出：位图由调用方按<strong>合并前逻辑组</strong>读出；{@code newGroupId} 为本段新分配的落盘组号
 	 * （倒排头、{@link cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo}、查询 {@code fpBits} 均用此 id）。
 	 */
-	public void flushto(FpTokenBlockOrchestrator parentItem, FpGroupHotNgramBitIndex bitinfo, int newGroupId,byte[] groupkey)
+	public void flushto(FpTokenBlockOrchestrator parentItem, FpGroupHotNgramBitIndex bitinfo, int newGroupId,byte[] groupkey,String debug_msg)
 			throws IOException {
 		final BytesRef columnName = FpTokenTermLayout.readColumnName(new BytesRef(groupkey));
 		int columnLevel=parentItem.getColumnLevel(columnName);
@@ -133,7 +133,7 @@ public final class FpGroupDataOriginal {
 				
 				
 	
-				LOG.info("debug original:hot:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
+				LOG.info(debug_msg+" original:hot:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
 			
 			}
 		}
@@ -165,7 +165,7 @@ public final class FpGroupDataOriginal {
 				if(noheader_term.length<=0)
 				{
 					
-					LOG.info("debug original:common:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
+					LOG.info(debug_msg+" original:common:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
 					continue;
 				}
 			
@@ -180,7 +180,7 @@ public final class FpGroupDataOriginal {
 				
 				
 	
-				LOG.info("debug original:common:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
+				LOG.info(debug_msg+" original:common:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
 			
 			}
 			
@@ -193,7 +193,7 @@ public final class FpGroupDataOriginal {
 	
 		long ts_end=CLMillisecondClock.CLOCK.now();
 
-		LOG.info("original_flush diff:"+(ts_end-ts_begin)+"ms,doclist:["+stat_hot_doc_cnt+"~"+stat_common_doc_cnt+"] columnLevel:"+columnLevel+" ,del_hotterm_cnt:"+stat_del_hotterm_cnt+",distinctDocUnion:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size());
+		LOG.info(debug_msg+" original_flush diff:"+(ts_end-ts_begin)+"ms,doclist:["+stat_hot_doc_cnt+"~"+stat_common_doc_cnt+"] columnLevel:"+columnLevel+" ,del_hotterm_cnt:"+stat_del_hotterm_cnt+",distinctDocUnion:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size());
 
 	
 		this.resetAfterFlush();
