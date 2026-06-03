@@ -8,6 +8,7 @@ import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.lucene.codecs.BlockTermState;
 import org.apache.lucene.codecs.NormsProducer;
 import org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter;
 import org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter$TermsWriter;
@@ -20,6 +21,8 @@ import com.luxindb.lxdb.pool.objectpool.ObjectPoolMulti;
 
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
+import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
@@ -63,6 +66,13 @@ public final class FpTokenBlockOrchestrator {
 
 	
 	public final TreeMap<Integer, FpBlockInfo> fpblock_list;
+
+	/** 本字段已写出 term 的上一条（用于乱序检测）。 */
+	private BytesRef lastWrittenTerm;
+
+	/** {@link #writefpChecked} 检测到的非严格升序次数。 */
+	public long termWriteOrderViolationCount;
+
 	public FpTokenBlockOrchestrator(TreeMap<Integer, FpBlockInfo> fpblock_list,BlockTreeTermsWriter blockTreeWriter, Terms terms, int maxDoc, String fieldName,
 			ObjectPoolMulti pool, BlockTreeTermsWriter$TermsWriter termsWriter, AtomicLong[] debugList, NormsProducer norms) throws IOException {
 		this.fpblock_list=fpblock_list;
@@ -119,6 +129,34 @@ public final class FpTokenBlockOrchestrator {
 	}
 
 
+
+	/**
+	 * 在 {@code writefp} 前用 {@link BytesRef#compareTo} 检查是否仍严格升序；乱序只打日志不中断写入。
+	 *
+	 * @param context 调用来源，如 {@code flushHighGroup_finish}、{@code rebuild:hot}
+	 */
+	public BlockTermState writefpChecked(BytesRef term, FPDocList postings, String context) throws IOException {
+		if (Lucene80FPSearchConfig.CHECK_TERM_WRITE_ORDER) {
+			if( lastWrittenTerm != null)
+			{
+				final int cmp = term.compareTo(lastWrittenTerm);
+				if (cmp <= 0) {
+					termWriteOrderViolationCount++;
+					LOG.error(
+							"term write order violation #{} context={} cmp={} (require cmp>0)\n  prev: {}\n  curr: {}",
+							termWriteOrderViolationCount,
+							context,
+							cmp,
+							FpTokenTermLayout.toReadableString(lastWrittenTerm),
+							FpTokenTermLayout.toReadableString(term),new IOException());
+				}
+			}
+			lastWrittenTerm = BytesRef.deepCopyOf(term);
+
+			
+		}
+		return termsWriter.writefp(blockTreeWriter.state, pool, debugList, term, postings, norms);
+	}
 
 	public void acceptTerm(BytesRef term, TermsEnum termsEnum) throws IOException {
 		boolean high_change_field=group_original != null && !FpTokenTermLayout.column_equals(term, group_original.key);
@@ -189,6 +227,9 @@ public final class FpTokenBlockOrchestrator {
 	public void finish() throws IOException {
 		flushHighGroup("finish");
 		flushCommonGroup("finish");
+		if (termWriteOrderViolationCount > 0) {
+			LOG.warn("field write finished with {} term order violation(s)", termWriteOrderViolationCount);
+		}
 	}
 
 	public int getColumnLevel(final BytesRef  columName)

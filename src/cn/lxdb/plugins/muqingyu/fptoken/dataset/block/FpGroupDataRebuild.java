@@ -148,7 +148,7 @@ public final class FpGroupDataRebuild {
 				final BytesRef columnPayload = key.bytesRef();
 
 				FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short)0, group_id, (byte)FpTokenBlockLevelPolicy.BLOCK_LEVEL_NOGROUP, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, columnPayload);
-				BlockTermState stat=parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
+				BlockTermState stat=parentItem.writefpChecked(reuse_term, val, debug_msg + " rebuild:commonskip");
 				if(Lucene80FPSearchConfig.PRINT_DEBUG)
 				{
 				
@@ -207,8 +207,7 @@ public final class FpGroupDataRebuild {
 
 				FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short) 0, group_id, (byte) columnLevel,
 						FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, columnPayload);
-				parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state, parentItem.pool, parentItem.debugList,
-						reuse_term, val, parentItem.norms);
+				parentItem.writefpChecked(reuse_term, val, debug_msg + " rebuild:hot");
 				
 				
 				if(Lucene80FPSearchConfig.PRINT_DEBUG)
@@ -236,7 +235,7 @@ public final class FpGroupDataRebuild {
 				final BytesRef columnPayload = key.bytesRef();
 
 				FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, columnPayload);
-				parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
+				parentItem.writefpChecked(reuse_term, val, debug_msg + " rebuild:common");
 				if(Lucene80FPSearchConfig.PRINT_DEBUG)
 				{
 					LOG.info(debug_msg+"debug rebuild:common:"+index+" freq:"+val.docsize()+" columnLevel:"+columnLevel+" data:"+FpTokenTermLayout.toReadableString(reuse_term));

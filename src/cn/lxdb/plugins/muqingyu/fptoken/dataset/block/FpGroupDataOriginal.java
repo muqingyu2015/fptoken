@@ -110,7 +110,7 @@ public final class FpGroupDataOriginal {
 				reuse_term=new BytesRef(reuse_bytes);
 			}
 			FpTokenTermLayout.make_fp_term(reuse_term, FpTokenTermLayout.readColumnName(key.bytesRef()), (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, noheader_term);
-			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
+			parentItem.writefpChecked(reuse_term, val, debug_msg + " original:hot");
 
 			
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
@@ -158,7 +158,7 @@ public final class FpGroupDataOriginal {
 				reuse_term=new BytesRef(reuse_bytes);
 			}
 			FpTokenTermLayout.make_fp_term(reuse_term, FpTokenTermLayout.readColumnName(noheader_term), (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, noheader_term);
-			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
+			parentItem.writefpChecked(reuse_term, val, debug_msg + " original:common");
 
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{
