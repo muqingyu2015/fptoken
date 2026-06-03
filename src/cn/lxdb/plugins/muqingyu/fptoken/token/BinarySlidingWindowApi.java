@@ -6,18 +6,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
+
 /**
  * 二进制字段滑动窗口工具：在给定字节序列上按固定窗长与步长生成若干 {@link WindowTerm}。
  *
  * <p>从 {@code bapi} 迁入本包，语义与历史实现保持一致。</p>
  */
 public final class BinarySlidingWindowApi {
-
-	/** 位图类字段默认滑窗宽度（字节）。 */
-	public static final int BITSET_WINDOW_SIZE = 64;
-
-	/** 位图类字段默认滑窗步进（字节）。 */
-	public static final int BITSET_STEP_SIZE = 32;
 
 	private BinarySlidingWindowApi() {
 	}
@@ -86,7 +82,7 @@ public final class BinarySlidingWindowApi {
 	 * @return {@link #slidingWindows(byte[], int, int, int, int)} 的结果
 	 */
 	public static List<WindowTerm> bitsetWindows64Step32(byte[] source, int offset, int length) {
-		return slidingWindows(source, offset, length, BITSET_WINDOW_SIZE, BITSET_STEP_SIZE);
+		return slidingWindows(source, offset, length, Lucene80FPSearchConfig.BITSET_WINDOW_SIZE, Lucene80FPSearchConfig.BITSET_STEP_SIZE);
 	}
 
 	/** 校验参数合法性，非法时抛 {@link IllegalArgumentException}。 */

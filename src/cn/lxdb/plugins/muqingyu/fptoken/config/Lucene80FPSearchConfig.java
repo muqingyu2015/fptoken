@@ -47,4 +47,10 @@ public final class Lucene80FPSearchConfig {
 	public static final int SEARCH_BITSET_PROBE_LAYERS_DOWN = 1;
 
 	public static boolean PRINT_DEBUG = false;
+
+	/** 位图类字段默认滑窗宽度（字节）。 */
+	public static final int BITSET_WINDOW_SIZE = 64;
+
+	/** 位图类字段默认滑窗步进（字节）。 */
+	public static final int BITSET_STEP_SIZE = 32;
 }

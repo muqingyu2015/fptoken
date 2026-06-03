@@ -238,7 +238,7 @@ public final class FpGroupDataRebuild {
 				parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 				if(Lucene80FPSearchConfig.PRINT_DEBUG)
 				{
-					LOG.info("debug rebuild:common:"+index+" freq:"+val.docsize()+" data:"+FpTokenTermLayout.toReadableString(reuse_term));
+					LOG.info("debug rebuild:common:"+index+" freq:"+val.docsize()+" columnLevel:"+columnLevel+" data:"+FpTokenTermLayout.toReadableString(reuse_term));
 
 				
 				}
@@ -254,7 +254,7 @@ public final class FpGroupDataRebuild {
 		
 			long ts_end=CLMillisecondClock.CLOCK.now();
 
-			LOG.info("rebuild_flush diff:[total@"+(ts_end-ts_begin)+"~ngram@"+(ts_ngram-ts_begin)+"~bitset@"+(ts_bitset-ts_ngram)+"]ms,doclist:[hot@"+stat_hot_doc_cnt+"~common@"+stat_common_doc_cnt+"],del_hotterm_cnt:"+stat_del_hotterm_cnt+",distinctDocUnion:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size()+",ngramstat:"+ngramstat);
+			LOG.info("rebuild_flush diff:[total@"+(ts_end-ts_begin)+"~ngram@"+(ts_ngram-ts_begin)+"~bitset@"+(ts_bitset-ts_ngram)+"]ms columnLevel:"+columnLevel+" doclist:[hot@"+stat_hot_doc_cnt+"~common@"+stat_common_doc_cnt+"],del_hotterm_cnt:"+stat_del_hotterm_cnt+",distinctDocUnion:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size()+",ngramstat:"+ngramstat);
 
 		}
 		

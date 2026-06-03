@@ -193,7 +193,7 @@ public final class FpGroupDataOriginal {
 	
 		long ts_end=CLMillisecondClock.CLOCK.now();
 
-		LOG.info("original_flush diff:"+(ts_end-ts_begin)+"ms,doclist:["+stat_hot_doc_cnt+"~"+stat_common_doc_cnt+"],del_hotterm_cnt:"+stat_del_hotterm_cnt+",distinctDocUnion:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size());
+		LOG.info("original_flush diff:"+(ts_end-ts_begin)+"ms,doclist:["+stat_hot_doc_cnt+"~"+stat_common_doc_cnt+"] columnLevel:"+columnLevel+" ,del_hotterm_cnt:"+stat_del_hotterm_cnt+",distinctDocUnion:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size());
 
 	
 		this.resetAfterFlush();
