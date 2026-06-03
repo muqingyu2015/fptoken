@@ -10,12 +10,17 @@ import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
 public final class FpTokenBlockLevelPolicy {
 	
 	
-	public static final int NO_INDEX_THRESHOLD = 0;
 
 	public final static int BLOCK_LEVEL_HIGH=3;
 	public final static int BLOCK_LEVEL_MID=2;
 	public final static int BLOCK_LEVEL_LOW=1;
 	public final static int BLOCK_LEVEL_NOGROUP=0;
+	
+	public final static int BLOCK_LEVEL_HIGH_CNT=10240;
+	public final static int BLOCK_LEVEL_MID_CNT=5120;
+	public final static int BLOCK_LEVEL_LOW_CNT=1024; 
+	public static final int NO_INDEX_THRESHOLD = 128;
+	public static final int REBUID_OVER_RATE = 3;
 
 	private FpTokenBlockLevelPolicy() {
 	}
@@ -32,10 +37,10 @@ public final class FpTokenBlockLevelPolicy {
 	public static int resolveTargetBlockLevel(int maxDoc, long term_size) {
 		// 取文档与词项规模的较大者，使大段或大词表都倾向更高闭块阈值
 		long check_size = Math.max(maxDoc, term_size);
-		if (check_size >= 100_000) {
+		if (check_size >= BLOCK_LEVEL_HIGH_CNT) {
 			return BLOCK_LEVEL_HIGH;
 		}
-		if (check_size >= 10_000) {
+		if (check_size >= BLOCK_LEVEL_MID_CNT) {
 			return BLOCK_LEVEL_MID;
 		}
 		return BLOCK_LEVEL_LOW;
@@ -50,13 +55,13 @@ public final class FpTokenBlockLevelPolicy {
 	private static int minDistinctDocsForLevel(int level) {
 		if(BLOCK_LEVEL_HIGH==level)
 		{
-			return 100_000;
+			return BLOCK_LEVEL_HIGH_CNT;
 		}
 		if(BLOCK_LEVEL_MID==level)
 		{
-			return 10_000;
+			return BLOCK_LEVEL_MID_CNT;
 		}
-		return 1_000;
+		return BLOCK_LEVEL_LOW_CNT;
 
 	}
 

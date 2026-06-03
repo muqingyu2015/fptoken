@@ -152,7 +152,11 @@ public final class FpGroupDataOriginal {
 
 			stat_common_doc_cnt+=val.docsize();
 			BytesRef noheader_term=FpTokenTermLayout.removeColumnAndHeaderBytes(key.bytesRef());
-
+			if(reuse_bytes==null)
+			{
+				reuse_bytes=new byte[1024+FpTokenTermLayout.headerOffset(key.bytesRef())];
+				reuse_term=new BytesRef(reuse_bytes);
+			}
 			FpTokenTermLayout.make_fp_term(reuse_term, FpTokenTermLayout.readColumnName(noheader_term), (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, noheader_term);
 			parentItem.termsWriter.writefp(parentItem.blockTreeWriter.state,parentItem.pool,parentItem.debugList,reuse_term, val, parentItem.norms);
 

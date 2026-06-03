@@ -26,6 +26,7 @@ import org.apache.lucene.util.FixedBitSet;
 import org.slf4j.Logger;
 
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
+import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.token.BinarySlidingWindowApi;
 import cn.lxdb.plugins.muqingyu.fptoken.token.FpToken;
@@ -50,7 +51,7 @@ public class FpTokenQuery extends Query {
         String tokentext=fieldParse[1];
        
         byte[] sourceBytes=FpToken.textToSourceBytes(tokentext, mode);
-        List<WindowTerm> windows = BinarySlidingWindowApi.slidingWindows(sourceBytes, 0, sourceBytes.length,BinarySlidingWindowApi.BITSET_STEP_SIZE,BinarySlidingWindowApi.BITSET_STEP_SIZE);
+        List<WindowTerm> windows = BinarySlidingWindowApi.slidingWindows(sourceBytes, 0, sourceBytes.length,Lucene80FPSearchConfig.NGRAM_MAX,Lucene80FPSearchConfig.NGRAM_MAX);
 
         LOG.info("search in "+tokenField+"@"+tokentext+" "+fieldName);
 
