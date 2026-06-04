@@ -30,7 +30,7 @@ class BinarySlidingWindowApiTest {
 		for (int i = 0; i < src.length; i++) {
 			src[i] = (byte) i;
 		}
-		List<WindowTerm> wins = BinarySlidingWindowApi.bitsetWindows64Step32(src, 0, src.length);
+		List<WindowTerm> wins = BinarySlidingWindowApi.bitsetWindowsforToken(src, 0, src.length);
 		Set<Integer> starts = new HashSet<>();
 		for (WindowTerm w : wins) {
 			ByteRef ref = w.getSourceRef();

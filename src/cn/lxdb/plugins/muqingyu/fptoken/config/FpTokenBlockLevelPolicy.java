@@ -16,12 +16,23 @@ public final class FpTokenBlockLevelPolicy {
 	public final static int BLOCK_LEVEL_LOW=1;
 	public final static int BLOCK_LEVEL_NOGROUP=0;
 	
-	public final static int BLOCK_LEVEL_HIGH_CNT=102400;
-	public final static int BLOCK_LEVEL_MID_CNT=10240;
+	public final static int BLOCK_LEVEL_HIGH_CNT=20480;
+	public final static int BLOCK_LEVEL_MID_CNT=5120;
 	public final static int BLOCK_LEVEL_LOW_CNT=1024; 
 	public static final int NO_INDEX_THRESHOLD = 128;
-	public static final int REBUID_OVER_RATE = 3;
 
+	public static double getOverRate(int level) {
+		if(BLOCK_LEVEL_HIGH==level)
+		{
+			return 1.5;
+		}
+		if(BLOCK_LEVEL_MID==level)
+		{
+			return 2;
+		}
+		return 3;
+
+	}
 	private FpTokenBlockLevelPolicy() {
 	}
 

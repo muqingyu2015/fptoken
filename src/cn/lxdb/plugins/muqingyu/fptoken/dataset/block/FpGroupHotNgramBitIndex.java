@@ -227,8 +227,21 @@ public final class FpGroupHotNgramBitIndex {
 		return banks;
 	}
 
-	/** 1 字节：桶号即该字节；2~8 字节：多项式哈希折叠到 0..255。 */
-	public static int bucketIndex(byte[] buf, int off, int len) {
+	/** 写段 / 查询共用的多路桶哈希条数（每路 0..255，查询侧对各路位图 AND）。 */
+	public static final int BUCKET_HASH_COUNT = 3;
+
+	/** 同一切片上的 {@link #BUCKET_HASH_COUNT} 路桶号，{@code [i]=bucketIndex(i+1)(...)}。 */
+	public static int[] bucketIndex(byte[] buf, int off, int len) {
+		final int[] rtn = new int[BUCKET_HASH_COUNT];
+		rtn[0] = bucketIndex1(buf, off, len);
+		rtn[1] = bucketIndex2(buf, off, len);
+		rtn[2] = bucketIndex3(buf, off, len);
+		return rtn;
+	}
+
+	/** 1 字节：桶号即该字节；2~N 字节：31*h+c 多项式折叠到 0..255。 */
+	public static int bucketIndex1(byte[] buf, int off, int len) {
+		
 		if (len == 1) {
 			return buf[off] & 0xFF;
 		}
@@ -238,6 +251,39 @@ public final class FpGroupHotNgramBitIndex {
 		}
 		return (hv ^ (hv >>> 8) ^ (hv >>> 16) ^ (hv >>> 24)) & 0xFF;
 	}
+
+	/** 第二路：FNV-1a + Murmur 终混；1 字节为轻量混洗（与 {@link #bucketIndex1} 区分）。 */
+	public static int bucketIndex2(byte[] buf, int off, int len) {
+		if (len == 1) {
+			return buf[off] & 0xFF;
+		}
+		int hv = 0x811c9dc5;
+		for (int i = 0; i < len; i++) {
+			hv ^= buf[off + i] & 0xFF;
+			hv *= 0x01000193;
+		}
+		hv ^= hv >>> 13;
+		hv *= 0x5bd1e995;
+		hv ^= hv >>> 15;
+		return hv & 0xFF;
+	}
+
+	/** 第三路：djb2 + 旋转混洗；1 字节用 golden-ratio 混洗。 */
+	public static int bucketIndex3(byte[] buf, int off, int len) {
+		
+		if (len == 1) {
+			return buf[off] & 0xFF;
+		}
+		int hv = 5381;
+		for (int i = 0; i < len; i++) {
+			hv = ((hv << 5) + hv) + (buf[off + i] & 0xFF);
+		}
+		hv ^= Integer.rotateRight(hv, 11);
+		hv *= 0x85ebca6b;
+		hv ^= hv >>> 13;
+		return hv & 0xFF;
+	}
+
 
 	/**
 	 * common 位图：先收集载荷内<strong>去重</strong> ngram 再查热词集并 set bit。
@@ -274,11 +320,12 @@ public final class FpGroupHotNgramBitIndex {
 				continue;
 			}
 			final BytesRef br = key.bytesRef();
-			final int bucket = bucketIndex(br.bytes, br.offset, br.length);
-			banks[br.length - 1][bucket].set(bit);
-			if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-				LOG.info("markCommonNgramsByUniqueSlices {} {} {}", br.length - 1, bucket, br.utf8ToString());
+			final int[] buckets = bucketIndex(br.bytes, br.offset, br.length);
+			for(int bucket:buckets)
+			{
+				banks[br.length - 1][bucket].set(bit);
 			}
+			
 		}
 	}
 
@@ -303,12 +350,12 @@ public final class FpGroupHotNgramBitIndex {
 				sliceScratch.offset = base + start;
 				sliceScratch.length = n;
 				
-				final int bucket = bucketIndex(sliceScratch.bytes, sliceScratch.offset, sliceScratch.length);
-				banks[n - 1][bucket].set(bit);
-				if(Lucene80FPSearchConfig.PRINT_DEBUG)
+				final int[] buckets = bucketIndex(sliceScratch.bytes, sliceScratch.offset, sliceScratch.length);
+				for(int bucket:buckets)
 				{
-					LOG.info("markNgramsForPayload " +(n - 1)+" "+bucket +" "+sliceScratch.utf8ToString());
+					banks[n - 1][bucket].set(bit);
 				}
+				
 			}
 		}
 	}

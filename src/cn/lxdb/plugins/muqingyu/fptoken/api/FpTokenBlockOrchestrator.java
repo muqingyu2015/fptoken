@@ -217,7 +217,7 @@ public final class FpTokenBlockOrchestrator {
 			debug_msg="nocolum";
 			targetLevel=FpTokenBlockLevelPolicy.BLOCK_LEVEL_LOW;
 		}
-		if (FpTokenBlockLevelPolicy.shouldCompleteBlock(FpTokenBlockLevelPolicy.REBUID_OVER_RATE,targetLevel, distinctDocs, distinctTerms)) {
+		if (FpTokenBlockLevelPolicy.shouldCompleteBlock(FpTokenBlockLevelPolicy.getOverRate(targetLevel),targetLevel, distinctDocs, distinctTerms)) {
 			flushCommonGroup(debug_msg);
 			return true;
 		}

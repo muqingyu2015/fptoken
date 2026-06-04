@@ -81,7 +81,7 @@ public final class BinarySlidingWindowApi {
 	 * @param length 长度
 	 * @return {@link #slidingWindows(byte[], int, int, int, int)} 的结果
 	 */
-	public static List<WindowTerm> bitsetWindows64Step32(byte[] source, int offset, int length) {
+	public static List<WindowTerm> bitsetWindowsforToken(byte[] source, int offset, int length) {
 		return slidingWindows(source, offset, length, Lucene80FPSearchConfig.BITSET_WINDOW_SIZE, Lucene80FPSearchConfig.BITSET_STEP_SIZE);
 	}
 

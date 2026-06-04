@@ -36,15 +36,9 @@ public final class Lucene80FPSearchConfig {
 	public static final int HOT_TIER_TERM_COUNT_THRESHOLD = 16;
 
 
-	public static final int BUCKETS = 256;
+	public static final int BUCKETS = 1024;
 
 	public static final short DEFAULT_INDEX_ID = 0;
-
-	/**
-	 * 查询侧：每个 slice 除自身外，再向下探查几档更短连续子串以 AND 位图（减误命中）。
-	 * 例如 {@code SEARCH_BITSET_PROBE_LAYERS_DOWN=1} 且 slice 为 {@code abcd} 时额外加载 {@code abc}、{@code bcd}。
-	 */
-	public static final int SEARCH_BITSET_PROBE_LAYERS_DOWN = 0;
 
 	public static boolean PRINT_DEBUG = false;
 
@@ -57,8 +51,9 @@ public final class Lucene80FPSearchConfig {
 	public static boolean LOG_FP_NGRAM_DIAG = true;
 
 	/** 位图类字段默认滑窗宽度（字节）。 */
-	public static final int BITSET_WINDOW_SIZE = 64;
+	public static final int BITSET_WINDOW_SIZE = 32;
 
 	/** 位图类字段默认滑窗步进（字节）。 */
-	public static final int BITSET_STEP_SIZE = 32;
+	public static final int BITSET_STEP_SIZE = BITSET_WINDOW_SIZE-NGRAM_MAX;
+
 }

@@ -118,22 +118,10 @@ public class FpSearch {
 
 			for (int i = 0; i < slices.length; i++) {
 				final BytesRef slice = slices[i];
-				final BytesRef[] probes = buildProbeSlices(slice);
-				final FixedBitSet[] hotBanks = resolveBanks(bitsetIndex.banksHot, probes);
-				final FixedBitSet[] commonBanks = resolveBanks(bitsetIndex.banksCommon, probes);
-				if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-					StringBuffer buff=new StringBuffer();
-					for (int p = 0; p < probes.length; p++) {
-						final FixedBitSet hot = hotBanks[p];
-						final FixedBitSet common = commonBanks[p];
-						buff.append(" [probe=" + probes[p].utf8ToString() + " len=" + probes[p].length + " hot="
-								+ (hot == null ? "null" : hot.cardinality()+"@"+hot.length()) + " common="
-								+ (common == null ? "null" : common.cardinality()+"@"+common.length())+"]");
-					}
-					
-					LOG.info(DEBUG_UUID+" bitset slice:" +slice.utf8ToString()+" "+buff);
-
-				}
+//				final BytesRef[] probes = buildProbeSlices(slice);
+				final FixedBitSet[] hotBanks = resolveBanks(bitsetIndex.banksHot, slice);
+				final FixedBitSet[] commonBanks = resolveBanks(bitsetIndex.banksCommon, slice);
+				
 				searchSliceInGroup(hotBanks, commonBanks, columnName, slice, blkinfo, groupId, terms, maxDoc, collect,i);
 			}
 		}
@@ -161,37 +149,41 @@ public class FpSearch {
 	 * 例：{@code abcd} → {@code abcd}、{@code abc}、{@code bcd}。
 	 */
 	public static void markChooseForSliceAndProbes(boolean[][] choose, BytesRef slice) {
-		for (BytesRef probe : buildProbeSlices(slice)) {
-			final int lenIdx = ngramLengthIndex(probe.length);
-			final int bucket = FpGroupHotNgramBitIndex.bucketIndex(probe.bytes, probe.offset, probe.length);
+
+		final int lenIdx = ngramLengthIndex(slice.length);
+		final int buckets[] = FpGroupHotNgramBitIndex.bucketIndex(slice.bytes, slice.offset, slice.length);
+		for(int bucket:buckets)
+		{
 			choose[lenIdx][bucket] = true;
+
 		}
+	
 	}
 
-	/**
-	 * 探针序列：锚点 slice + 各档更短连续子串（去重，保持锚点在前）。
-	 */
-	public static BytesRef[] buildProbeSlices(BytesRef slice) {
-		final int layersDown = Lucene80FPSearchConfig.SEARCH_BITSET_PROBE_LAYERS_DOWN;
-		final List<BytesRef> probes = new ArrayList<>(Math.max(2, slice.length * layersDown));
-		probes.add(slice);
-		for (int down = 1; down <= layersDown; down++) {
-			final int len = slice.length - down;
-			if (len < Lucene80FPSearchConfig.NGRAM_MIN) {
-				break;
-			}
-			for (int start = 0; start + len <= slice.length; start++) {
-				if (len == slice.length && start == 0) {
-					continue;
-				}
-				final BytesRef sub = new BytesRef(slice.bytes, slice.offset + start, len);
-				if (!containsProbe(probes, sub)) {
-					probes.add(sub);
-				}
-			}
-		}
-		return probes.toArray(new BytesRef[0]);
-	}
+//	/**
+//	 * 探针序列：锚点 slice + 各档更短连续子串（去重，保持锚点在前）。
+//	 */
+//	public static BytesRef[] buildProbeSlices(BytesRef slice) {
+//		final int layersDown = Lucene80FPSearchConfig.SEARCH_BITSET_PROBE_LAYERS_DOWN;
+//		final List<BytesRef> probes = new ArrayList<>(Math.max(2, slice.length * layersDown));
+//		probes.add(slice);
+//		for (int down = 1; down <= layersDown; down++) {
+//			final int len = slice.length - down;
+//			if (len < Lucene80FPSearchConfig.NGRAM_MIN) {
+//				break;
+//			}
+//			for (int start = 0; start + len <= slice.length; start++) {
+//				if (len == slice.length && start == 0) {
+//					continue;
+//				}
+//				final BytesRef sub = new BytesRef(slice.bytes, slice.offset + start, len);
+//				if (!containsProbe(probes, sub)) {
+//					probes.add(sub);
+//				}
+//			}
+//		}
+//		return probes.toArray(new BytesRef[0]);
+//	}
 
 	private static boolean containsProbe(List<BytesRef> probes, BytesRef candidate) {
 		for (BytesRef p : probes) {
@@ -263,14 +255,17 @@ public class FpSearch {
 		return payloadMatchesSlice(false, payload, slice);
 	}
 
-	private static FixedBitSet[] resolveBanks(FixedBitSet[][] banksGrid, BytesRef[] probes) {
-		final FixedBitSet[] banks = new FixedBitSet[probes.length];
-		for (int i = 0; i < probes.length; i++) {
-			final BytesRef probe = probes[i];
-			final int lenIdx = ngramLengthIndex(probe.length);
-			final int bucket = FpGroupHotNgramBitIndex.bucketIndex(probe.bytes, probe.offset, probe.length);
-			banks[i] = banksGrid[lenIdx][bucket];
+	private static FixedBitSet[] resolveBanks(FixedBitSet[][] banksGrid, BytesRef probes) {
+		final int[] buckets = FpGroupHotNgramBitIndex.bucketIndex(probes.bytes, probes.offset, probes.length);
+		final FixedBitSet[] banks = new FixedBitSet[buckets.length];
+		final int lenIdx = ngramLengthIndex(probes.length);
+
+		for(int i=0;i<banks.length;i++)
+		{
+			banks[i] = banksGrid[lenIdx][buckets[i]];
+
 		}
+		
 		return banks;
 	}
 

@@ -123,7 +123,7 @@ public class FpToken extends Tokenizer {
         String tokentext=fieldParse[1];
        
         byte[] sourceBytes = textToSourceBytes(tokentext, bytesMode);
-        List<WindowTerm> windows = BinarySlidingWindowApi.bitsetWindows64Step32(sourceBytes, 0, sourceBytes.length);
+        List<WindowTerm> windows = BinarySlidingWindowApi.bitsetWindowsforToken(sourceBytes, 0, sourceBytes.length);
 
         BytesRef columnName=new BytesRef(tokenField);
         BytesRef reuse=new BytesRef(new byte[1024+columnName.length]);
