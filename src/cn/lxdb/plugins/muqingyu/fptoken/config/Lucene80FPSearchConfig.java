@@ -30,7 +30,7 @@ public final class Lucene80FPSearchConfig {
 
 	public static final int NGRAM_MIN = 1;
 
-	public static final int NGRAM_MAX = 4;
+	public static final int NGRAM_MAX = 6;
 
 	/** 热词频率挖掘阈值（{@link cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild}）及「按档计数」上限。 */
 	public static final int HOT_TIER_TERM_COUNT_THRESHOLD = 16;
@@ -50,6 +50,11 @@ public final class Lucene80FPSearchConfig {
 
 	/** 写段时检测 writefp 是否仍按最终 term BytesRef 严格升序；乱序时打 WARN。 */
 	public static boolean CHECK_TERM_WRITE_ORDER = true;
+
+	/**
+	 * 热词重建诊断：每组合并后打一行 {@code fp_ngram_diag}（便于 grep）；键表异常时另打 {@code fp_ngram_diag_KEY_SUSPECT}。
+	 */
+	public static boolean LOG_FP_NGRAM_DIAG = true;
 
 	/** 位图类字段默认滑窗宽度（字节）。 */
 	public static final int BITSET_WINDOW_SIZE = 64;
