@@ -29,6 +29,7 @@ import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpSearchStat;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.Utils;
 import cn.lxdb.plugins.muqingyu.fptoken.token.BinarySlidingWindowApi;
 import cn.lxdb.plugins.muqingyu.fptoken.token.FpToken;
 import cn.lxdb.plugins.muqingyu.fptoken.token.FpToken.DedupKey;
@@ -121,7 +122,7 @@ public class FpTokenQuery extends Query {
             		new BytesRef(tokenField), slices);
             
             long ts_end=System.currentTimeMillis();
-            LOG.info("search diff:"+(ts_end-ts_init)+" "+slices[0].utf8ToString() +" "+blocklist.size()+" "+fieldName+" "+bitset.cardinality()+" stat:"+stat);
+            LOG.info("search diff:"+(ts_end-ts_init)+" "+Utils.BytesReftoString(slices[0]) +" "+blocklist.size()+" "+fieldName+" "+bitset.cardinality()+" stat:"+stat);
             BitDocIdSet docIdSet = new BitDocIdSet(bitset, 1, context.reader().maxDoc());
             
             

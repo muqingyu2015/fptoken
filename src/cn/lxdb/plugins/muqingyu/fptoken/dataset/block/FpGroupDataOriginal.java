@@ -21,6 +21,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.Utils;
 
 /**
  * 单组内：组级 doc 并集用 {@link SparseFixedBitSet}；每个 term 对应 {@link FPDocList}，
@@ -118,7 +119,7 @@ public final class FpGroupDataOriginal {
 				if(noheader_term.length<=0)
 				{
 					
-					LOG.info("debug original:hot:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
+					LOG.info("debug original:hot:"+index+"  len:"+reuse_term.length+"  data:"+Utils.BytesReftoString(reuse_term));
 					continue;
 				}
 			
@@ -133,7 +134,7 @@ public final class FpGroupDataOriginal {
 				
 				
 	
-				LOG.info(debug_msg+" original:hot:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
+				LOG.info(debug_msg+" original:hot:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+Utils.BytesReftoString(ref));
 			
 			}
 		}
@@ -165,7 +166,7 @@ public final class FpGroupDataOriginal {
 				if(noheader_term.length<=0)
 				{
 					
-					LOG.info(debug_msg+" original:common:"+index+"  len:"+reuse_term.length+"  data:"+reuse_term.utf8ToString());
+					LOG.info(debug_msg+" original:common:"+index+"  len:"+reuse_term.length+"  data:"+Utils.BytesReftoString(reuse_term));
 					continue;
 				}
 			
@@ -180,7 +181,7 @@ public final class FpGroupDataOriginal {
 				
 				
 	
-				LOG.info(debug_msg+" original:common:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+ref.utf8ToString());
+				LOG.info(debug_msg+" original:common:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+Utils.BytesReftoString(ref));
 			
 			}
 			

@@ -30,6 +30,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpGroupKVOriginal;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpGroupKVRebuild;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpStat;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.Utils;
 
 /**
  * FP token 段内写倒排时的块编排。
@@ -116,7 +117,7 @@ public final class FpTokenBlockOrchestrator {
 			Integer[] info=e.getValue();
 			int level=FpTokenBlockLevelPolicy.resolveTargetBlockLevel(info[0], info[1]);
 			field_targetlevel.put(e.getKey(),level );
-			LOG.info("guess_level:"+Arrays.toString(info) +" ["+cnt1+","+cnt2+"] ["+level +"] "+e.getKey().utf8ToString());
+			LOG.info("guess_level:"+Arrays.toString(info) +" ["+cnt1+","+cnt2+"] ["+level +"] "+Utils.BytesReftoString(e.getKey()));
 		}
 
 		

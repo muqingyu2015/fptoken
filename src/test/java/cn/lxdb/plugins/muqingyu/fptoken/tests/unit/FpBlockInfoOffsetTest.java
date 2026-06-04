@@ -16,7 +16,9 @@ class FpBlockInfoOffsetTest {
 		info.bytesPerHotSerialized = 40;
 		info.bytesPerCommonSerialized = 48;
 		info.fpBanksCommon = info.fpBanksHot + info.bytesPerHotSerialized;
-		assertEquals(1000L + (2L * Lucene80FPSearchConfig.BUCKETS + 3L) * (40L + 48L), info.hotBankOffset(2, 3));
+		final long pair = Lucene80FPSearchConfig.bankPairIndex(2, 3);
+		assertEquals(256L + 512L + 3L, pair);
+		assertEquals(1000L + pair * (40L + 48L), info.hotBankOffset(2, 3));
 		assertEquals(info.hotBankOffset(2, 3) + 40L, info.commonBankOffset(2, 3));
 		assertEquals(1040L, info.fpBanksCommon);
 	}

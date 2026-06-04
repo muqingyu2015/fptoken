@@ -12,12 +12,13 @@ import org.apache.lucene.util.BytesRef;
 public class FpBlockInfo {
 
 	/** 与 {@link #writeto} / {@link #readfrom} 格式一致 */
-	public static final int FORMAT_VERSION = 1;
+	public static final int FORMAT_VERSION = 2;
 
 	/**
 	 * 交错区起点：{@code banksHot[0][0]} 在 bit 文件中的偏移。
-	 * 第 {@code (li * BUCKETS + b)} 对为
-	 * {@code fpBanksHot + (li * BUCKETS + b) * (bytesPerHotSerialized + bytesPerCommonSerialized)}。
+	 * 第 {@code bankPairIndex(li,b)} 对为
+	 * {@code fpBanksHot + bankPairIndex(li,b) * (bytesPerHotSerialized + bytesPerCommonSerialized)}；
+	 * len=1 行仅 {@link cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig#BUCKETS_LEN1} 桶。
 	 */
 	public  long fpBanksHot;
 	@Override
@@ -25,7 +26,7 @@ public class FpBlockInfo {
 		return "FpBlockInfo [fpBanksHot=" + fpBanksHot + ", fpBanksCommon=" + fpBanksCommon + ", bytesPerHotSerialized="
 				+ bytesPerHotSerialized + ", bytesPerCommonSerialized=" + bytesPerCommonSerialized + ", hotNumBits="
 				+ hotNumBits + ", commonNumBits=" + commonNumBits + ", hotCount=" + hotCount + ", commonCount="
-				+ commonCount + ", docCount=" + docCount  + ", targetLevel=" + targetLevel  +",fieldInfo="+(fieldInfo==null?"":fieldInfo.utf8ToString())+ "]";
+				+ commonCount + ", docCount=" + docCount  + ", targetLevel=" + targetLevel  +",fieldInfo="+(fieldInfo==null?"":Utils.BytesReftoString(fieldInfo))+ "]";
 	}
 
 	/** {@code banksCommon[0][0]} 的偏移，等于 {@code fpBanksHot00 + bytesPerHotSerialized}。 */
@@ -115,8 +116,7 @@ public class FpBlockInfo {
 
 	/** 第 {@code li} 长度、桶 {@code b} 的热词 bitset 在 bit 文件中的起始偏移。 */
 	public long hotBankOffset(int li, int b) {
-		final long pair = (long) li * (long) cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig.BUCKETS
-				+ (long) b;
+		final long pair = cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig.bankPairIndex(li, b);
 		return fpBanksHot + pair * (long) (bytesPerHotSerialized + bytesPerCommonSerialized);
 	}
 

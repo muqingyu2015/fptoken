@@ -36,7 +36,43 @@ public final class Lucene80FPSearchConfig {
 	public static final int HOT_TIER_TERM_COUNT_THRESHOLD = 16;
 
 
-	public static final int BUCKETS = 256;
+	/** 2~{@link #NGRAM_MAX} 字节 ngram 的桶数（须为 2 的幂）。 */
+	public static final int BUCKETS = 512;
+
+	/** 1 字节 ngram 仅 256 种取值，单独桶行宽度，避免与 {@link #BUCKETS} 对齐浪费。 */
+	public static final int BUCKETS_LEN1 = 256;
+
+	/** {@code choose[][]} 第二维上界（≥ 各行 {@link #bucketsForLengthIndex(int)} 最大值）。 */
+	public static int maxBucketsPerRow() {
+		return BUCKETS;
+	}
+
+	/** ngram 字节长度 {@code 1..NGRAM_MAX} 对应的桶数。 */
+	public static int bucketsForNgramLen(int ngramLen) {
+		return ngramLen <= 1 ? BUCKETS_LEN1 : BUCKETS;
+	}
+
+	/** 位图行下标 {@code 0..NGRAM_MAX-1}（对应 ngram 长度 {@code lenIdx+1}）。 */
+	public static int bucketsForLengthIndex(int lenIdx) {
+		return bucketsForNgramLen(lenIdx + 1);
+	}
+
+	/** 交错落盘时 {@code (lenIdx, bucket)} 的线性对序号。 */
+	public static int bankPairIndex(int lenIdx, int bucket) {
+		int pair = 0;
+		for (int i = 0; i < lenIdx; i++) {
+			pair += bucketsForLengthIndex(i);
+		}
+		return pair + bucket;
+	}
+
+	public static int totalBankPairs() {
+		int total = 0;
+		for (int li = 0; li < NGRAM_MAX; li++) {
+			total += bucketsForLengthIndex(li);
+		}
+		return total;
+	}
 
 	/**
 	 * 查询侧是否对 {@link cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex#BUCKET_HASH_COUNT}

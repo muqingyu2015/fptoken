@@ -171,9 +171,9 @@ public final class FpTokenTermLayout {
 		BytesRef ref = FpTokenTermLayout.removeColumnAndHeaderBytes(term);
 
 
-		return new String("column_name:"+column_name.utf8ToString()+" index_id:" + read_index_id + " group_id:" + group_id
+		return new String("column_name:"+Utils.BytesReftoString(column_name)+" index_id:" + read_index_id + " group_id:" + group_id
 				+ " level:" + level + " hot:" + ishot + " isdel:" + isdel + " termindex:" + termindex
-				+ " hot_down_tier:" + hot_down_tier + " data:" + ref.utf8ToString());
+				+ " hot_down_tier:" + hot_down_tier + " data:" + Utils.BytesReftoString(ref));
 	}
 	
 	public static void modify_index_id(BytesRef term, int index_id) {

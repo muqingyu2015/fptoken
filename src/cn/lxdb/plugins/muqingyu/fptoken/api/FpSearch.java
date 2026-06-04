@@ -28,6 +28,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpSearchStat;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.Utils;
 
 /**
  * 查询侧：按 ngram {@link BytesRef} 切片在组内 hot/common 位图中定位候选 term 序号，再
@@ -79,7 +80,8 @@ public class FpSearch {
 
 		print_debug(terms);
 		stat.doccount+=maxDoc;
-		final boolean[][] choose = new boolean[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.BUCKETS];
+		final boolean[][] choose = new boolean[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig
+				.maxBucketsPerRow()];
 		for (int i = 0; i < choose.length; i++) {
 			Arrays.fill(choose[i], false);
 		}
@@ -221,7 +223,7 @@ public class FpSearch {
 		}
 
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			LOG.info(DEBUG_UUID+"sparse scan column=" + columnName.utf8ToString() + " maxGroupId=" + maxGroupId);
+			LOG.info(DEBUG_UUID+"sparse scan column=" + Utils.BytesReftoString(columnName) + " maxGroupId=" + maxGroupId);
 		}
 
 		for (BytesRef found = termsEnum.term(); found != null; found = termsEnum.next()) {
@@ -278,7 +280,7 @@ public class FpSearch {
 		final boolean hotHit = searchBankHot(hotBanks, true, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc,acc);
 		if(Lucene80FPSearchConfig.PRINT_DEBUG)
 		{
-			LOG.info(DEBUG_UUID+" searchBankHot " +hotHit+" "+anchorSlice.utf8ToString());
+			LOG.info(DEBUG_UUID+" searchBankHot " +hotHit+" "+Utils.BytesReftoString(anchorSlice));
 
 		}
 
@@ -286,7 +288,7 @@ public class FpSearch {
 			boolean common_hit=searchBankCommon(commonBanks, false, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, acc);
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{
-				LOG.info(DEBUG_UUID+" searchBankCommon " +common_hit+" "+anchorSlice.utf8ToString());
+				LOG.info(DEBUG_UUID+" searchBankCommon " +common_hit+" "+Utils.BytesReftoString(anchorSlice));
 			}
 
 		}
@@ -358,7 +360,7 @@ public class FpSearch {
 		if (bits == null) {
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{
-			LOG.info(DEBUG_UUID+" searchBankCommon bits == null "+anchorSlice.utf8ToString());
+			LOG.info(DEBUG_UUID+" searchBankCommon bits == null "+Utils.BytesReftoString(anchorSlice));
 			}
 			return false;
 		}
@@ -384,7 +386,7 @@ public class FpSearch {
 					columnName, anchorSlice, maxDoc, collect);
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{
-				LOG.info(DEBUG_UUID+" searchBankCommon termIndex = "+termIndex+" status="+status+" "+anchorSlice.utf8ToString());
+				LOG.info(DEBUG_UUID+" searchBankCommon termIndex = "+termIndex+" status="+status+" "+Utils.BytesReftoString(anchorSlice));
 			}
 			if (status == SEEK_OK) {
 				anyHit = true;
@@ -423,7 +425,7 @@ public class FpSearch {
 
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
 			LOG.info(DEBUG_UUID+" seekCeil indexId:" + indexId + " " + groupid + " " + groupLevel + " " + hotMark + " " + termIndex
-					+ " " + slice.utf8ToString());
+					+ " " + Utils.BytesReftoString(slice));
 		}
 		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
 			if(hotMark)
@@ -434,7 +436,7 @@ public class FpSearch {
 			}
 			if (Lucene80FPSearchConfig.PRINT_DEBUG) {
 				LOG.info(DEBUG_UUID+" seekCeil SEEK_MISS indexId:" + indexId + " " + groupid + " " + groupLevel + " " + hotMark + " " + termIndex
-						+ " " + slice.utf8ToString());
+						+ " " + Utils.BytesReftoString(slice));
 			}
 			return SEEK_MISS;
 		}
@@ -442,7 +444,7 @@ public class FpSearch {
 		boolean isDelTerm = FpTokenTermLayout.readIsDelTerm(found);
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
 			LOG.info(DEBUG_UUID+"found indexId:" + indexId + " " + groupid + " " + groupLevel + " " + hotMark + " " + termIndex
-					+ " " + slice.utf8ToString()+" info:"+FpTokenTermLayout.toReadableString(found));
+					+ " " + Utils.BytesReftoString(slice)+" info:"+FpTokenTermLayout.toReadableString(found));
 		}
 		if (!termHeaderMatches(found, columnName, groupid, groupLevel, hotMark, termIndex)) {
 			if(hotMark)
