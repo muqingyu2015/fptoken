@@ -152,14 +152,29 @@ public final class FpGroupHotNgramBitIndex {
 				out.writeBits(banksHot[li][b]);
 				out.writeBits(banksCommon[li][b]);
 
-				if (Lucene80FPSearchConfig.PRINT_DEBUG
-						&& (banksHot[li][b].cardinality() > 0 || banksCommon[li][b].cardinality() > 0)) {
-					LOG.info("bitset " + from + " flushto:" + banksHot[li][b].cardinality() + " "
-							+ banksHot[li][b].nextSetBit(0) + " " + banksCommon[li][b].cardinality() + " "
-							+ banksCommon[li][b].nextSetBit(0) + " " + li + " " + b + " " + info);
-				}
+
+			
 			}
 		}
+		
+		StringBuffer bitsetinfo=new StringBuffer();
+		
+		for (int li = 0; li < Lucene80FPSearchConfig.NGRAM_MAX; li++) {
+			long sum_hot=0;
+			long sum_common=0;
+			for (int b = 0; b < Lucene80FPSearchConfig.BUCKETS; b++) {
+				sum_hot=banksHot[li][b].cardinality();
+				sum_common=banksCommon[li][b].cardinality();
+			}
+			int rage_hot=(int) ((sum_hot*1000)/Math.max(hotNumBits, 1));
+			int rage_common=(int) ((sum_common*1000)/Math.max(commonNumBits, 1));
+
+			bitsetinfo.append("["+rage_hot+","+hotNumBits+","+rage_common+","+commonNumBits+"]");
+			
+		}
+		
+		LOG.info("bitsetflush " + from +" "+ bitsetinfo+" " + info);
+		
 		return info;
 	}
 
