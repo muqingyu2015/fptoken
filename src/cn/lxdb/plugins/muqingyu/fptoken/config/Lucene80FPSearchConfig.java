@@ -38,6 +38,13 @@ public final class Lucene80FPSearchConfig {
 
 	public static final int BUCKETS = 1024;
 
+	/**
+	 * 查询侧是否对 {@link cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex#BUCKET_HASH_COUNT}
+	 * 路桶位图做 AND。旧段仅写过 {@link cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex#bucketIndex1}
+	 * 时置 false，否则 bitHit 恒为 0。
+	 */
+	public static boolean BITSET_MULTI_HASH_AND = true;
+
 	public static final short DEFAULT_INDEX_ID = 0;
 
 	public static boolean PRINT_DEBUG = false;

@@ -172,8 +172,8 @@ public final class FpGroupHotNgramBitIndex {
 				hot_max=Math.max(hot_max, hot);
 				common_max=Math.max(common_max, common);
 			}
-			int rage_hot=(int) ((sum_hot*10000)/Math.max(hotNumBits, 1));
-			int rage_common=(int) ((sum_common*10000)/Math.max(commonNumBits, 1));
+			int rage_hot=(int) (((sum_hot*10000)/Lucene80FPSearchConfig.BUCKETS)/Math.max(hotNumBits, 1));
+			int rage_common=(int) (((sum_common*10000)/Lucene80FPSearchConfig.BUCKETS)/Math.max(commonNumBits, 1));
 
 			bitsetinfo.append("["+rage_hot+","+hot_max+","+hotNumBits+","+rage_common+","+common_max+","+commonNumBits+"]");
 			
@@ -260,9 +260,15 @@ public final class FpGroupHotNgramBitIndex {
 		return rtn;
 	}
 
-	/** 1 字节：桶号即该字节；2~N 字节：31*h+c 多项式折叠到 0..255。 */
+	private static int foldToBucket(int hv) {
+		return hv & (Lucene80FPSearchConfig.BUCKETS - 1);
+	}
+
+	/** 1 字节：桶号即该字节；2~N 字节：31*h+c 多项式折叠到 {@code 0..BUCKETS-1}。 */
 	public static int bucketIndex1(byte[] buf, int off, int len) {
-		
+		if (len <= 0) {
+			return 0;
+		}
 		if (len == 1) {
 			return buf[off] & 0xFF;
 		}
@@ -270,13 +276,17 @@ public final class FpGroupHotNgramBitIndex {
 		for (int i = 0; i < len; i++) {
 			hv = 31 * hv + (buf[off + i] & 0xFF);
 		}
-		return (hv ^ (hv >>> 8) ^ (hv >>> 16) ^ (hv >>> 24)) & 0xFF;
+		return foldToBucket(hv ^ (hv >>> 8) ^ (hv >>> 16) ^ (hv >>> 24));
 	}
 
 	/** 第二路：FNV-1a + Murmur 终混；1 字节为轻量混洗（与 {@link #bucketIndex1} 区分）。 */
 	public static int bucketIndex2(byte[] buf, int off, int len) {
+		if (len <= 0) {
+			return 0;
+		}
 		if (len == 1) {
-			return buf[off] & 0xFF;
+			final int b = buf[off] & 0xFF;
+			return foldToBucket(b * 0x01000193 ^ (b >>> 4) ^ (b << 3));
 		}
 		int hv = 0x811c9dc5;
 		for (int i = 0; i < len; i++) {
@@ -286,14 +296,17 @@ public final class FpGroupHotNgramBitIndex {
 		hv ^= hv >>> 13;
 		hv *= 0x5bd1e995;
 		hv ^= hv >>> 15;
-		return hv & 0xFF;
+		return foldToBucket(hv);
 	}
 
 	/** 第三路：djb2 + 旋转混洗；1 字节用 golden-ratio 混洗。 */
 	public static int bucketIndex3(byte[] buf, int off, int len) {
-		
+		if (len <= 0) {
+			return 0;
+		}
 		if (len == 1) {
-			return buf[off] & 0xFF;
+			final int b = buf[off] & 0xFF;
+			return foldToBucket(b * 0x9e3779b9 ^ (b >>> 5) ^ (b << 2));
 		}
 		int hv = 5381;
 		for (int i = 0; i < len; i++) {
@@ -302,7 +315,7 @@ public final class FpGroupHotNgramBitIndex {
 		hv ^= Integer.rotateRight(hv, 11);
 		hv *= 0x85ebca6b;
 		hv ^= hv >>> 13;
-		return hv & 0xFF;
+		return foldToBucket(hv);
 	}
 
 

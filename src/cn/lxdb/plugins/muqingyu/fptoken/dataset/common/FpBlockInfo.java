@@ -16,8 +16,8 @@ public class FpBlockInfo {
 
 	/**
 	 * 交错区起点：{@code banksHot[0][0]} 在 bit 文件中的偏移。
-	 * 第 {@code (li * 256 + b)} 对为
-	 * {@code fpBanksHot00 + (li * 256 + b) * (bytesPerHotSerialized + bytesPerCommonSerialized)}。
+	 * 第 {@code (li * BUCKETS + b)} 对为
+	 * {@code fpBanksHot + (li * BUCKETS + b) * (bytesPerHotSerialized + bytesPerCommonSerialized)}。
 	 */
 	public  long fpBanksHot;
 	@Override
@@ -115,7 +115,8 @@ public class FpBlockInfo {
 
 	/** 第 {@code li} 长度、桶 {@code b} 的热词 bitset 在 bit 文件中的起始偏移。 */
 	public long hotBankOffset(int li, int b) {
-		final long pair = (long) li * 256L + (long) b;
+		final long pair = (long) li * (long) cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig.BUCKETS
+				+ (long) b;
 		return fpBanksHot + pair * (long) (bytesPerHotSerialized + bytesPerCommonSerialized);
 	}
 
