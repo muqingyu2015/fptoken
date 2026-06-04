@@ -183,12 +183,12 @@ public final class FpGroupHotNgramBitIndex {
 
 		for (Map.Entry<FpTermKey, Integer> e : hotOrder.entrySet()) {
 			final int order = e.getValue().intValue();
-			markNgramsForPayload(hotBanks,  e.getKey().bytesRef(), order, numBitsHot);
+			markNgramsForPayload(false,null,hotBanks,  e.getKey().bytesRef(), order, numBitsHot);
 		}
 
 		for (Map.Entry<FpTermKey, Integer> e : commonOrder.entrySet()) {
 			final int order = e.getValue().intValue();
-			markNgramsForPayload(commonBanks,  e.getKey().bytesRef(), order, numBitsCommon);
+			markNgramsForPayload(true,hotOrder,commonBanks,  e.getKey().bytesRef(), order, numBitsCommon);
 		}
 
 		return new FpGroupHotNgramBitIndex(targetLevel,hotBanks, commonBanks, numBitsHot, numBitsCommon, h, c);
@@ -234,7 +234,7 @@ public final class FpGroupHotNgramBitIndex {
 	/**
 	 * @param hotDocs       仅当 {@code skipIfInHot} 为 true 时使用：切片若已是热词整键则跳过
 	 */
-	private static void markNgramsForPayload(FixedBitSet[][] banks, 
+	private static void markNgramsForPayload(boolean skipIfInHot,TreeMap<FpTermKey, Integer> hotTermCheck,FixedBitSet[][] banks, 
 			BytesRef payload, int order, int numBits) {
 		if (order < 1 || order > numBits) {
 			return;
@@ -248,9 +248,9 @@ public final class FpGroupHotNgramBitIndex {
 		for (int start = 0; start < payloadLen; start++) {
 			for (int n = Lucene80FPSearchConfig.NGRAM_MIN; n <= Lucene80FPSearchConfig.NGRAM_MAX && start + n <= payloadLen; n++) {
 				final BytesRef slice = new BytesRef(payload.bytes, base + start, n);
-//				if (skipIfInHot && hotTermCheck != null && hotTermCheck.containsKey(FpTermKey.viewOf(slice))) {
-//					continue;
-//				}
+				if (skipIfInHot && hotTermCheck != null && hotTermCheck.containsKey(FpTermKey.viewOf(slice))) {
+					continue;
+				}
 				final int bucket = bucketIndex(slice.bytes, slice.offset, slice.length);
 				banks[n - 1][bucket].set(bit);
 				if(Lucene80FPSearchConfig.PRINT_DEBUG)
