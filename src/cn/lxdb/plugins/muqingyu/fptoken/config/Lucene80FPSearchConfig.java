@@ -54,6 +54,6 @@ public final class Lucene80FPSearchConfig {
 	public static final int BITSET_WINDOW_SIZE = 32;
 
 	/** 位图类字段默认滑窗步进（字节）。 */
-	public static final int BITSET_STEP_SIZE = BITSET_WINDOW_SIZE-NGRAM_MAX;
+	public static final int BITSET_STEP_SIZE = 24;
 
 }

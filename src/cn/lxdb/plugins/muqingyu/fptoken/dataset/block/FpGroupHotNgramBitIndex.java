@@ -162,14 +162,20 @@ public final class FpGroupHotNgramBitIndex {
 		for (int li = 0; li < Lucene80FPSearchConfig.NGRAM_MAX; li++) {
 			long sum_hot=0;
 			long sum_common=0;
+			long hot_max=0;
+			long common_max=0;
 			for (int b = 0; b < Lucene80FPSearchConfig.BUCKETS; b++) {
-				sum_hot=banksHot[li][b].cardinality();
-				sum_common=banksCommon[li][b].cardinality();
+				int hot=banksHot[li][b].cardinality();
+				int common=banksCommon[li][b].cardinality();
+				sum_hot+=hot;
+				sum_common+=common;
+				hot_max=Math.max(hot_max, hot);
+				common_max=Math.max(common_max, common);
 			}
-			int rage_hot=(int) ((sum_hot*1000)/Math.max(hotNumBits, 1));
-			int rage_common=(int) ((sum_common*1000)/Math.max(commonNumBits, 1));
+			int rage_hot=(int) ((sum_hot*10000)/Math.max(hotNumBits, 1));
+			int rage_common=(int) ((sum_common*10000)/Math.max(commonNumBits, 1));
 
-			bitsetinfo.append("["+rage_hot+","+hotNumBits+","+rage_common+","+commonNumBits+"]");
+			bitsetinfo.append("["+rage_hot+","+hot_max+","+hotNumBits+","+rage_common+","+common_max+","+commonNumBits+"]");
 			
 		}
 		

@@ -114,35 +114,10 @@ public final class FpGroupHotNgramRebuild {
 		hotTermToDocs.putAll(hotTermsPendingDocMerge);
 		stat.hot_final = hotTermToDocs.size();
 
-		logNgramDiag(commonSize, maxDocUnion, hotFreqThreshold, stat);
 		return stat;
 	}
 
-	/** 固定前缀 {@code fp_ngram_diag}，便于 {@code grep fp_ngram_diag} 收集。 */
-	private static void logNgramDiag(int commonSize, int distinctDocUnion, long hotFreqThreshold, FpStatNgram stat) {
-		if (stat.freqThreshold_keep > 100 && stat.hot_final < stat.freqThreshold_keep / 10) {
-			LOG.warn(
-					"fp_ngram_diag_KEY_SUSPECT freqThreshold_keep={} hot_pending={} hot_final={} distinct_ngram={} "
-							+ "(hot_final 应接近 hot_pending；若 hot_final≈1 多为 Map 键被 viewOf+可变切片污染)",
-					stat.freqThreshold_keep, stat.hot_pending, stat.hot_final, stat.distinct_ngram);
-		}
-		if (stat.hot_pending > 0 && stat.ngram_level_ok == 0 && stat.ngram_level_skip == 0
-				&& stat.hot_doc_cnt_keep > 0) {
-			LOG.warn(
-					"fp_ngram_diag_BUDGET_SUSPECT hot_doc_cnt_keep={} ngram_level_ok=0 ngram_level_skip=0 budget_entries={} "
-							+ "(有 merge 但从未命中 downTier 标记，检查 hotTermDownTierBudget 键)",
-					stat.hot_doc_cnt_keep, stat.budget_entries);
-		}
-		if (!Lucene80FPSearchConfig.LOG_FP_NGRAM_DIAG) {
-			return;
-		}
-		LOG.info(
-				"fp_ngram_diag common={} distinctDocUnion={} hotFreqThreshold={} distinct_ngram={} hot_pending={} hot_final={} "
-						+ "budget_entries={} hot_doclist_sparse={}/{} phases_ms=count:{}+build:{}+budget:{}+merge:{} {}",
-				commonSize, distinctDocUnion, hotFreqThreshold, stat.distinct_ngram, stat.hot_pending, stat.hot_final,
-				stat.budget_entries, stat.hot_doclist_sparse, stat.hot_pending, stat.ms_count, stat.ms_build,
-				stat.ms_budget, stat.ms_merge, stat);
-	}
+	
 
 	/**
 	 * 为每个热词锚点计算 {@code hotTermDownTierBudget}：从锚点字节长向下，累加各档已登记子串个数；
