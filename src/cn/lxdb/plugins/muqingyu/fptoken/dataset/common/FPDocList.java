@@ -15,6 +15,10 @@ public final class FPDocList {
 
 	private static final int MAX_ARRAY_DOCS = 1024;
 	private static final int INITIAL_ARRAY = 32;
+	/** rebuild merge 反复并入时，尽早升 {@link SparseFixedBitSet}，避免大量 {@link #mergeSortedDocArrays}。 */
+	private static final int EARLY_SPARSE_MERGE_THRESHOLD = 8;
+	/** common 源 posting 达到该 doc 数则在单 common 内先稀疏化，供热词侧 {@link #addAllDocsFrom} 走 or。 */
+	public static final int MERGE_SOURCE_SPARSE_THRESHOLD = 8;
 
 	public final int maxDoc;
 	public int[] orderedDocs;
@@ -123,6 +127,13 @@ public final class FPDocList {
 		if (other.docsSparse == null && other.docCount == 0) {
 			return;
 		}
+		if (docsSparse == null) {
+			final int otherSize = other.docsSparse != null ? other.docsSparse.cardinality() : other.docCount;
+			if (docCount >= EARLY_SPARSE_MERGE_THRESHOLD || otherSize >= EARLY_SPARSE_MERGE_THRESHOLD
+					|| docCount + otherSize > EARLY_SPARSE_MERGE_THRESHOLD) {
+				promoteToSparse();
+			}
+		}
 		if (docsSparse != null) {
 			if (other.docsSparse != null) {
 				final long cost = other.docsSparse.cardinality();
@@ -197,6 +208,20 @@ public final class FPDocList {
 			return -1;
 		}
 		return bits.nextSetBit(next);
+	}
+
+	/** rebuild merge 批次：热词 posting 在大量 {@link #addAllDocsFrom} 之前统一升稀疏。 */
+	public void ensureSparseForBulkMerge() {
+		if (docsSparse == null) {
+			promoteToSparse();
+		}
+	}
+
+	/** 单 common 词被并入多个热词前，将源 doclist 升为稀疏以便 or 快速路径。 */
+	public void ensureSparseIfMergeSource() {
+		if (docsSparse == null && docCount >= MERGE_SOURCE_SPARSE_THRESHOLD) {
+			promoteToSparse();
+		}
 	}
 
 	private void promoteToSparse() {
