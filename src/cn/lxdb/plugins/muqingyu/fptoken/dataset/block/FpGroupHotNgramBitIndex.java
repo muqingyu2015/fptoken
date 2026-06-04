@@ -1,7 +1,9 @@
 package cn.lxdb.plugins.muqingyu.fptoken.dataset.block;
 
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 import org.apache.lucene.index.CorruptIndexException;
@@ -181,14 +183,20 @@ public final class FpGroupHotNgramBitIndex {
 		final TreeMap<FpTermKey, Integer> hotOrder = group.hotTermOrderInternal();
 		final TreeMap<FpTermKey, Integer> commonOrder = group.commonTermOrderInternal();
 
+		// common 位图跳过已是热词的切片：用 HashSet O(1)，勿对每个滑窗 TreeMap.containsKey
+		final HashSet<FpTermKey> hotKeySet = new HashSet<>(Math.max(16, h * 2));
+		for (FpTermKey hotKey : hotOrder.keySet()) {
+			hotKeySet.add(hotKey);
+		}
+
 		for (Map.Entry<FpTermKey, Integer> e : hotOrder.entrySet()) {
 			final int order = e.getValue().intValue();
-			markNgramsForPayload(false,null,hotBanks,  e.getKey().bytesRef(), order, numBitsHot);
+			markNgramsForPayload(hotBanks, e.getKey().bytesRef(), order, numBitsHot);
 		}
 
 		for (Map.Entry<FpTermKey, Integer> e : commonOrder.entrySet()) {
 			final int order = e.getValue().intValue();
-			markNgramsForPayload(true,hotOrder,commonBanks,  e.getKey().bytesRef(), order, numBitsCommon);
+			markCommonNgramsByUniqueSlices(hotKeySet, commonBanks, e.getKey().bytesRef(), order, numBitsCommon);
 		}
 
 		return new FpGroupHotNgramBitIndex(targetLevel,hotBanks, commonBanks, numBitsHot, numBitsCommon, h, c);
@@ -232,9 +240,10 @@ public final class FpGroupHotNgramBitIndex {
 	}
 
 	/**
-	 * @param hotDocs       仅当 {@code skipIfInHot} 为 true 时使用：切片若已是热词整键则跳过
+	 * common 位图：先收集载荷内<strong>去重</strong> ngram 再查热词集并 set bit。
+	 * 与逐滑窗 {@link #markNgramsForPayload} 等价（同切片同桶，set 幂等），但避免 O(滑窗数×|hotKeySet|) 次字节比较。
 	 */
-	private static void markNgramsForPayload(boolean skipIfInHot,TreeMap<FpTermKey, Integer> hotTermCheck,FixedBitSet[][] banks, 
+	private static void markCommonNgramsByUniqueSlices(HashSet<FpTermKey> hotKeySet, FixedBitSet[][] banks,
 			BytesRef payload, int order, int numBits) {
 		if (order < 1 || order > numBits) {
 			return;
@@ -245,17 +254,60 @@ public final class FpGroupHotNgramBitIndex {
 			return;
 		}
 		final int base = payload.offset;
+		final BytesRef sliceScratch = new BytesRef();
+		sliceScratch.bytes = payload.bytes;
+		final int uniqueCap = Math.max(16, Math.min(payloadLen * 4, 4096));
+		final HashSet<FpTermKey> uniqueSlices = new HashSet<>(uniqueCap);
 		for (int start = 0; start < payloadLen; start++) {
-			for (int n = Lucene80FPSearchConfig.NGRAM_MIN; n <= Lucene80FPSearchConfig.NGRAM_MAX && start + n <= payloadLen; n++) {
-				final BytesRef slice = new BytesRef(payload.bytes, base + start, n);
-				if (skipIfInHot && hotTermCheck != null && hotTermCheck.containsKey(FpTermKey.viewOf(slice))) {
+			for (int n = Lucene80FPSearchConfig.NGRAM_MIN; n <= Lucene80FPSearchConfig.NGRAM_MAX
+					&& start + n <= payloadLen; n++) {
+				sliceScratch.offset = base + start;
+				sliceScratch.length = n;
+				if (uniqueSlices.contains(FpTermKey.viewOf(sliceScratch))) {
 					continue;
 				}
-				final int bucket = bucketIndex(slice.bytes, slice.offset, slice.length);
+				uniqueSlices.add(FpTermKey.copyOf(sliceScratch));
+			}
+		}
+		for (FpTermKey key : uniqueSlices) {
+			if (hotKeySet.contains(key)) {
+				continue;
+			}
+			final BytesRef br = key.bytesRef();
+			final int bucket = bucketIndex(br.bytes, br.offset, br.length);
+			banks[br.length - 1][bucket].set(bit);
+			if (Lucene80FPSearchConfig.PRINT_DEBUG) {
+				LOG.info("markCommonNgramsByUniqueSlices {} {} {}", br.length - 1, bucket, br.utf8ToString());
+			}
+		}
+	}
+
+	/**
+	 * @param hotDocs       仅当 {@code skipIfInHot} 为 true 时使用：切片若已是热词整键则跳过
+	 */
+	private static void markNgramsForPayload(FixedBitSet[][] banks,
+			BytesRef payload, int order, int numBits) {
+		if (order < 1 || order > numBits) {
+			return;
+		}
+		final int bit = order;
+		final int payloadLen = payload.length;
+		if (payloadLen <= 0) {
+			return;
+		}
+		final int base = payload.offset;
+		final BytesRef sliceScratch = new BytesRef();
+		sliceScratch.bytes = payload.bytes;
+		for (int start = 0; start < payloadLen; start++) {
+			for (int n = Lucene80FPSearchConfig.NGRAM_MIN; n <= Lucene80FPSearchConfig.NGRAM_MAX && start + n <= payloadLen; n++) {
+				sliceScratch.offset = base + start;
+				sliceScratch.length = n;
+				
+				final int bucket = bucketIndex(sliceScratch.bytes, sliceScratch.offset, sliceScratch.length);
 				banks[n - 1][bucket].set(bit);
 				if(Lucene80FPSearchConfig.PRINT_DEBUG)
 				{
-					LOG.info("markNgramsForPayload " +(n - 1)+" "+bucket +" "+slice.utf8ToString());
+					LOG.info("markNgramsForPayload " +(n - 1)+" "+bucket +" "+sliceScratch.utf8ToString());
 				}
 			}
 		}
