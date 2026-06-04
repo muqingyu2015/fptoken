@@ -44,7 +44,7 @@ public final class Lucene80FPSearchConfig {
 	 * 查询侧：每个 slice 除自身外，再向下探查几档更短连续子串以 AND 位图（减误命中）。
 	 * 例如 {@code SEARCH_BITSET_PROBE_LAYERS_DOWN=1} 且 slice 为 {@code abcd} 时额外加载 {@code abc}、{@code bcd}。
 	 */
-	public static final int SEARCH_BITSET_PROBE_LAYERS_DOWN = 1;
+	public static final int SEARCH_BITSET_PROBE_LAYERS_DOWN = 0;
 
 	public static boolean PRINT_DEBUG = false;
 

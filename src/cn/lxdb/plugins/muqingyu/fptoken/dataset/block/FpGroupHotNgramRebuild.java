@@ -69,12 +69,14 @@ public final class FpGroupHotNgramRebuild {
 		countNgramOccurrencesInCommon(stat, commonTermToDocs, ngramOccurrenceCount);
 
 		final HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm = new HashMap<>(mapCapacity);
-		final TreeMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = buildHotTermsAndAnchorTierIndex(stat,
+		final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = buildHotTermsAndAnchorTierIndex(stat,
 				ngramOccurrenceCount, hotFreqThreshold, maxDoc, anchorTierIndexByHotTerm);
 
 		computeHotDownTierBudgets(stat,hotTermDownTierBudget, anchorTierIndexByHotTerm, hotFreqThreshold);
 
-		mergeCommonDocsIntoHotTerms(stat, commonTermToDocs, hotTermsPendingDocMerge, hotTermDownTierBudget);
+		// merge 阶段大量 get：一次性拷贝为 HashMap，规则不变，仅加速查找
+		final HashMap<FpTermKey, Integer> hotTermDownTierBudgetFast = new HashMap<>(hotTermDownTierBudget);
+		mergeCommonDocsIntoHotTerms(stat, commonTermToDocs, hotTermsPendingDocMerge, hotTermDownTierBudgetFast);
 		anchorTierIndexByHotTerm.clear();
 
 		hotTermToDocs.putAll(hotTermsPendingDocMerge);
@@ -110,6 +112,7 @@ public final class FpGroupHotNgramRebuild {
 	private static void countNgramOccurrencesInCommon(FpStatNgram stat, TreeMap<FpTermKey, FPDocList> commonTermToDocs,
 			HashMap<FpTermKey, Integer> ngramOccurrenceCount) {
 		final Set<FpTermKey> uniqueNgramsThisCommonTerm = new HashSet<>();
+		final BytesRef sliceScratch = new BytesRef();
 
 		for (Map.Entry<FpTermKey, FPDocList> entry : commonTermToDocs.entrySet()) {
 			final BytesRef commonPayload = entry.getKey().bytesRef();
@@ -119,13 +122,16 @@ public final class FpGroupHotNgramRebuild {
 			}
 			stat.term_cnt++;
 			uniqueNgramsThisCommonTerm.clear();
+			final byte[] bytes = commonPayload.bytes;
 			final int base = commonPayload.offset;
+			sliceScratch.bytes = bytes;
 			for (int start = 0; start < payloadLen; start++) {
 				for (int ngramLen = Lucene80FPSearchConfig.NGRAM_MIN; ngramLen <= Lucene80FPSearchConfig.NGRAM_MAX
 						&& start + ngramLen <= payloadLen; ngramLen++) {
-					final BytesRef slice = new BytesRef(commonPayload.bytes, base + start, ngramLen);
+					sliceScratch.offset = base + start;
+					sliceScratch.length = ngramLen;
 					stat.token_cnt++;
-					final FpTermKey ngramKey = FpTermKey.viewOf(slice);
+					final FpTermKey ngramKey = FpTermKey.viewOf(sliceScratch);
 
 					if (!uniqueNgramsThisCommonTerm.add(ngramKey)) {
 						continue;
@@ -140,10 +146,11 @@ public final class FpGroupHotNgramRebuild {
 	 * 频率达阈值的热词放入结果表（空 doclist），并在 {@code anchorTierIndexByHotTerm} 中按字节长度档登记锚点内的子串
 	 * （单档 {@link TreeSet} 规模有上限，避免统计爆炸）。
 	 */
-	private static TreeMap<FpTermKey, FPDocList> buildHotTermsAndAnchorTierIndex(FpStatNgram stat,
+	private static HashMap<FpTermKey, FPDocList> buildHotTermsAndAnchorTierIndex(FpStatNgram stat,
 			HashMap<FpTermKey, Integer> ngramOccurrenceCount, long hotFreqThreshold, int maxDoc,
 			HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm) {
-		final TreeMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = new TreeMap<>(FpTermKey.ORDER_BY_LENGTH_THEN_BYTES);
+		final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = new HashMap<>(
+				Math.max(16, ngramOccurrenceCount.size() / 4));
 		final int tierSetSizeCap = (int) (hotFreqThreshold * 2);
 
 		for (Map.Entry<FpTermKey, Integer> entry : ngramOccurrenceCount.entrySet()) {
@@ -185,9 +192,10 @@ public final class FpGroupHotNgramRebuild {
 	 * 遍历 common，把 doc 合并到热词 ngram（长 ngram 优先）；在 maxDown 预算内的父前缀在本 common 词内标记为已 merge，避免重复写入。
 	 */
 	private static void mergeCommonDocsIntoHotTerms(final FpStatNgram stat, TreeMap<FpTermKey, FPDocList> commonTermToDocs,
-			TreeMap<FpTermKey, FPDocList> hotTermsPendingDocMerge, final TreeMap<FpTermKey, Integer> hotTermDownTierBudget)
+			HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge, final HashMap<FpTermKey, Integer> hotTermDownTierBudget)
 			throws IOException {
 		final Set<FpTermKey> mergedHotKeysThisCommonTerm = new HashSet<>();
+		final BytesRef sliceScratch = new BytesRef();
 
 		for (Map.Entry<FpTermKey, FPDocList> entry : commonTermToDocs.entrySet()) {
 			final BytesRef commonPayload = entry.getKey().bytesRef();
@@ -198,13 +206,16 @@ public final class FpGroupHotNgramRebuild {
 			}
 
 			mergedHotKeysThisCommonTerm.clear();
+			final byte[] bytes = commonPayload.bytes;
 			final int base = commonPayload.offset;
+			sliceScratch.bytes = bytes;
 
 			for (int ngramLen = Lucene80FPSearchConfig.NGRAM_MAX; ngramLen >= Lucene80FPSearchConfig.NGRAM_MIN; ngramLen--) {
 				for (int start = 0; start + ngramLen <= payloadLen; start++) {
 
-					final BytesRef slice = new BytesRef(commonPayload.bytes, base + start, ngramLen);
-					final FpTermKey hotNgramKey = FpTermKey.viewOf(slice);
+					sliceScratch.offset = base + start;
+					sliceScratch.length = ngramLen;
+					final FpTermKey hotNgramKey = FpTermKey.viewOf(sliceScratch);
 
 					final FPDocList hotDocList = hotTermsPendingDocMerge.get(hotNgramKey);
 					if (hotDocList != null) {
@@ -215,7 +226,8 @@ public final class FpGroupHotNgramRebuild {
 						stat.hot_doc_cnt_keep++;
 
 						hotDocList.addAllDocsFrom(sourceDocList);
-						markParentPrefixesSkippedInCommonTerm(stat, slice, mergedHotKeysThisCommonTerm, hotTermDownTierBudget);
+						markParentPrefixesSkippedInCommonTerm(stat, sliceScratch, mergedHotKeysThisCommonTerm,
+								hotTermDownTierBudget);
 					}
 				}
 			}
@@ -228,19 +240,21 @@ public final class FpGroupHotNgramRebuild {
 	 * 父前缀非热词（无 level）则跳过。
 	 */
 	public static void markParentPrefixesSkippedInCommonTerm(final FpStatNgram stat, final BytesRef matchedHotSlice,
-			final Set<FpTermKey> mergedHotKeysThisCommonTerm, final TreeMap<FpTermKey, Integer> hotTermDownTierBudget) {
+			final Set<FpTermKey> mergedHotKeysThisCommonTerm, final HashMap<FpTermKey, Integer> hotTermDownTierBudget) {
 		final int childByteLen = matchedHotSlice.length;
 		final int childOffset = matchedHotSlice.offset;
+		final BytesRef parentScratch = new BytesRef(matchedHotSlice.bytes, childOffset, 0);
 
 		for (int parentLen = matchedHotSlice.length - 1; parentLen >= Lucene80FPSearchConfig.NGRAM_MIN; parentLen--) {
 			for (int start = 0; start + parentLen <= childByteLen; start++) {
-				final BytesRef parentPrefixSlice = new BytesRef(matchedHotSlice.bytes, childOffset + start, parentLen);
-				final FpTermKey parentHotKey = FpTermKey.viewOf(parentPrefixSlice);
+				parentScratch.offset = childOffset + start;
+				parentScratch.length = parentLen;
+				final FpTermKey parentHotKey = FpTermKey.viewOf(parentScratch);
 				final Integer parentDownTierBudget = hotTermDownTierBudget.get(parentHotKey);
 				if (parentDownTierBudget == null) {
 					continue;
 				}
-				final int extensionBytesFromParent = childByteLen - parentPrefixSlice.length;
+				final int extensionBytesFromParent = childByteLen - parentLen;
 				if (extensionBytesFromParent < parentDownTierBudget) {
 					mergedHotKeysThisCommonTerm.add(parentHotKey);
 					stat.ngram_level_ok++;

@@ -140,9 +140,51 @@ public final class FPDocList {
 			docsSparse.or(new BitSetIterator(other.docsSparse, cost));
 			return;
 		}
-		for (int i = 0; i < other.docCount; i++) {
-			addDoc(other.orderedDocs[i]);
+		if (docCount == 0) {
+			orderedDocs = Arrays.copyOf(other.orderedDocs, other.docCount);
+			docCount = other.docCount;
+			return;
 		}
+		mergeSortedDocArrays(other.orderedDocs, other.docCount);
+	}
+
+	/** 双方 doc 已严格递增时线性归并；条数超 {@link #MAX_ARRAY_DOCS} 则升位图完成并入。 */
+	private void mergeSortedDocArrays(int[] otherDocs, int otherLen) {
+		final int[] a = orderedDocs;
+		final int aLen = docCount;
+		if (aLen + otherLen > MAX_ARRAY_DOCS) {
+			for (int j = 0; j < otherLen; j++) {
+				addDoc(otherDocs[j]);
+			}
+			return;
+		}
+		final int[] out = new int[aLen + otherLen];
+		int i = 0;
+		int j = 0;
+		int w = 0;
+		while (i < aLen && j < otherLen) {
+			final int da = a[i];
+			final int db = otherDocs[j];
+			if (da < db) {
+				out[w++] = da;
+				i++;
+			} else if (db < da) {
+				out[w++] = db;
+				j++;
+			} else {
+				out[w++] = da;
+				i++;
+				j++;
+			}
+		}
+		while (i < aLen) {
+			out[w++] = a[i++];
+		}
+		while (j < otherLen) {
+			out[w++] = otherDocs[j++];
+		}
+		orderedDocs = out;
+		docCount = w;
 	}
 
 	/**
