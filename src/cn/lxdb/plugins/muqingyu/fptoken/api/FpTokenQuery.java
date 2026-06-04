@@ -52,9 +52,9 @@ public class FpTokenQuery extends Query {
         String tokentext=fieldParse[1];
        
         byte[] sourceBytes=FpToken.textToSourceBytes(tokentext, mode);
-        List<WindowTerm> windows = BinarySlidingWindowApi.slidingWindows(sourceBytes, 0, sourceBytes.length,Lucene80FPSearchConfig.NGRAM_MAX,Lucene80FPSearchConfig.NGRAM_MAX);
+        List<WindowTerm> windows = BinarySlidingWindowApi.slidingWindows(sourceBytes, 0, sourceBytes.length,Lucene80FPSearchConfig.NGRAM_MAX,Lucene80FPSearchConfig.NGRAM_MAX-1);
 
-        LOG.info("search in "+tokenField+"@"+tokentext+" "+fieldName);
+//        LOG.info("search in "+tokenField+"@"+tokentext+" "+fieldName);
 
         Map<FpToken.DedupKey, FpToken.PendingTerm> firstOccurrence = new LinkedHashMap<>();
         for (int i = 0; i < windows.size(); i++) {

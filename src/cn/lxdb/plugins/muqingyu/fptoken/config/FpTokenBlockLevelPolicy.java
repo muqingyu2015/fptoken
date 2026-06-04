@@ -16,9 +16,9 @@ public final class FpTokenBlockLevelPolicy {
 	public final static int BLOCK_LEVEL_LOW=1;
 	public final static int BLOCK_LEVEL_NOGROUP=0;
 	
-	public final static int BLOCK_LEVEL_HIGH_CNT=20480;
-	public final static int BLOCK_LEVEL_MID_CNT=5120;
-	public final static int BLOCK_LEVEL_LOW_CNT=1024; 
+	public final static int BLOCK_LEVEL_HIGH_CNT=10240;
+	public final static int BLOCK_LEVEL_MID_CNT=2048;
+	public final static int BLOCK_LEVEL_LOW_CNT=512; 
 	public static final int NO_INDEX_THRESHOLD = 128;
 
 	public static double getOverRate(int level) {

@@ -30,13 +30,13 @@ public final class Lucene80FPSearchConfig {
 
 	public static final int NGRAM_MIN = 1;
 
-	public static final int NGRAM_MAX = 6;
+	public static final int NGRAM_MAX = 4;
 
 	/** 热词频率挖掘阈值（{@link cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild}）及「按档计数」上限。 */
 	public static final int HOT_TIER_TERM_COUNT_THRESHOLD = 16;
 
 
-	public static final int BUCKETS = 1024;
+	public static final int BUCKETS = 256;
 
 	/**
 	 * 查询侧是否对 {@link cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex#BUCKET_HASH_COUNT}
@@ -58,9 +58,9 @@ public final class Lucene80FPSearchConfig {
 	public static boolean LOG_FP_NGRAM_DIAG = true;
 
 	/** 位图类字段默认滑窗宽度（字节）。 */
-	public static final int BITSET_WINDOW_SIZE = 32;
+	public static final int BITSET_WINDOW_SIZE = 64;
 
 	/** 位图类字段默认滑窗步进（字节）。 */
-	public static final int BITSET_STEP_SIZE = 24;
+	public static final int BITSET_STEP_SIZE = BITSET_WINDOW_SIZE-NGRAM_MAX;
 
 }
