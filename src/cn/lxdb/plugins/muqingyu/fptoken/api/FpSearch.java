@@ -26,6 +26,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpSearchStat;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 
 /**
@@ -36,6 +37,11 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
  * 对应位图做 AND，再 seek，以降低单桶误命中率。
  */
 public class FpSearch {
+
+	public FpSearchStat stat;
+	public FpSearch(FpSearchStat stat) {
+		this.stat = stat;
+	}
 
 	public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 	public String DEBUG_UUID=Lucene80FPSearchConfig.PRINT_DEBUG?java.util.UUID.randomUUID().toString():"";
@@ -68,10 +74,11 @@ public class FpSearch {
 	 * @param slices       查询串滑窗切片（长度须在 {@link Lucene80FPSearchConfig#NGRAM_MIN}..{@link Lucene80FPSearchConfig#NGRAM_MAX}）
 	 * @return 同时命中全部 slice 的 doc 集合（AND）；无切片或任一切片无命中则返回空集
 	 */
-	public FixedBitSet search(TreeMap<Integer, FpBlockInfo> fpblock_list, Terms terms, int maxDoc, BytesRef columnName,
+	public FixedBitSet search( TreeMap<Integer, FpBlockInfo> fpblock_list, Terms terms, int maxDoc, BytesRef columnName,
 			BytesRef[] slices) throws IOException {
 
 		print_debug(terms);
+		stat.doccount+=maxDoc;
 		final boolean[][] choose = new boolean[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.BUCKETS];
 		for (int i = 0; i < choose.length; i++) {
 			Arrays.fill(choose[i], false);
@@ -96,6 +103,8 @@ public class FpSearch {
 			if (!fieldInfoMatchesColumn(blkinfo, columnName)) {
 				continue;
 			}
+			
+			stat.blkCount[blkinfo.targetLevel]+=slices.length;
 			final int groupId = e.getKey().intValue();
 			if (groupId > maxGroupId) {
 				maxGroupId = groupId;
@@ -123,6 +132,7 @@ public class FpSearch {
 					}
 					
 					LOG.info(DEBUG_UUID+" bitset slice:" +slice.utf8ToString()+" "+buff);
+
 				}
 				searchSliceInGroup(hotBanks, commonBanks, columnName, slice, blkinfo, groupId, terms, maxDoc, collect,i);
 			}
@@ -214,6 +224,7 @@ public class FpSearch {
 		FpTokenTermLayout.make_fp_search_prefix(reuse, columnName, indexId, maxGroupId+1,
 				(byte) FpTokenBlockLevelPolicy.BLOCK_LEVEL_NOGROUP, false, 0);
 		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
+			stat.termMiss0++;
 			return;
 		}
 
@@ -223,6 +234,7 @@ public class FpSearch {
 
 		for (BytesRef found = termsEnum.term(); found != null; found = termsEnum.next()) {
 			if (!FpTokenTermLayout.columnNameEquals(found, columnName)) {
+				
 				break;
 			}
 			
@@ -236,10 +248,12 @@ public class FpSearch {
 			final BytesRef payload = FpTokenTermLayout.removeColumnAndHeaderBytes(found);
 			for (int i = 0; i < slices.length; i++) {
 				if (!payloadContainsSlice(payload, slices[i])) {
+					stat.termMiss0++;
 					continue;
 				}
+				stat.termHit0++;
 				final FixedBitSet acc = ensureCollect(collect, i, maxDoc);
-				orPostingsInto(reusePosting, termsEnum, maxDoc, acc);
+				orPostingsInto(reusePosting, termsEnum, maxDoc, acc,false);
 			}
 		}
 	}
@@ -267,11 +281,18 @@ public class FpSearch {
 		final FixedBitSet acc = ensureCollect(collect, sliceIndex, maxDoc);
 
 		final boolean hotHit = searchBankHot(hotBanks, true, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc,acc);
-		LOG.info(DEBUG_UUID+" searchBankHot " +hotHit+" "+anchorSlice.utf8ToString());
+		if(Lucene80FPSearchConfig.PRINT_DEBUG)
+		{
+			LOG.info(DEBUG_UUID+" searchBankHot " +hotHit+" "+anchorSlice.utf8ToString());
+
+		}
 
 		if (!hotHit) {
 			boolean common_hit=searchBankCommon(commonBanks, false, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, acc);
-			LOG.info(DEBUG_UUID+" searchBankCommon " +common_hit+" "+anchorSlice.utf8ToString());
+			if(Lucene80FPSearchConfig.PRINT_DEBUG)
+			{
+				LOG.info(DEBUG_UUID+" searchBankCommon " +common_hit+" "+anchorSlice.utf8ToString());
+			}
 
 		}
 	}
@@ -302,9 +323,17 @@ public class FpSearch {
 		final AtomicInteger maxHotPayloadLen = new AtomicInteger(0);
 		boolean payloadLenCapSet = false;
 
+		boolean first=false;
 		for (int bit = bits.nextDoc(); bit != DocIdSetIterator.NO_MORE_DOCS; bit = bits.nextDoc()) {
 			//遍历每个term
 			final int termIndex = bit;
+			stat.bitHitHot[blkinfo.targetLevel]++;
+			if(!first)
+			{
+				stat.blkHitHot[blkinfo.targetLevel]++;
+				first=true;
+			}
+			
 			if (!payloadLenCapSet) {
 				int status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, true, termsEnum, reuse,
 						Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark,
@@ -332,8 +361,10 @@ public class FpSearch {
 			FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet collect) throws IOException {
 		final DocIdSetIterator bits = intersectBankIterators(banks);
 		if (bits == null) {
+			if(Lucene80FPSearchConfig.PRINT_DEBUG)
+			{
 			LOG.info(DEBUG_UUID+" searchBankCommon bits == null "+anchorSlice.utf8ToString());
-
+			}
 			return false;
 		}
 
@@ -341,15 +372,25 @@ public class FpSearch {
 		final TermsEnum termsEnum = terms.iterator();
 		final BytesRef reuse = new BytesRef(new byte[512]);
 		boolean anyHit = false;
+		boolean first=false;
 
 		for (int bit = bits.nextDoc(); bit != DocIdSetIterator.NO_MORE_DOCS; bit = bits.nextDoc()) {
 			final int termIndex = bit;
+			
+			stat.bitHitCommon[blkinfo.targetLevel]++;
+			if(!first)
+			{
+				stat.blkHitCommon[blkinfo.targetLevel]++;
+				first=true;
+			}
 
 			final int status = seekTermAndOrDocs(reusePosting, null, false, termsEnum, reuse,
 					Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
 					columnName, anchorSlice, maxDoc, collect);
-			LOG.info(DEBUG_UUID+" searchBankCommon termIndex = "+termIndex+" status="+status+" "+anchorSlice.utf8ToString());
-
+			if(Lucene80FPSearchConfig.PRINT_DEBUG)
+			{
+				LOG.info(DEBUG_UUID+" searchBankCommon termIndex = "+termIndex+" status="+status+" "+anchorSlice.utf8ToString());
+			}
 			if (status == SEEK_OK) {
 				anyHit = true;
 			}
@@ -390,7 +431,12 @@ public class FpSearch {
 					+ " " + slice.utf8ToString());
 		}
 		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
-			
+			if(hotMark)
+			{
+				stat.termMissHot1[groupLevel]++;
+			}else {
+				stat.termMissCommon1[groupLevel]++;
+			}
 			if (Lucene80FPSearchConfig.PRINT_DEBUG) {
 				LOG.info(DEBUG_UUID+" seekCeil SEEK_MISS indexId:" + indexId + " " + groupid + " " + groupLevel + " " + hotMark + " " + termIndex
 						+ " " + slice.utf8ToString());
@@ -404,10 +450,22 @@ public class FpSearch {
 					+ " " + slice.utf8ToString()+" info:"+FpTokenTermLayout.toReadableString(found));
 		}
 		if (!termHeaderMatches(found, columnName, groupid, groupLevel, hotMark, termIndex)) {
+			if(hotMark)
+			{
+				stat.termMissHot2[groupLevel]++;
+			}else {
+				stat.termMissCommon2[groupLevel]++;
+			}
 			return SEEK_MISS;
 		}
 		final BytesRef payload = FpTokenTermLayout.removeColumnAndHeaderBytes(found);
 		if (!payloadMatchesSlice(requireExactPayloadMatch, payload, slice)) {
+			if(hotMark)
+			{
+				stat.termMissHot3[groupLevel]++;
+			}else {
+				stat.termMissCommon3[groupLevel]++;
+			}
 			return SEEK_MISS;
 		}
 
@@ -421,7 +479,14 @@ public class FpSearch {
 		}
 
 		if (!isDelTerm) {
-			orPostingsInto(reusePosting, termsEnum, maxDoc, collect);
+			orPostingsInto(reusePosting, termsEnum, maxDoc, collect,hotMark);
+		}
+		
+		if(hotMark)
+		{
+			stat.termHitHot[groupLevel]++;
+		}else {
+			stat.termHitCommon[groupLevel]++;
 		}
 		return SEEK_OK;
 	}
@@ -468,8 +533,8 @@ public class FpSearch {
 		return false;
 	}
 
-	private static void orPostingsInto(AtomicReference<PostingsEnum> reuse, TermsEnum termsEnum, int maxDoc,
-			FixedBitSet collect) throws IOException {
+	private  void orPostingsInto(AtomicReference<PostingsEnum> reuse, TermsEnum termsEnum, int maxDoc,
+			FixedBitSet collect,boolean hotMark) throws IOException {
 		final PostingsEnum pe = termsEnum.postings(reuse.get(), PostingsEnum.NONE);
 		if (pe == null) {
 			return;
@@ -480,6 +545,12 @@ public class FpSearch {
 		while ((doc = pe.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
 			if (doc >= 0 && doc < maxDoc) {
 				collect.set(doc);
+				if(hotMark)
+				{
+					stat.hothit++;
+				}else {
+					stat.commonhit++;
+				}
 			}
 		}
 	}
