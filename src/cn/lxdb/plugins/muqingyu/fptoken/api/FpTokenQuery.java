@@ -122,7 +122,11 @@ public class FpTokenQuery extends Query {
             		new BytesRef(tokenField), slices);
             
             long ts_end=System.currentTimeMillis();
-            LOG.info("search diff:"+(ts_end-ts_init)+" "+Utils.BytesReftoString(slices[0]) +" "+blocklist.size()+" "+fieldName+" "+bitset.cardinality()+" stat:"+stat);
+            long diff=ts_end-ts_init;
+            if(diff>500)
+            {
+                LOG.info("search diff:"+(diff)+" "+Utils.BytesReftoString(slices[0]) +" "+blocklist.size()+" "+fieldName+" "+bitset.cardinality()+" stat:"+stat);
+            }
             BitDocIdSet docIdSet = new BitDocIdSet(bitset, 1, context.reader().maxDoc());
             
             
