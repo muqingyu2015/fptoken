@@ -47,28 +47,7 @@ public class FpSearch {
 	public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 	public String DEBUG_UUID=Lucene80FPSearchConfig.PRINT_DEBUG?java.util.UUID.randomUUID().toString():"";
 
-	private void print_debug(Terms terms) throws IOException {
-		if (!Lucene80FPSearchConfig.PRINT_DEBUG) {
-			return;
-		}
-		final AtomicReference<PostingsEnum> docsEnum = new AtomicReference<PostingsEnum>(null);
 
-		TermsEnum termsEnum = terms.iterator();
-		BytesRef term = termsEnum.term();
-		int termIndex = 1;
-		while (term != null) {
-			try {
-			
-				PostingsEnum pe = termsEnum.postings(docsEnum.get(), PostingsEnum.NONE);
-
-				LOG.info(DEBUG_UUID+" termIndex:" + termIndex + " cost:" + pe.cost() + " info:" +FpTokenTermLayout.toReadableString(term));
-			} finally {
-
-				termIndex++;
-				term = termsEnum.next();
-			}
-		}
-	}
 
 	/**
 	 * @param fpblock_list 段内 group_id → 位图区元数据
@@ -78,16 +57,20 @@ public class FpSearch {
 	public FixedBitSet search( TreeMap<Integer, FpBlockInfo> fpblock_list, Terms terms, int maxDoc, BytesRef columnName,
 			BytesRef[] slices) throws IOException {
 
-		print_debug(terms);
 		stat.doccount+=maxDoc;
-		final boolean[][] choose = new boolean[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig
-				.maxBucketsPerRow()];
-		for (int i = 0; i < choose.length; i++) {
-			Arrays.fill(choose[i], false);
+		final boolean[][] choose_hot = new boolean[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.maxBucketsPerRow()];
+		final boolean[][] choose_common = new boolean[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.maxBucketsPerRow()];
+
+		for (int i = 0; i < choose_hot.length; i++) {
+			Arrays.fill(choose_hot[i], false);
+		}
+		for (int i = 0; i < choose_common.length; i++) {
+			Arrays.fill(choose_common[i], false);
 		}
 		if (slices != null) {
 			for (BytesRef slice : slices) {
-				markChooseForSliceAndProbes(choose, slice);
+				markChooseForSliceAndProbes_hot(choose_common, slice);
+				markChooseForSliceAndProbes_common(choose_common, slice);
 			}
 		}
 
@@ -112,17 +95,15 @@ public class FpSearch {
 				maxGroupId = groupId;
 			}
 
-			final FpGroupHotNgramBitIndex bitsetIndex = terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId,
-					choose, choose);
+			final FpGroupHotNgramBitIndex bitsetIndex = terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId,choose_hot, choose_common);
 			if (bitsetIndex == null) {
 				continue;
 			}
 
 			for (int i = 0; i < slices.length; i++) {
 				final BytesRef slice = slices[i];
-//				final BytesRef[] probes = buildProbeSlices(slice);
-				final FixedBitSet[] hotBanks = resolveBanks(bitsetIndex.banksHot, slice);
-				final FixedBitSet[] commonBanks = resolveBanks(bitsetIndex.banksCommon, slice);
+				final FixedBitSet[] hotBanks = resolveBanks_hot(bitsetIndex.banksHot, slice);
+				final FixedBitSet[] commonBanks = resolveBanks_common(bitsetIndex.banksCommon, slice);
 				
 				searchSliceInGroup(hotBanks, commonBanks, columnName, slice, blkinfo, groupId, terms, maxDoc, collect,i);
 			}
@@ -150,16 +131,98 @@ public class FpSearch {
 	 * 为 slice 及其向下 {@link Lucene80FPSearchConfig#SEARCH_BITSET_PROBE_LAYERS_DOWN} 档的连续子串标记需加载的位图桶。
 	 * 例：{@code abcd} → {@code abcd}、{@code abc}、{@code bcd}。
 	 */
-	public static void markChooseForSliceAndProbes(boolean[][] choose, BytesRef slice) {
+	public static void markChooseForSliceAndProbes_common(boolean[][] choose_common, BytesRef slice) {
+
+		if(slice.length<=1)
+		{
+			return ;
+		}
+		
+		final int lenIdx = ngramLengthIndex(slice.length);
+	
+		
+		boolean skip_current=Lucene80FPSearchConfig.COMMON_SKIP_LEN[slice.length];
+		if(skip_current)
+		{
+			markChooseForSliceAndProbes_common( choose_common, new BytesRef(slice.bytes,slice.offset,slice.length-1));;
+			markChooseForSliceAndProbes_common( choose_common, new BytesRef(slice.bytes,slice.offset+1,slice.length-1));;
+
+		}else
+		{
+
+			final int buckets = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset, slice.length);
+			choose_common[lenIdx][buckets]=true;
+			
+			final int buckets1 = FpGroupHotNgramBitIndex.bucketIndex256(slice.bytes, slice.offset, slice.length-1);
+			choose_common[lenIdx-1][buckets1]=true;
+			final int buckets2 = FpGroupHotNgramBitIndex.bucketIndex256(slice.bytes, slice.offset+1, slice.length-1);
+			choose_common[lenIdx-1][256+buckets2]=true;
+		
+			
+
+		
+		}
+		
+	
+	}
+	
+	public static void markChooseForSliceAndProbes_hot(boolean[][] choose_hot, BytesRef slice) {
 
 		final int lenIdx = ngramLengthIndex(slice.length);
-		final int buckets[] = FpGroupHotNgramBitIndex.bucketIndex(slice.bytes, slice.offset, slice.length);
-		for(int bucket:buckets)
-		{
-			choose[lenIdx][bucket] = true;
-
-		}
+		final int bucket = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset, slice.length);
+		choose_hot[lenIdx][bucket] = true;
+		
+		
+		
 	
+	}
+	private static FixedBitSet[] resolveBanks_common(FixedBitSet[][] banksGrid, BytesRef slice) {
+
+		if(slice.length<=1)
+		{
+			return new FixedBitSet[0];
+		}
+
+		final int lenIdx = ngramLengthIndex(slice.length);
+	
+		
+		boolean skip_current=Lucene80FPSearchConfig.COMMON_SKIP_LEN[slice.length];
+		if(skip_current)
+		{
+			FixedBitSet[] a=resolveBanks_common( banksGrid, new BytesRef(slice.bytes,slice.offset,slice.length-1));
+			FixedBitSet[] b=resolveBanks_common( banksGrid, new BytesRef(slice.bytes,slice.offset+1,slice.length-1));
+			ArrayList<FixedBitSet> rtn=new ArrayList<FixedBitSet>();
+			rtn.addAll(Arrays.asList(a));
+			rtn.addAll(Arrays.asList(b));
+			return rtn.toArray(new FixedBitSet[rtn.size()]);
+		}else
+		{
+
+			FixedBitSet[] banks=new FixedBitSet[3];
+			final int bucket = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset, slice.length);
+			banks[0] = banksGrid[lenIdx][bucket];
+			
+			final int buckets1 = FpGroupHotNgramBitIndex.bucketIndex256(slice.bytes, slice.offset, slice.length-1);
+			banks[1] = banksGrid[lenIdx][buckets1];
+			final int buckets2 = FpGroupHotNgramBitIndex.bucketIndex256(slice.bytes, slice.offset+1, slice.length-1);
+			banks[2] = banksGrid[lenIdx][256+buckets2];
+		
+			return banks;
+
+		
+		}
+		
+	
+	
+	}
+	private static FixedBitSet[] resolveBanks_hot(FixedBitSet[][] banksGrid, BytesRef probes) {
+		final int bucket = FpGroupHotNgramBitIndex.bucketIndex512(probes.bytes, probes.offset, probes.length);
+		final int lenIdx = ngramLengthIndex(probes.length);
+		final FixedBitSet[] banks = new FixedBitSet[1];
+
+		banks[0] = banksGrid[lenIdx][bucket];
+		
+		return banks;
 	}
 
 //	/**
@@ -187,14 +250,14 @@ public class FpSearch {
 //		return probes.toArray(new BytesRef[0]);
 //	}
 
-	private static boolean containsProbe(List<BytesRef> probes, BytesRef candidate) {
-		for (BytesRef p : probes) {
-			if (p.equals(candidate)) {
-				return true;
-			}
-		}
-		return false;
-	}
+//	private static boolean containsProbe(List<BytesRef> probes, BytesRef candidate) {
+//		for (BytesRef p : probes) {
+//			if (p.equals(candidate)) {
+//				return true;
+//			}
+//		}
+//		return false;
+//	}
 
 	private static boolean fieldInfoMatchesColumn(FpBlockInfo blkinfo, BytesRef columnName) {
 		if (blkinfo == null || blkinfo.fieldInfo == null) {
@@ -257,19 +320,7 @@ public class FpSearch {
 		return payloadMatchesSlice(false, payload, slice);
 	}
 
-	private static FixedBitSet[] resolveBanks(FixedBitSet[][] banksGrid, BytesRef probes) {
-		final int[] buckets = FpGroupHotNgramBitIndex.bucketIndex(probes.bytes, probes.offset, probes.length);
-		final FixedBitSet[] banks = new FixedBitSet[buckets.length];
-		final int lenIdx = ngramLengthIndex(probes.length);
-
-		for(int i=0;i<banks.length;i++)
-		{
-			banks[i] = banksGrid[lenIdx][buckets[i]];
-
-		}
-		
-		return banks;
-	}
+	
 
 	/** 单 group、单 slice：先 hot 位图候选，整库 hot 无 seek 命中再 common。 */
 	private void searchSliceInGroup(FixedBitSet[] hotBanks, FixedBitSet[] commonBanks, BytesRef columnName,
@@ -284,7 +335,7 @@ public class FpSearch {
 
 		}
 
-		if (!hotHit) {
+		if (commonBanks.length>0&&!hotHit) {
 			boolean common_hit=searchBankCommon(commonBanks, false, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, acc);
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{

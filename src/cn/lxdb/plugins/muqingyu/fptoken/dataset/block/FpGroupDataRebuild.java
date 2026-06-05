@@ -169,8 +169,7 @@ public final class FpGroupDataRebuild {
 
 		
 		}else {
-			FpStatNgram ngramstat=FpGroupHotNgramRebuild.execute(this, parentItem,
-					Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD);
+			FpStatNgram ngramstat=FpGroupHotNgramRebuild.execute(this, parentItem);
 			long ts_ngram=CLMillisecondClock.CLOCK.now();
 
 			

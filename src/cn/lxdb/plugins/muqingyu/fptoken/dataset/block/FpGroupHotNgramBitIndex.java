@@ -3,14 +3,13 @@ package cn.lxdb.plugins.muqingyu.fptoken.dataset.block;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
 
-import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.FixedBitSet;
+import org.apache.lucene.util.StringHelper;
 import org.apache.lucene.util.offheap.OffheapPoolName;
 import org.slf4j.Logger;
 
@@ -18,7 +17,6 @@ import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
-import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 
 /**
  * 热词 / 普通词各一套 byte ngram（{@value #NGRAM_MIN}~{@value #NGRAM_MAX}）倒排索引：
@@ -68,16 +66,9 @@ public final class FpGroupHotNgramBitIndex {
 			for (int b = 0; b < bucketCount; b++) {
 				hot[li][b] = in.readBits(blkinfo.hotNumBits);
 				common[li][b] = in.readBits(blkinfo.commonNumBits);
-				
-				
-				if(Lucene80FPSearchConfig.PRINT_DEBUG)
-				{  
-					LOG.info("bitset readfrom:"+hot[li][b].cardinality()+" "+hot[li][b].nextSetBit(0)+" "+common[li][b].cardinality()+" "+common[li][b].nextSetBit(0)+" "+li+" " +b  +" "+blkinfo);
-				}
 			}
 		}
-		return new FpGroupHotNgramBitIndex(blkinfo.targetLevel,hot, common, blkinfo.hotNumBits, blkinfo.commonNumBits, blkinfo.hotCount,
-				blkinfo.commonCount);
+		return new FpGroupHotNgramBitIndex(blkinfo.targetLevel,hot, common, blkinfo.hotNumBits, blkinfo.commonNumBits, blkinfo.hotCount,blkinfo.commonCount);
 	}
 
 	/**
@@ -114,16 +105,9 @@ public final class FpGroupHotNgramBitIndex {
 				} else {
 					common[li][b] = null;
 				}
-				
-				
-				if(Lucene80FPSearchConfig.PRINT_DEBUG&&(rh||rc))
-				{  
-					LOG.info("bitset readfrom:"+(hot[li][b]==null?"null":hot[li][b].cardinality())+" "+(hot[li][b]==null?"null":hot[li][b].nextSetBit(0))+" "+(common[li][b]==null?"null":common[li][b].cardinality())+" "+(common[li][b]==null?"null":common[li][b].nextSetBit(0))+" "+li+" " +b  +" "+blkinfo);
-				}
 			}
 		}
-		return new FpGroupHotNgramBitIndex(blkinfo.targetLevel,hot, common, blkinfo.hotNumBits, blkinfo.commonNumBits, blkinfo.hotCount,
-				blkinfo.commonCount);
+		return new FpGroupHotNgramBitIndex(blkinfo.targetLevel,hot, common, blkinfo.hotNumBits, blkinfo.commonNumBits, blkinfo.hotCount,blkinfo.commonCount);
 	}
 
 	/**
@@ -181,7 +165,7 @@ public final class FpGroupHotNgramBitIndex {
 			
 		}
 		
-		LOG.info("bitsetflush " + from +" "+ bitsetinfo+" " + info);
+		LOG.info("bitindex_flush " + from +" "+ bitsetinfo+" " + info);
 		
 		return info;
 	}
@@ -214,7 +198,7 @@ public final class FpGroupHotNgramBitIndex {
 
 		for (Map.Entry<FpTermKey, Integer> e : hotOrder.entrySet()) {
 			final int order = e.getValue().intValue();
-			markNgramsForPayload(hotBanks, e.getKey().bytesRef(), order, numBitsHot);
+			markHotNgramsForPayload(hotBanks, e.getKey().bytesRef(), order, numBitsHot);
 		}
 
 		for (Map.Entry<FpTermKey, Integer> e : commonOrder.entrySet()) {
@@ -258,73 +242,32 @@ public final class FpGroupHotNgramBitIndex {
 		return banks;
 	}
 
-	/** 写段 / 查询共用的多路桶哈希条数（每路 0..255，查询侧对各路位图 AND）。 */
-	public static final int BUCKET_HASH_COUNT = 3;
 
-	/** 同一切片上的 {@link #BUCKET_HASH_COUNT} 路桶号，{@code [i]=bucketIndex(i+1)(...)}。 */
-	public static int[] bucketIndex(byte[] buf, int off, int len) {
-		final int[] rtn = new int[BUCKET_HASH_COUNT];
-		rtn[0] = bucketIndex1(buf, off, len);
-		rtn[1] = bucketIndex2(buf, off, len);
-		rtn[2] = bucketIndex3(buf, off, len);
-		return rtn;
-	}
 
-	private static int foldToBucket(int hv, int ngramLen) {
-		return hv & (Lucene80FPSearchConfig.bucketsForNgramLen(ngramLen) - 1);
-	}
+
 
 	/** 1 字节：桶号即该字节（0..255）；2~N 字节：31*h+c 折叠到对应长度桶宽。 */
-	public static int bucketIndex1(byte[] buf, int off, int len) {
+	public static int bucketIndex256(byte[] buf, int off, int len) {
 		if (len <= 0) {
 			return 0;
 		}
 		if (len == 1) {
 			return buf[off] & 0xFF;
 		}
-		int hv = 0;
-		for (int i = 0; i < len; i++) {
-			hv = 31 * hv + (buf[off + i] & 0xFF);
-		}
-		return foldToBucket(hv ^ (hv >>> 8) ^ (hv >>> 16) ^ (hv >>> 24), len);
+		return StringHelper.murmurhash3_x86_32(buf,off , len, 0)& 0xFF;
 	}
 
-	/** 第二路：FNV-1a + Murmur 终混；1 字节为轻量混洗（与 {@link #bucketIndex1} 区分）。 */
-	public static int bucketIndex2(byte[] buf, int off, int len) {
+
+	public static int bucketIndex512(byte[] buf, int off, int len) {
 		if (len <= 0) {
 			return 0;
 		}
 		if (len == 1) {
 			return buf[off] & 0xFF;
 		}
-		int hv = 0x811c9dc5;
-		for (int i = 0; i < len; i++) {
-			hv ^= buf[off + i] & 0xFF;
-			hv *= 0x01000193;
-		}
-		hv ^= hv >>> 13;
-		hv *= 0x5bd1e995;
-		hv ^= hv >>> 15;
-		return foldToBucket(hv, len);
+		return StringHelper.murmurhash3_x86_32(buf,off , len, 0)& 0x1FF;
 	}
 
-	/** 第三路：djb2 + 旋转混洗；1 字节用 golden-ratio 混洗。 */
-	public static int bucketIndex3(byte[] buf, int off, int len) {
-		if (len <= 0) {
-			return 0;
-		}
-		if (len == 1) {
-			return buf[off] & 0xFF;
-		}
-		int hv = 5381;
-		for (int i = 0; i < len; i++) {
-			hv = ((hv << 5) + hv) + (buf[off + i] & 0xFF);
-		}
-		hv ^= Integer.rotateRight(hv, 11);
-		hv *= 0x85ebca6b;
-		hv ^= hv >>> 13;
-		return foldToBucket(hv, len);
-	}
 
 
 	/**
@@ -358,15 +301,28 @@ public final class FpGroupHotNgramBitIndex {
 			}
 		}
 		for (FpTermKey key : uniqueSlices) {
+			final BytesRef br = key.bytesRef();
+			int n=br.length;
+			
+			boolean skip_current=Lucene80FPSearchConfig.COMMON_SKIP_LEN[n];
 			if (hotKeySet.contains(key)) {
 				continue;
 			}
-			final BytesRef br = key.bytesRef();
-			final int[] buckets = bucketIndex(br.bytes, br.offset, br.length);
-			for(int bucket:buckets)
+			
+			if(!skip_current)
 			{
-				banks[br.length - 1][bucket].set(bit);
+				final int buckets = bucketIndex512(br.bytes, br.offset, n);
+				banks[n - 1][buckets].set(bit);
+				
+				final int buckets1 = bucketIndex256(br.bytes, br.offset, n-1);
+				banks[n - 2][buckets1].set(bit);
+				final int buckets2 = 256+bucketIndex256(br.bytes, br.offset+1, n-1);
+				banks[n - 2][buckets2].set(bit);
+			
 			}
+			
+			
+			
 			
 		}
 	}
@@ -374,7 +330,7 @@ public final class FpGroupHotNgramBitIndex {
 	/**
 	 * @param hotDocs       仅当 {@code skipIfInHot} 为 true 时使用：切片若已是热词整键则跳过
 	 */
-	private static void markNgramsForPayload(FixedBitSet[][] banks,
+	private static void markHotNgramsForPayload(FixedBitSet[][] banks,
 			BytesRef payload, int order, int numBits) {
 		if (order < 1 || order > numBits) {
 			return;
@@ -392,11 +348,9 @@ public final class FpGroupHotNgramBitIndex {
 				sliceScratch.offset = base + start;
 				sliceScratch.length = n;
 				
-				final int[] buckets = bucketIndex(sliceScratch.bytes, sliceScratch.offset, sliceScratch.length);
-				for(int bucket:buckets)
-				{
-					banks[n - 1][bucket].set(bit);
-				}
+				final int bucket = bucketIndex512(sliceScratch.bytes, sliceScratch.offset, sliceScratch.length);
+				banks[n - 1][bucket].set(bit);
+
 				
 			}
 		}

@@ -65,8 +65,11 @@ public final class FpGroupHotNgramRebuild {
 	/**
 	 * 热词重建主流程，结果写入 {@code group} 的热词表与 {@code hotTermDownTierBudget}。
 	 */
-	public static FpStatNgram execute(FpGroupDataRebuild group, FpTokenBlockOrchestrator parentItem,
-			final long hotFreqThreshold) throws IOException {
+	public static FpStatNgram execute(FpGroupDataRebuild group, FpTokenBlockOrchestrator parentItem
+			) throws IOException {
+		
+
+		final long hotFreqThreshold=Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD;
 		FpStatNgram stat = new FpStatNgram();
 		final TreeMap<FpTermKey, FPDocList> hotTermToDocs = group.hotTermMapInternal();
 		final TreeMap<FpTermKey, Integer> hotTermDownTierBudget = group.hotTermDownTierBudgetInternal();
@@ -78,8 +81,7 @@ public final class FpGroupHotNgramRebuild {
 
 		final int mapCapacity = Math.max(commonTermToDocs.size() / 100, 32);
 		final HashMap<FpTermKey, Integer> ngramOccurrenceCount = new HashMap<>(mapCapacity);
-		final int commonSize = commonTermToDocs.size();
-		final int maxDocUnion = group.distinctDocUnion.cardinality();
+
 
 		long t0 = CLMillisecondClock.CLOCK.now();
 		countNgramOccurrencesInCommon(stat, commonTermToDocs, ngramOccurrenceCount);
@@ -190,7 +192,8 @@ public final class FpGroupHotNgramRebuild {
 		final int tierSetSizeCap = (int) (hotFreqThreshold * 2);
 
 		for (Map.Entry<FpTermKey, Integer> entry : ngramOccurrenceCount.entrySet()) {
-			if (entry.getValue() < hotFreqThreshold) {
+			FpTermKey key=entry.getKey();
+			if (key.bytesRef().length>1&& entry.getValue()< hotFreqThreshold) {
 				stat.freqThreshold_skip++;
 				continue;
 			}
