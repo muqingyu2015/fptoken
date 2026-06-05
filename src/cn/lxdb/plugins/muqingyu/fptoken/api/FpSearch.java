@@ -69,7 +69,7 @@ public class FpSearch {
 		}
 		if (slices != null) {
 			for (BytesRef slice : slices) {
-				markChooseForSliceAndProbes_hot(choose_common, slice);
+				markChooseForSliceAndProbes_hot(choose_hot, slice);
 				markChooseForSliceAndProbes_common(choose_common, slice);
 			}
 		}
@@ -203,9 +203,9 @@ public class FpSearch {
 			banks[0] = banksGrid[lenIdx][bucket];
 			
 			final int buckets1 = FpGroupHotNgramBitIndex.bucketIndex256(slice.bytes, slice.offset, slice.length-1);
-			banks[1] = banksGrid[lenIdx][buckets1];
+			banks[1] = banksGrid[lenIdx-1][buckets1];
 			final int buckets2 = FpGroupHotNgramBitIndex.bucketIndex256(slice.bytes, slice.offset+1, slice.length-1);
-			banks[2] = banksGrid[lenIdx][256+buckets2];
+			banks[2] = banksGrid[lenIdx-1][256+buckets2];
 		
 			return banks;
 

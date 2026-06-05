@@ -158,8 +158,8 @@ public final class FpGroupHotNgramBitIndex {
 				hot_max=Math.max(hot_max, hot);
 				common_max=Math.max(common_max, common);
 			}
-			int rage_hot=(int) (((sum_hot*10000)/bucketCount)/Math.max(hotNumBits, 1));
-			int rage_common=(int) (((sum_common*10000)/bucketCount)/Math.max(commonNumBits, 1));
+			int rage_hot=(int) (((sum_hot*100)/bucketCount)/Math.max(hotNumBits, 1));
+			int rage_common=(int) (((sum_common*100)/bucketCount)/Math.max(commonNumBits, 1));
 
 			bitsetinfo.append("["+rage_hot+","+hot_max+","+hotNumBits+","+rage_common+","+common_max+","+commonNumBits+"]");
 			
