@@ -23,10 +23,13 @@ public class FpBlockInfo {
 	public  long fpBanksHot;
 	@Override
 	public String toString() {
-		return "FpBlockInfo [fpBanksHot=" + fpBanksHot + ", fpBanksCommon=" + fpBanksCommon + ", bytesPerHotSerialized="
-				+ bytesPerHotSerialized + ", bytesPerCommonSerialized=" + bytesPerCommonSerialized + ", hotNumBits="
-				+ hotNumBits + ", commonNumBits=" + commonNumBits + ", hotCount=" + hotCount + ", commonCount="
-				+ commonCount + ", docCount=" + docCount  + ", targetLevel=" + targetLevel  +",fieldInfo="+(fieldInfo==null?"":Utils.BytesReftoString(fieldInfo))+ "]";
+		return "targetLevel=L" + targetLevel
+				+ " field=" + (fieldInfo == null ? "" : Utils.BytesReftoString(fieldInfo))
+				+ " hotTerms=" + hotCount + " commonTerms=" + commonCount
+				+ " hotBits=" + hotNumBits + " commonBits=" + commonNumBits
+				+ " docs=" + docCount
+				+ " fileOffHot=" + fpBanksHot + " fileOffCommon=" + fpBanksCommon
+				+ " bytesHot=" + bytesPerHotSerialized + " bytesCommon=" + bytesPerCommonSerialized;
 	}
 
 	/** {@code banksCommon[0][0]} 的偏移，等于 {@code fpBanksHot00 + bytesPerHotSerialized}。 */

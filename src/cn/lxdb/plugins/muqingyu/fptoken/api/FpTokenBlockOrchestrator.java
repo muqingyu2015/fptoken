@@ -117,7 +117,9 @@ public final class FpTokenBlockOrchestrator {
 			Integer[] info=e.getValue();
 			int level=FpTokenBlockLevelPolicy.resolveTargetBlockLevel(info[0], info[1]);
 			field_targetlevel.put(e.getKey(),level );
-			LOG.info("guess_level:"+Arrays.toString(info) +" ["+cnt1+","+cnt2+"] ["+level +"] "+Utils.BytesReftoString(e.getKey()));
+			LOG.info("[fp_write] columnLevelGuess distinctDocs=" + info[0] + " distinctTerms=" + info[1]
+					+ " columnsSeen=" + cnt1 + " columnsResolved=" + cnt2 + " targetLevel=L" + level + " column="
+					+ Utils.BytesReftoString(e.getKey()));
 		}
 
 		
@@ -143,13 +145,10 @@ public final class FpTokenBlockOrchestrator {
 				final int cmp = term.compareTo(lastWrittenTerm);
 				if (cmp <= 0) {
 					termWriteOrderViolationCount++;
-					LOG.error(
-							"term write order violation #{} context={} cmp={} (require cmp>0)\n  prev: {}\n  curr: {}",
-							termWriteOrderViolationCount,
-							context,
-							cmp,
-							FpTokenTermLayout.toReadableString(lastWrittenTerm),
-							FpTokenTermLayout.toReadableString(term),new IOException());
+					LOG.error("[fp_write] termOrderViolation #" + termWriteOrderViolationCount + " context=" + context
+							+ " cmp=" + cmp + " (require cmp>0)\n  prev: "
+							+ FpTokenTermLayout.toReadableString(lastWrittenTerm) + "\n  curr: "
+							+ FpTokenTermLayout.toReadableString(term), new IOException());
 				}
 			}
 			lastWrittenTerm = BytesRef.deepCopyOf(term);
@@ -229,7 +228,7 @@ public final class FpTokenBlockOrchestrator {
 		flushHighGroup("finish");
 		flushCommonGroup("finish");
 		if (termWriteOrderViolationCount > 0) {
-			LOG.warn("field write finished with {} term order violation(s)", termWriteOrderViolationCount);
+			LOG.warn("[fp_write] finish termOrderViolations=" + termWriteOrderViolationCount);
 		}
 	}
 
@@ -276,7 +275,7 @@ public final class FpTokenBlockOrchestrator {
 				this.stat.flush_high_cnt_original++;
 				needCommonMerger=false;
 			}else {
-				LOG.error("bits =null "+index_id+" "+logical_group);
+				LOG.error("[fp_write] missingBitIndex indexId=" + index_id + " logicalGroup=" + logical_group);
 
 			}
 			

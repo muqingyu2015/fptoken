@@ -161,11 +161,14 @@ public final class FpGroupHotNgramBitIndex {
 			int rage_hot=(int) (((sum_hot*100)/bucketCount)/Math.max(hotNumBits, 1));
 			int rage_common=(int) (((sum_common*100)/bucketCount)/Math.max(commonNumBits, 1));
 
-			bitsetinfo.append("["+rage_hot+","+hot_max+","+hotNumBits+","+rage_common+","+common_max+","+commonNumBits+"]");
+			bitsetinfo.append(" len").append(li + 1).append("{hot avgFillPct=").append(rage_hot).append("% maxBucket=")
+					.append(hot_max).append(" termCount=").append(hotNumBits).append(" | common avgFillPct=")
+					.append(rage_common).append("% maxBucket=").append(common_max).append(" termCount=")
+					.append(commonNumBits).append('}');
 			
 		}
 		
-		LOG.info("bitindex_flush " + from +" "+ bitsetinfo+" " + info);
+		LOG.info("[fp_bitindex] flush phase=" + from + " perLength=" + bitsetinfo + " block=" + info);
 		
 		return info;
 	}

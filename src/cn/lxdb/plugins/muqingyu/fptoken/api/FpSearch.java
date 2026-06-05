@@ -172,6 +172,15 @@ public class FpSearch {
 		final int bucket = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset, slice.length);
 		choose_hot[lenIdx][bucket] = true;
 		
+		if(slice.length>1)
+		{
+			final int buckets1 = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset, slice.length-1);
+			choose_hot[lenIdx-1][buckets1]=true;
+			final int buckets2 = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset+1, slice.length-1);
+			choose_hot[lenIdx-1][buckets2]=true;
+		}
+		
+		
 		
 		
 	
@@ -215,14 +224,33 @@ public class FpSearch {
 	
 	
 	}
-	private static FixedBitSet[] resolveBanks_hot(FixedBitSet[][] banksGrid, BytesRef probes) {
-		final int bucket = FpGroupHotNgramBitIndex.bucketIndex512(probes.bytes, probes.offset, probes.length);
-		final int lenIdx = ngramLengthIndex(probes.length);
-		final FixedBitSet[] banks = new FixedBitSet[1];
+	private static FixedBitSet[] resolveBanks_hot(FixedBitSet[][] banksGrid, BytesRef slice) {
+		final int bucket = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset, slice.length);
+		final int lenIdx = ngramLengthIndex(slice.length);
+		if(slice.length>1)
+		{
+			final FixedBitSet[] banks = new FixedBitSet[3];
 
-		banks[0] = banksGrid[lenIdx][bucket];
+			banks[0] = banksGrid[lenIdx][bucket];
+			
+			
+			final int buckets1 = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset, slice.length-1);
+			banks[1] = banksGrid[lenIdx-1][buckets1];
+			final int buckets2 = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset+1, slice.length-1);
+			banks[2] = banksGrid[lenIdx-1][buckets2];
+			return banks;
+
+		}else {
+			final FixedBitSet[] banks = new FixedBitSet[1];
+
+			banks[0] = banksGrid[lenIdx][bucket];
+			
+			return banks;
+
+		}
 		
-		return banks;
+		
+		
 	}
 
 //	/**
@@ -286,7 +314,8 @@ public class FpSearch {
 		}
 
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			LOG.info(DEBUG_UUID+"sparse scan column=" + Utils.BytesReftoString(columnName) + " maxGroupId=" + maxGroupId);
+			LOG.info(DEBUG_UUID + "[fp_search] sparseScan column=" + Utils.BytesReftoString(columnName) + " maxGroupId="
+					+ maxGroupId);
 		}
 
 		for (BytesRef found = termsEnum.term(); found != null; found = termsEnum.next()) {
@@ -331,7 +360,8 @@ public class FpSearch {
 		final boolean hotHit = searchBankHot(hotBanks, true, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc,acc);
 		if(Lucene80FPSearchConfig.PRINT_DEBUG)
 		{
-			LOG.info(DEBUG_UUID+" searchBankHot " +hotHit+" "+Utils.BytesReftoString(anchorSlice));
+			LOG.info(DEBUG_UUID + "[fp_search] searchBankHot hit=" + hotHit + " slice="
+					+ Utils.BytesReftoString(anchorSlice));
 
 		}
 
@@ -339,7 +369,8 @@ public class FpSearch {
 			boolean common_hit=searchBankCommon(commonBanks, false, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, acc);
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{
-				LOG.info(DEBUG_UUID+" searchBankCommon " +common_hit+" "+Utils.BytesReftoString(anchorSlice));
+				LOG.info(DEBUG_UUID + "[fp_search] searchBankCommon hit=" + common_hit + " slice="
+						+ Utils.BytesReftoString(anchorSlice));
 			}
 
 		}
@@ -411,7 +442,8 @@ public class FpSearch {
 		if (bits == null) {
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{
-			LOG.info(DEBUG_UUID+" searchBankCommon bits == null "+Utils.BytesReftoString(anchorSlice));
+			LOG.info(DEBUG_UUID + "[fp_search] searchBankCommon noBitCandidates slice="
+					+ Utils.BytesReftoString(anchorSlice));
 			}
 			return false;
 		}
@@ -437,7 +469,8 @@ public class FpSearch {
 					columnName, anchorSlice, maxDoc, collect);
 			if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{
-				LOG.info(DEBUG_UUID+" searchBankCommon termIndex = "+termIndex+" status="+status+" "+Utils.BytesReftoString(anchorSlice));
+				LOG.info(DEBUG_UUID + "[fp_search] searchBankCommon termIndex=" + termIndex + " seekStatus="
+						+ seekStatusLabel(status) + " slice=" + Utils.BytesReftoString(anchorSlice));
 			}
 			if (status == SEEK_OK) {
 				anyHit = true;
@@ -468,6 +501,19 @@ public class FpSearch {
 	private static final int SEEK_BREAK_PAYLOAD_LEN = 1;
 	private static final int SEEK_MISS = 2;
 
+	private static String seekStatusLabel(int status) {
+		if (status == SEEK_OK) {
+			return "OK";
+		}
+		if (status == SEEK_BREAK_PAYLOAD_LEN) {
+			return "BREAK_PAYLOAD_LEN";
+		}
+		if (status == SEEK_MISS) {
+			return "MISS";
+		}
+		return String.valueOf(status);
+	}
+
 	private  int seekTermAndOrDocs(AtomicReference<PostingsEnum> reusePosting,
 			AtomicInteger maxHotPayloadLenOrNull, boolean requireExactPayloadMatch, TermsEnum termsEnum, BytesRef reuse,
 			short indexId, int groupid, byte groupLevel, boolean hotMark, int termIndex, BytesRef columnName,
@@ -475,8 +521,9 @@ public class FpSearch {
 		FpTokenTermLayout.make_fp_search_prefix(reuse, columnName, indexId, groupid, groupLevel, hotMark, termIndex);
 
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			LOG.info(DEBUG_UUID+" seekCeil indexId:" + indexId + " " + groupid + " " + groupLevel + " " + hotMark + " " + termIndex
-					+ " " + Utils.BytesReftoString(slice));
+			LOG.info(DEBUG_UUID + "[fp_search] seekCeil prefix indexId=" + indexId + " groupId=" + groupid
+					+ " groupLevel=L" + groupLevel + " hot=" + hotMark + " termIndex=" + termIndex + " slice="
+					+ Utils.BytesReftoString(slice));
 		}
 		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
 			if(hotMark)
@@ -486,16 +533,18 @@ public class FpSearch {
 				stat.termMissCommon1[groupLevel]++;
 			}
 			if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-				LOG.info(DEBUG_UUID+" seekCeil SEEK_MISS indexId:" + indexId + " " + groupid + " " + groupLevel + " " + hotMark + " " + termIndex
-						+ " " + Utils.BytesReftoString(slice));
+				LOG.info(DEBUG_UUID + "[fp_search] seekCeil miss indexId=" + indexId + " groupId=" + groupid
+						+ " groupLevel=L" + groupLevel + " hot=" + hotMark + " termIndex=" + termIndex + " slice="
+						+ Utils.BytesReftoString(slice));
 			}
 			return SEEK_MISS;
 		}
 		final BytesRef found = termsEnum.term();
 		boolean isDelTerm = FpTokenTermLayout.readIsDelTerm(found);
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			LOG.info(DEBUG_UUID+"found indexId:" + indexId + " " + groupid + " " + groupLevel + " " + hotMark + " " + termIndex
-					+ " " + Utils.BytesReftoString(slice)+" info:"+FpTokenTermLayout.toReadableString(found));
+			LOG.info(DEBUG_UUID + "[fp_search] seekCeil found indexId=" + indexId + " groupId=" + groupid
+					+ " groupLevel=L" + groupLevel + " hot=" + hotMark + " termIndex=" + termIndex + " slice="
+					+ Utils.BytesReftoString(slice) + " term=" + FpTokenTermLayout.toReadableString(found));
 		}
 		if (!termHeaderMatches(found, columnName, groupid, groupLevel, hotMark, termIndex)) {
 			if(hotMark)

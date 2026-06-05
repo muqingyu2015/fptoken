@@ -125,7 +125,9 @@ public class FpTokenQuery extends Query {
             long diff=ts_end-ts_init;
             if(diff>500)
             {
-                LOG.info("search diff:"+(diff)+" "+Utils.BytesReftoString(slices[0]) +" "+blocklist.size()+" "+fieldName+" "+bitset.cardinality()+" stat:"+stat);
+                LOG.info("[fp_search] slowQuery ms=" + diff + " slice=" + Utils.BytesReftoString(slices[0])
+                        + " fpGroups=" + blocklist.size() + " field=" + fieldName + " hitDocs="
+                        + bitset.cardinality() + " stat=" + stat);
             }
             BitDocIdSet docIdSet = new BitDocIdSet(bitset, 1, context.reader().maxDoc());
             

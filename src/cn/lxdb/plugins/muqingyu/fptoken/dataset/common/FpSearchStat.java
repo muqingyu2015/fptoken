@@ -1,25 +1,10 @@
 package cn.lxdb.plugins.muqingyu.fptoken.dataset.common;
 
-import java.util.Arrays;
-
 import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
 
 public class FpSearchStat {
 	
 	public long doccount=0;
-	
-	@Override
-	public String toString() {
-		return "FpSearchStat [doccount=" + doccount + ", commonhit=" + commonhit + ", hothit=" + hothit + ", blkCount="
-				+ Arrays.toString(blkCount) + ", bitHitHot=" + Arrays.toString(bitHitHot) + ", blkHitHot="
-				+ Arrays.toString(blkHitHot) + ", bitHitCommon=" + Arrays.toString(bitHitCommon) + ", blkHitCommon="
-				+ Arrays.toString(blkHitCommon) + ", termHitHot=" + Arrays.toString(termHitHot) + ", termHitCommon="
-				+ Arrays.toString(termHitCommon) + ", termMissHot1=" + Arrays.toString(termMissHot1)
-				+ ", termMissCommon1=" + Arrays.toString(termMissCommon1) + ", termMissHot2="
-				+ Arrays.toString(termMissHot2) + ", termMissCommon2=" + Arrays.toString(termMissCommon2)
-				+ ", termMissHot3=" + Arrays.toString(termMissHot3) + ", termMissCommon3="
-				+ Arrays.toString(termMissCommon3) + ", termMiss0=" + termMiss0 + ", termHit0=" + termHit0 + "]";
-	}
 	public long commonhit=0;
 	public long hothit=0;
 
@@ -46,5 +31,38 @@ public class FpSearchStat {
 	public long termMiss0=0;
 	public long termHit0=0;
 
+	@Override
+	public String toString() {
+		final StringBuilder sb = new StringBuilder(256);
+		sb.append("segmentDocs=").append(doccount);
+		sb.append(" hotHitDocs=").append(hothit);
+		sb.append(" commonHitDocs=").append(commonhit);
+		appendTierFunnel(sb, "hot", blkCount, bitHitHot, blkHitHot, termHitHot, termMissHot1, termMissHot2,
+				termMissHot3);
+		appendTierFunnel(sb, "common", blkCount, bitHitCommon, blkHitCommon, termHitCommon, termMissCommon1,
+				termMissCommon2, termMissCommon3);
+		if (termHit0 > 0 || termMiss0 > 0) {
+			sb.append(" sparse{termHit=").append(termHit0).append(" termMiss=").append(termMiss0).append('}');
+		}
+		return sb.toString();
+	}
+
+	private static void appendTierFunnel(StringBuilder sb, String tier, long[] blkCount, long[] bitHit,
+			long[] blkHit, long[] termHit, long[] seekMiss, long[] headerMiss, long[] payloadMiss) {
+		for (int lvl = 0; lvl <= FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH; lvl++) {
+			if (bitHit[lvl] == 0 && termHit[lvl] == 0 && payloadMiss[lvl] == 0 && blkCount[lvl] == 0) {
+				continue;
+			}
+			sb.append(' ').append(tier).append(".L").append(lvl).append('{');
+			sb.append("blocks=").append(blkCount[lvl]);
+			sb.append(" bitCand=").append(bitHit[lvl]);
+			sb.append(" groups=").append(blkHit[lvl]);
+			sb.append(" termHit=").append(termHit[lvl]);
+			sb.append(" seekMiss=").append(seekMiss[lvl]);
+			sb.append(" headerMiss=").append(headerMiss[lvl]);
+			sb.append(" payloadMiss=").append(payloadMiss[lvl]);
+			sb.append('}');
+		}
+	}
 
 }

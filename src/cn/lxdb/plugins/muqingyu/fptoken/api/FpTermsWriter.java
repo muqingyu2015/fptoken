@@ -68,7 +68,8 @@ public class FpTermsWriter {
 
 		long ts_end=CLMillisecondClock.CLOCK.now();
 
-		LOG.info("writeTerms diff:"+(ts_end-ts_begin)+"ms,term_cnt:"+term_cnt+",maxDoc:"+maxDoc+","+orchestrator.stat);
+		LOG.info("[fp_write] finish ms=" + (ts_end - ts_begin) + " termCount=" + term_cnt + " maxDoc=" + maxDoc
+				+ " stat=" + orchestrator.stat);
 
 	
 	}

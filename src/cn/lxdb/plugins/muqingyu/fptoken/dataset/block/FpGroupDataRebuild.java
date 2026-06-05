@@ -153,7 +153,8 @@ public final class FpGroupDataRebuild {
 				{
 				
 		
-					LOG.info(debug_msg+" rebuild:commonskip:"+index+" freq:"+val.docsize()+",stat:"+stat.docFreq+" data:"+FpTokenTermLayout.toReadableString(reuse_term));
+					LOG.info("[fp_rebuild] commonSkip termIndex=" + index + " docFreq=" + val.docsize() + " postings="
+							+ stat.docFreq + " term=" + FpTokenTermLayout.toReadableString(reuse_term));
 				
 				}
 			}
@@ -165,7 +166,9 @@ public final class FpGroupDataRebuild {
 		
 			long ts_end=CLMillisecondClock.CLOCK.now();
 
-			LOG.info(debug_msg+"rebuild_flush_zero diff:[total@"+(ts_end-ts_begin)+"]ms,doclist:[common@"+stat_common_doc_cnt+"],del_hotterm_cnt:"+stat_del_hotterm_cnt+",distinctDocUnion:"+distinctDocUnion.cardinality()+",commonTermToDocs:"+commonTermToDocs.size());
+			LOG.info("[fp_rebuild] flushZero phase=" + debug_msg + " ms=" + (ts_end - ts_begin) + " doclistCommon="
+					+ stat_common_doc_cnt + " delHotTerms=" + stat_del_hotterm_cnt + " distinctDocs="
+					+ distinctDocUnion.cardinality() + " commonTerms=" + commonTermToDocs.size());
 
 		
 		}else {
@@ -211,7 +214,8 @@ public final class FpGroupDataRebuild {
 				
 				if(Lucene80FPSearchConfig.PRINT_DEBUG)
 				{
-					LOG.info(debug_msg+"debug rebuild:hot:"+index+" freq:"+val.docsize()+" data:"+FpTokenTermLayout.toReadableString(reuse_term));
+					LOG.info("[fp_rebuild] hotTerm termIndex=" + index + " docFreq=" + val.docsize() + " term="
+							+ FpTokenTermLayout.toReadableString(reuse_term));
 
 				
 				}
@@ -237,7 +241,9 @@ public final class FpGroupDataRebuild {
 				parentItem.writefpChecked(reuse_term, val, debug_msg + " rebuild:common");
 				if(Lucene80FPSearchConfig.PRINT_DEBUG)
 				{
-					LOG.info(debug_msg+"debug rebuild:common:"+index+" freq:"+val.docsize()+" columnLevel:"+columnLevel+" data:"+FpTokenTermLayout.toReadableString(reuse_term));
+					LOG.info("[fp_rebuild] commonTerm termIndex=" + index + " docFreq=" + val.docsize()
+							+ " targetLevel=L" + columnLevel + " term="
+							+ FpTokenTermLayout.toReadableString(reuse_term));
 
 				
 				}
@@ -253,7 +259,11 @@ public final class FpGroupDataRebuild {
 		
 			long ts_end=CLMillisecondClock.CLOCK.now();
 
-			LOG.info(debug_msg+"rebuild_flush diff:[total@"+(ts_end-ts_begin)+"~ngram@"+(ts_ngram-ts_begin)+"~bitset@"+(ts_bitset-ts_ngram)+"]ms columnLevel:"+columnLevel+" doclist:[hot@"+stat_hot_doc_cnt+"~common@"+stat_common_doc_cnt+"],del_hotterm_cnt:"+stat_del_hotterm_cnt+",distinctDocUnion:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size()+",ngramstat:"+ngramstat);
+			LOG.info("[fp_rebuild] flush phase=" + debug_msg + " msTotal=" + (ts_end - ts_begin) + " msNgram="
+					+ (ts_ngram - ts_begin) + " msBitset=" + (ts_bitset - ts_ngram) + " targetLevel=L" + columnLevel
+					+ " doclistHot=" + stat_hot_doc_cnt + " doclistCommon=" + stat_common_doc_cnt + " delHotTerms="
+					+ stat_del_hotterm_cnt + " distinctDocs=" + distinctDocUnion.cardinality() + " hotTerms="
+					+ hotTermToDocs.size() + " commonTerms=" + commonTermToDocs.size() + " ngramStat=" + ngramstat);
 
 		}
 		

@@ -138,7 +138,7 @@ public class FpToken extends Tokenizer {
             
             if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{
-				LOG.info("token: data:"+FpTokenTermLayout.toReadableString(new BytesRef(prefixed)));
+				LOG.info("[fp_token] windowTerm term=" + FpTokenTermLayout.toReadableString(new BytesRef(prefixed)));
 
 			
 			}
@@ -152,9 +152,8 @@ public class FpToken extends Tokenizer {
         pending.addAll(firstOccurrence.values());
 
         if (LOG.isDebugEnabled()) {
-            LOG.info("fptoken reset isQuery=" + isQuery + " bytesMode=" + bytesMode
-                    + " sourceLen=" + sourceBytes.length
-                    + " windows=" + windows.size() + " unique=" + pending.size());
+            LOG.info("[fp_token] reset isQuery=" + isQuery + " bytesMode=" + bytesMode + " sourceLen="
+                    + sourceBytes.length + " windows=" + windows.size() + " uniqueTerms=" + pending.size());
         }
     }
 

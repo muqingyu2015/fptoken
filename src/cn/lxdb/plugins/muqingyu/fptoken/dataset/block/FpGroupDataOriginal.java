@@ -119,7 +119,8 @@ public final class FpGroupDataOriginal {
 				if(noheader_term.length<=0)
 				{
 					
-					LOG.info("debug original:hot:"+index+"  len:"+reuse_term.length+"  data:"+Utils.BytesReftoString(reuse_term));
+					LOG.info("[fp_original] hotTerm emptyPayload termIndex=" + index + " termBytes="
+							+ reuse_term.length + " term=" + Utils.BytesReftoString(reuse_term));
 					continue;
 				}
 			
@@ -128,13 +129,15 @@ public final class FpGroupDataOriginal {
 				int level=FpTokenTermLayout.readLevel(reuse_term);
 				boolean ishot=FpTokenTermLayout.isHotTerm(reuse_term);
 				boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
-				int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
 				int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
 				BytesRef ref=FpTokenTermLayout.removeColumnAndHeaderBytes(reuse_term);
 				
 				
 	
-				LOG.info(debug_msg+" original:hot:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+Utils.BytesReftoString(ref));
+				LOG.info("[fp_original] hotTerm phase=" + debug_msg + " termIndex=" + index + " indexId="
+						+ read_index_id + " groupId=" + group_id_reuse + " level=L" + level + " isHot=" + ishot
+						+ " isDel=" + isdel + " hotDownTier=" + hot_down_tier + " docFreq=" + val.docsize()
+						+ " payload=" + Utils.BytesReftoString(ref));
 			
 			}
 		}
@@ -166,7 +169,8 @@ public final class FpGroupDataOriginal {
 				if(noheader_term.length<=0)
 				{
 					
-					LOG.info(debug_msg+" original:common:"+index+"  len:"+reuse_term.length+"  data:"+Utils.BytesReftoString(reuse_term));
+					LOG.info("[fp_original] commonTerm emptyPayload termIndex=" + index + " termBytes="
+							+ reuse_term.length + " term=" + Utils.BytesReftoString(reuse_term));
 					continue;
 				}
 			
@@ -175,13 +179,15 @@ public final class FpGroupDataOriginal {
 				int level=FpTokenTermLayout.readLevel(reuse_term);
 				boolean ishot=FpTokenTermLayout.isHotTerm(reuse_term);
 				boolean isdel=FpTokenTermLayout.readIsDelTerm(reuse_term);
-				int termindex=FpTokenTermLayout.readTermIndex(reuse_term);
 				int hot_down_tier=FpTokenTermLayout.readHotDownTierBudget(reuse_term);
 				BytesRef ref=FpTokenTermLayout.removeColumnAndHeaderBytes(reuse_term);
 				
 				
 	
-				LOG.info(debug_msg+" original:common:"+index+" index_id:"+read_index_id+" group_id:"+group_id_reuse+" level:"+level+" hot:"+ishot+" isdel:"+isdel+" termindex:"+termindex+" hot_down_tier:"+hot_down_tier+" freq:"+val.docsize()+" data:"+Utils.BytesReftoString(ref));
+				LOG.info("[fp_original] commonTerm phase=" + debug_msg + " termIndex=" + index + " indexId="
+						+ read_index_id + " groupId=" + group_id_reuse + " level=L" + level + " isHot=" + ishot
+						+ " isDel=" + isdel + " hotDownTier=" + hot_down_tier + " docFreq=" + val.docsize()
+						+ " payload=" + Utils.BytesReftoString(ref));
 			
 			}
 			
@@ -194,7 +200,10 @@ public final class FpGroupDataOriginal {
 	
 		long ts_end=CLMillisecondClock.CLOCK.now();
 
-		LOG.info(debug_msg+" original_flush diff:"+(ts_end-ts_begin)+"ms,doclist:["+stat_hot_doc_cnt+"~"+stat_common_doc_cnt+"] columnLevel:"+columnLevel+" ,del_hotterm_cnt:"+stat_del_hotterm_cnt+",distinctDocUnion:"+distinctDocUnion.cardinality()+",hotTermToDocs:"+hotTermToDocs.size()+",commonTermToDocs:"+commonTermToDocs.size());
+		LOG.info("[fp_original] flush phase=" + debug_msg + " ms=" + (ts_end - ts_begin) + " targetLevel=L"
+				+ columnLevel + " doclistHot=" + stat_hot_doc_cnt + " doclistCommon=" + stat_common_doc_cnt
+				+ " delHotTerms=" + stat_del_hotterm_cnt + " distinctDocs=" + distinctDocUnion.cardinality()
+				+ " hotTerms=" + hotTermToDocs.size() + " commonTerms=" + commonTermToDocs.size());
 
 	
 		this.resetAfterFlush();
