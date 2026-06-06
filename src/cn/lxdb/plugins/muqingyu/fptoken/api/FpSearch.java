@@ -160,40 +160,8 @@ public class FpSearch {
 		final FixedBitSet acc = ensureCollect(collect, sliceIndex, maxDoc);
 		final int[] hotOrders = bitIndex.lookupHotOrders(anchorSlice);
 		final int[] commonOrders = bitIndex.lookupCommonOrders(anchorSlice);
-		if (Lucene80FPSearchConfig.PRINT_DEBUG && hotOrders.length == 0 && commonOrders.length == 0) {
-			final StringBuilder sb = FpLog.kv();
-			FpLog.append(sb, "event", "sliceLookupMiss");
-			FpLog.append(sb, "groupId", groupid);
-			FpLog.append(sb, "level", "L" + blkinfo.targetLevel);
-			FpLog.append(sb, "sparse", bitIndex.isSparse());
-			FpLog.append(sb, "loadedHotBuckets", bitIndex.loadedHotBucketCount());
-			FpLog.append(sb, "loadedCommonBuckets", bitIndex.loadedCommonBucketCount());
-			FpLog.append(sb, "sliceIdx", sliceIndex);
-			FpLog.append(sb, "slice", Utils.BytesReftoString(anchorSlice));
-			if (anchorSlice != null && anchorSlice.length > 0) {
-				FpLog.append(sb, "sliceHex",
-						FpLog.bytesToHex(anchorSlice.bytes, anchorSlice.offset, anchorSlice.length));
-			}
-			FpLog.append(sb, "lenIdx", anchorSlice.length - 1);
-			FpLog.append(sb, "bucket", FpGroupHotNgramBitIndex.bucketIndex(anchorSlice));
-			FpLog.append(sb, "bucketKey", Long.toHexString(
-					FpGroupHotNgramBitIndex.packBucketKey(anchorSlice.length - 1,
-							FpGroupHotNgramBitIndex.bucketIndex(anchorSlice))));
-			FpLog.debugTrace(LOG, traceId, sb);
-		}
-		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			final StringBuilder sb = FpLog.kv();
-			FpLog.append(sb, "event", "sliceInGroup");
-			FpLog.append(sb, "groupId", groupid);
-			FpLog.append(sb, "level", "L" + blkinfo.targetLevel);
-			FpLog.append(sb, "sliceIdx", sliceIndex);
-			FpLog.append(sb, "slice", Utils.BytesReftoString(anchorSlice));
-			FpLog.append(sb, "hotOrderCount", hotOrders.length);
-			FpLog.append(sb, "commonOrderCount", commonOrders.length);
-			FpLog.debugTrace(LOG, traceId, sb);
-		}
-		final boolean hotHit = searchOrdersHot(bitIndex, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, acc,
-				hotOrders);
+		
+		final boolean hotHit = searchOrdersHot(bitIndex, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, acc,hotOrders);
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
 			final StringBuilder sb = FpLog.kv();
 			FpLog.append(sb, "event", "searchOrdersHot");
@@ -203,8 +171,7 @@ public class FpSearch {
 			FpLog.debugTrace(LOG, traceId, sb);
 		}
 		if (!hotHit) {
-			final boolean commonHit = searchOrdersCommon(bitIndex, columnName, anchorSlice, blkinfo, groupid, terms,
-					maxDoc, acc, commonOrders);
+			final boolean commonHit = searchOrdersCommon(bitIndex, columnName, anchorSlice, blkinfo, groupid, terms,maxDoc, acc, commonOrders);
 			if (Lucene80FPSearchConfig.PRINT_DEBUG) {
 				final StringBuilder sb = FpLog.kv();
 				FpLog.append(sb, "event", "searchOrdersCommon");
@@ -380,18 +347,7 @@ public class FpSearch {
 			BytesRef slice, int maxDoc, FixedBitSet collect) throws IOException {
 		FpTokenTermLayout.make_fp_search_prefix(reuse, columnName, indexId, groupid, groupLevel, hotMark, termIndex);
 
-		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			final StringBuilder sb = FpLog.kv();
-			FpLog.append(sb, "event", "seekCeil");
-			FpLog.append(sb, "indexId", indexId);
-			FpLog.append(sb, "groupId", groupid);
-			FpLog.append(sb, "level", "L" + groupLevel);
-			FpLog.append(sb, "hot", hotMark);
-			FpLog.append(sb, "termIndex", termIndex);
-			FpLog.append(sb, "exactPayload", requireExactPayloadMatch);
-			FpLog.append(sb, "slice", Utils.BytesReftoString(slice));
-			FpLog.debugTrace(LOG, traceId, sb);
-		}
+		
 		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
 			if (hotMark) {
 				stat.termMissHot1[groupLevel]++;
@@ -412,17 +368,7 @@ public class FpSearch {
 		}
 		final BytesRef found = termsEnum.term();
 		boolean isDelTerm = FpTokenTermLayout.readIsDelTerm(found);
-		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			final StringBuilder sb = FpLog.kv();
-			FpLog.append(sb, "event", "seekResult");
-			FpLog.append(sb, "status", "FOUND");
-			FpLog.append(sb, "groupId", groupid);
-			FpLog.append(sb, "termIndex", termIndex);
-			FpLog.append(sb, "hot", hotMark);
-			FpLog.append(sb, "isDel", isDelTerm);
-			FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(found));
-			FpLog.debugTrace(LOG, traceId, sb);
-		}
+	
 		if (!termHeaderMatches(found, columnName, groupid, groupLevel, hotMark, termIndex)) {
 			if (hotMark) {
 				stat.termMissHot2[groupLevel]++;
