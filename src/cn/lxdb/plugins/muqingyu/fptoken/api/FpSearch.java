@@ -1,9 +1,6 @@
 package cn.lxdb.plugins.muqingyu.fptoken.api;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -13,9 +10,6 @@ import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.index.TermsEnum$SeekStatus;
-import org.apache.lucene.search.ConjunctionDISI;
-import org.apache.lucene.search.DocIdSetIterator;
-import org.apache.lucene.util.BitSetIterator;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.offheap.OffheapPoolName;
@@ -31,11 +25,8 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.Utils;
 
 /**
- * 查询侧：按 ngram {@link BytesRef} 切片在组内 hot/common 位图中定位候选 term 序号，再
+ * 查询侧：按 ngram {@link BytesRef} 切片在组内 hot/common 精确 bucketIndex 倒排中定位 order 列表，再
  * {@link Terms#iterator_fp()} seek 倒排并合并 doc，多切片 AND、同切片多组 OR。
- * <p>
- * 每个查询 slice 会对自身及若干更短连续子串（见 {@link Lucene80FPSearchConfig#SEARCH_BITSET_PROBE_LAYERS_DOWN}）
- * 对应位图做 AND，再 seek，以降低单桶误命中率。
  */
 public class FpSearch {
 
@@ -58,30 +49,14 @@ public class FpSearch {
 			BytesRef[] slices) throws IOException {
 
 		stat.doccount+=maxDoc;
-		final boolean[][] choose_hot = new boolean[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.maxBucketsPerRow()];
-		final boolean[][] choose_common = new boolean[Lucene80FPSearchConfig.NGRAM_MAX][Lucene80FPSearchConfig.maxBucketsPerRow()];
-
-		for (int i = 0; i < choose_hot.length; i++) {
-			Arrays.fill(choose_hot[i], false);
-		}
-		for (int i = 0; i < choose_common.length; i++) {
-			Arrays.fill(choose_common[i], false);
-		}
-		if (slices != null) {
-			for (BytesRef slice : slices) {
-				markChooseForSliceAndProbes_hot(choose_hot, slice);
-				markChooseForSliceAndProbes_common(choose_common, slice);
-			}
-		}
-
 		final FixedBitSet rtn = new FixedBitSet(OffheapPoolName.fptokenbitset, maxDoc);
 		if (slices == null || slices.length == 0) {
 			return rtn;
 		}
 
 		final FixedBitSet[] collect = new FixedBitSet[slices.length];
-
 		int maxGroupId = -1;
+		final long[] bucketKeys = FpGroupHotNgramBitIndex.selectiveKeysForSlices(slices);
 
 		for (Entry<Integer, FpBlockInfo> e : fpblock_list.entrySet()) {
 			final FpBlockInfo blkinfo = e.getValue();
@@ -94,18 +69,16 @@ public class FpSearch {
 			if (groupId > maxGroupId) {
 				maxGroupId = groupId;
 			}
+			
 
-			final FpGroupHotNgramBitIndex bitsetIndex = terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId,choose_hot, choose_common);
+			final FpGroupHotNgramBitIndex bitsetIndex = terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId,
+					bucketKeys, bucketKeys);
 			if (bitsetIndex == null) {
 				continue;
 			}
 
 			for (int i = 0; i < slices.length; i++) {
-				final BytesRef slice = slices[i];
-				final FixedBitSet[] hotBanks = resolveBanks_hot(bitsetIndex.banksHot, slice);
-				final FixedBitSet[] commonBanks = resolveBanks_common(bitsetIndex.banksCommon, slice);
-				
-				searchSliceInGroup(hotBanks, commonBanks, columnName, slice, blkinfo, groupId, terms, maxDoc, collect,i);
+				searchSliceInGroup(bitsetIndex, columnName, slices[i], blkinfo, groupId, terms, maxDoc, collect, i);
 			}
 		}
 
@@ -127,165 +100,92 @@ public class FpSearch {
 		return rtn;
 	}
 
-	/**
-	 * 为 slice 及其向下 {@link Lucene80FPSearchConfig#SEARCH_BITSET_PROBE_LAYERS_DOWN} 档的连续子串标记需加载的位图桶。
-	 * 例：{@code abcd} → {@code abcd}、{@code abc}、{@code bcd}。
-	 */
-	public static void markChooseForSliceAndProbes_common(boolean[][] choose_common, BytesRef slice) {
-
-		if(slice.length<=1)
-		{
-			return ;
+	private void searchSliceInGroup(FpGroupHotNgramBitIndex bitIndex, BytesRef columnName, BytesRef anchorSlice,
+			FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet[] collect, int sliceIndex)
+			throws IOException {
+		final FixedBitSet acc = ensureCollect(collect, sliceIndex, maxDoc);
+		final boolean hotHit = searchOrdersHot(bitIndex, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, acc);
+		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
+			LOG.info(DEBUG_UUID + "[fp_search] searchOrdersHot hit=" + hotHit + " slice="
+					+ Utils.BytesReftoString(anchorSlice));
 		}
-		
-		final int lenIdx = ngramLengthIndex(slice.length);
-	
-		
-		boolean skip_current=Lucene80FPSearchConfig.COMMON_SKIP_LEN[slice.length];
-		if(skip_current)
-		{
-			markChooseForSliceAndProbes_common( choose_common, new BytesRef(slice.bytes,slice.offset,slice.length-1));;
-			markChooseForSliceAndProbes_common( choose_common, new BytesRef(slice.bytes,slice.offset+1,slice.length-1));;
-
-		}else
-		{
-
-			final int buckets = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset, slice.length);
-			choose_common[lenIdx][buckets]=true;
-			
-			final int buckets1 = FpGroupHotNgramBitIndex.bucketIndex256(slice.bytes, slice.offset, slice.length-1);
-			choose_common[lenIdx-1][buckets1]=true;
-			final int buckets2 = FpGroupHotNgramBitIndex.bucketIndex256(slice.bytes, slice.offset+1, slice.length-1);
-			choose_common[lenIdx-1][256+buckets2]=true;
-		
-			
-
-		
+		if (!hotHit) {
+			final boolean commonHit = searchOrdersCommon(bitIndex, columnName, anchorSlice, blkinfo, groupid, terms,
+					maxDoc, acc);
+			if (Lucene80FPSearchConfig.PRINT_DEBUG) {
+				LOG.info(DEBUG_UUID + "[fp_search] searchOrdersCommon hit=" + commonHit + " slice="
+						+ Utils.BytesReftoString(anchorSlice));
+			}
 		}
-		
-	
-	}
-	
-	public static void markChooseForSliceAndProbes_hot(boolean[][] choose_hot, BytesRef slice) {
-
-		final int lenIdx = ngramLengthIndex(slice.length);
-		final int bucket = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset, slice.length);
-		choose_hot[lenIdx][bucket] = true;
-		
-		if(slice.length>1)
-		{
-			final int buckets1 = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset, slice.length-1);
-			choose_hot[lenIdx-1][buckets1]=true;
-			final int buckets2 = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset+1, slice.length-1);
-			choose_hot[lenIdx-1][buckets2]=true;
-		}
-		
-		
-		
-		
-	
-	}
-	private static FixedBitSet[] resolveBanks_common(FixedBitSet[][] banksGrid, BytesRef slice) {
-
-		if(slice.length<=1)
-		{
-			return new FixedBitSet[0];
-		}
-
-		final int lenIdx = ngramLengthIndex(slice.length);
-	
-		
-		boolean skip_current=Lucene80FPSearchConfig.COMMON_SKIP_LEN[slice.length];
-		if(skip_current)
-		{
-			FixedBitSet[] a=resolveBanks_common( banksGrid, new BytesRef(slice.bytes,slice.offset,slice.length-1));
-			FixedBitSet[] b=resolveBanks_common( banksGrid, new BytesRef(slice.bytes,slice.offset+1,slice.length-1));
-			ArrayList<FixedBitSet> rtn=new ArrayList<FixedBitSet>();
-			rtn.addAll(Arrays.asList(a));
-			rtn.addAll(Arrays.asList(b));
-			return rtn.toArray(new FixedBitSet[rtn.size()]);
-		}else
-		{
-
-			FixedBitSet[] banks=new FixedBitSet[3];
-			final int bucket = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset, slice.length);
-			banks[0] = banksGrid[lenIdx][bucket];
-			
-			final int buckets1 = FpGroupHotNgramBitIndex.bucketIndex256(slice.bytes, slice.offset, slice.length-1);
-			banks[1] = banksGrid[lenIdx-1][buckets1];
-			final int buckets2 = FpGroupHotNgramBitIndex.bucketIndex256(slice.bytes, slice.offset+1, slice.length-1);
-			banks[2] = banksGrid[lenIdx-1][256+buckets2];
-		
-			return banks;
-
-		
-		}
-		
-	
-	
-	}
-	private static FixedBitSet[] resolveBanks_hot(FixedBitSet[][] banksGrid, BytesRef slice) {
-		final int bucket = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset, slice.length);
-		final int lenIdx = ngramLengthIndex(slice.length);
-		if(slice.length>1)
-		{
-			final FixedBitSet[] banks = new FixedBitSet[3];
-
-			banks[0] = banksGrid[lenIdx][bucket];
-			
-			
-			final int buckets1 = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset, slice.length-1);
-			banks[1] = banksGrid[lenIdx-1][buckets1];
-			final int buckets2 = FpGroupHotNgramBitIndex.bucketIndex512(slice.bytes, slice.offset+1, slice.length-1);
-			banks[2] = banksGrid[lenIdx-1][buckets2];
-			return banks;
-
-		}else {
-			final FixedBitSet[] banks = new FixedBitSet[1];
-
-			banks[0] = banksGrid[lenIdx][bucket];
-			
-			return banks;
-
-		}
-		
-		
-		
 	}
 
-//	/**
-//	 * 探针序列：锚点 slice + 各档更短连续子串（去重，保持锚点在前）。
-//	 */
-//	public static BytesRef[] buildProbeSlices(BytesRef slice) {
-//		final int layersDown = Lucene80FPSearchConfig.SEARCH_BITSET_PROBE_LAYERS_DOWN;
-//		final List<BytesRef> probes = new ArrayList<>(Math.max(2, slice.length * layersDown));
-//		probes.add(slice);
-//		for (int down = 1; down <= layersDown; down++) {
-//			final int len = slice.length - down;
-//			if (len < Lucene80FPSearchConfig.NGRAM_MIN) {
-//				break;
-//			}
-//			for (int start = 0; start + len <= slice.length; start++) {
-//				if (len == slice.length && start == 0) {
-//					continue;
-//				}
-//				final BytesRef sub = new BytesRef(slice.bytes, slice.offset + start, len);
-//				if (!containsProbe(probes, sub)) {
-//					probes.add(sub);
-//				}
-//			}
-//		}
-//		return probes.toArray(new BytesRef[0]);
-//	}
+	private static FixedBitSet ensureCollect(FixedBitSet[] collect, int sliceIndex, int maxDoc) {
+		if (collect[sliceIndex] == null) {
+			collect[sliceIndex] = new FixedBitSet(OffheapPoolName.fptokenbitset, maxDoc);
+		}
+		return collect[sliceIndex];
+	}
 
-//	private static boolean containsProbe(List<BytesRef> probes, BytesRef candidate) {
-//		for (BytesRef p : probes) {
-//			if (p.equals(candidate)) {
-//				return true;
-//			}
-//		}
-//		return false;
-//	}
+	private boolean searchOrdersHot(FpGroupHotNgramBitIndex bitIndex, BytesRef columnName, BytesRef anchorSlice,
+			FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet collect) throws IOException {
+		return seekOrderList(bitIndex.lookupHotOrders(anchorSlice), true, columnName, anchorSlice, blkinfo, groupid,
+				terms, maxDoc, collect);
+	}
+
+	private boolean searchOrdersCommon(FpGroupHotNgramBitIndex bitIndex, BytesRef columnName, BytesRef anchorSlice,
+			FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet collect) throws IOException {
+		return seekOrderList(bitIndex.lookupCommonOrders(anchorSlice), false, columnName, anchorSlice, blkinfo,
+				groupid, terms, maxDoc, collect);
+	}
+
+	private boolean seekOrderList(int[] orders, boolean hotMark, BytesRef columnName, BytesRef anchorSlice,
+			FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet collect) throws IOException {
+		if (orders == null || orders.length == 0) {
+			return false;
+		}
+		final AtomicReference<PostingsEnum> reusePosting = new AtomicReference<PostingsEnum>(null);
+		final TermsEnum termsEnum = terms.iterator();
+		final BytesRef reuse = new BytesRef(new byte[512]);
+		boolean anyHit = false;
+		final AtomicInteger maxHotPayloadLen = new AtomicInteger(0);
+		boolean payloadLenCapSet = false;
+		boolean first = false;
+		for (int termIndex : orders) {
+			if (hotMark) {
+				stat.bitHitHot[blkinfo.targetLevel]++;
+			} else {
+				stat.bitHitCommon[blkinfo.targetLevel]++;
+			}
+			if (!first) {
+				if (hotMark) {
+					stat.blkHitHot[blkinfo.targetLevel]++;
+				} else {
+					stat.blkHitCommon[blkinfo.targetLevel]++;
+				}
+				first = true;
+			}
+			if (hotMark && !payloadLenCapSet) {
+				final int status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, true, termsEnum, reuse,
+						Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark,
+						termIndex, columnName, anchorSlice, maxDoc, collect);
+				if (status == SEEK_OK) {
+					anyHit = true;
+					payloadLenCapSet = true;
+				}
+				continue;
+			}
+			final int status = seekTermAndOrDocs(reusePosting, hotMark ? maxHotPayloadLen : null, false, termsEnum,
+					reuse, Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark,
+					termIndex, columnName, anchorSlice, maxDoc, collect);
+			if (status == SEEK_OK) {
+				anyHit = true;
+			}
+			if (status == SEEK_BREAK_PAYLOAD_LEN) {
+				break;
+			}
+		}
+		return anyHit;
+	}
 
 	private static boolean fieldInfoMatchesColumn(FpBlockInfo blkinfo, BytesRef columnName) {
 		if (blkinfo == null || blkinfo.fieldInfo == null) {
@@ -347,154 +247,6 @@ public class FpSearch {
 	/** payload 是否包含 slice 连续子串（indexOf 语义）。 */
 	private static boolean payloadContainsSlice(BytesRef payload, BytesRef slice) {
 		return payloadMatchesSlice(false, payload, slice);
-	}
-
-	
-
-	/** 单 group、单 slice：先 hot 位图候选，整库 hot 无 seek 命中再 common。 */
-	private void searchSliceInGroup(FixedBitSet[] hotBanks, FixedBitSet[] commonBanks, BytesRef columnName,
-			BytesRef anchorSlice, FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet[] collect,
-			int sliceIndex) throws IOException {
-		final FixedBitSet acc = ensureCollect(collect, sliceIndex, maxDoc);
-
-		final boolean hotHit = searchBankHot(hotBanks, true, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc,acc);
-		if(Lucene80FPSearchConfig.PRINT_DEBUG)
-		{
-			LOG.info(DEBUG_UUID + "[fp_search] searchBankHot hit=" + hotHit + " slice="
-					+ Utils.BytesReftoString(anchorSlice));
-
-		}
-
-		if (commonBanks.length>0&&!hotHit) {
-			boolean common_hit=searchBankCommon(commonBanks, false, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, acc);
-			if(Lucene80FPSearchConfig.PRINT_DEBUG)
-			{
-				LOG.info(DEBUG_UUID + "[fp_search] searchBankCommon hit=" + common_hit + " slice="
-						+ Utils.BytesReftoString(anchorSlice));
-			}
-
-		}
-	}
-
-	private static FixedBitSet ensureCollect(FixedBitSet[] collect, int sliceIndex, int maxDoc) {
-		if (collect[sliceIndex] == null) {
-			collect[sliceIndex] = new FixedBitSet(OffheapPoolName.fptokenbitset, maxDoc);
-		}
-		return collect[sliceIndex];
-	}
-
-	/**
-	 * 遍历多桶位图 AND 后的候选 bit（bit = termOrder - 1），构造 FP 词项 seek；命中则 OR 进 {@code collect}。
-	 *
-	 * @return 是否至少一次 seek 命中
-	 */
-	private boolean searchBankHot(FixedBitSet[] banks, boolean hotMark, BytesRef columnName, BytesRef anchorSlice,
-			FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet collect) throws IOException {
-		final DocIdSetIterator bits = intersectBankIterators(banks);
-		if (bits == null) {
-			return false;
-		}
-
-		final AtomicReference<PostingsEnum> reusePosting = new AtomicReference<PostingsEnum>(null);
-		final TermsEnum termsEnum = terms.iterator();
-		final BytesRef reuse = new BytesRef(new byte[512]);
-		boolean anyHit = false;
-		final AtomicInteger maxHotPayloadLen = new AtomicInteger(0);
-		boolean payloadLenCapSet = false;
-
-		boolean first=false;
-		for (int bit = bits.nextDoc(); bit != DocIdSetIterator.NO_MORE_DOCS; bit = bits.nextDoc()) {
-			//遍历每个term
-			final int termIndex = bit;
-			stat.bitHitHot[blkinfo.targetLevel]++;
-			if(!first)
-			{
-				stat.blkHitHot[blkinfo.targetLevel]++;
-				first=true;
-			}
-			
-			if (!payloadLenCapSet) {
-				int status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, true, termsEnum, reuse,
-						Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark,
-						termIndex, columnName, anchorSlice, maxDoc, collect);
-				if (status == SEEK_OK) {
-					anyHit = true;
-					payloadLenCapSet = true;
-				}
-				continue;
-			}
-			final int status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, false, termsEnum, reuse,
-					Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
-					columnName, anchorSlice, maxDoc, collect);
-			if (status == SEEK_OK) {
-				anyHit = true;
-			}
-			if (status == SEEK_BREAK_PAYLOAD_LEN) {
-				break;
-			}
-		}
-		return anyHit;
-	}
-
-	private boolean searchBankCommon(FixedBitSet[] banks, boolean hotMark, BytesRef columnName, BytesRef anchorSlice,
-			FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet collect) throws IOException {
-		final DocIdSetIterator bits = intersectBankIterators(banks);
-		if (bits == null) {
-			if(Lucene80FPSearchConfig.PRINT_DEBUG)
-			{
-			LOG.info(DEBUG_UUID + "[fp_search] searchBankCommon noBitCandidates slice="
-					+ Utils.BytesReftoString(anchorSlice));
-			}
-			return false;
-		}
-
-		final AtomicReference<PostingsEnum> reusePosting = new AtomicReference<PostingsEnum>(null);
-		final TermsEnum termsEnum = terms.iterator();
-		final BytesRef reuse = new BytesRef(new byte[512]);
-		boolean anyHit = false;
-		boolean first=false;
-
-		for (int bit = bits.nextDoc(); bit != DocIdSetIterator.NO_MORE_DOCS; bit = bits.nextDoc()) {
-			final int termIndex = bit;
-			
-			stat.bitHitCommon[blkinfo.targetLevel]++;
-			if(!first)
-			{
-				stat.blkHitCommon[blkinfo.targetLevel]++;
-				first=true;
-			}
-
-			final int status = seekTermAndOrDocs(reusePosting, null, false, termsEnum, reuse,
-					Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark, termIndex,
-					columnName, anchorSlice, maxDoc, collect);
-			if(Lucene80FPSearchConfig.PRINT_DEBUG)
-			{
-				LOG.info(DEBUG_UUID + "[fp_search] searchBankCommon termIndex=" + termIndex + " seekStatus="
-						+ seekStatusLabel(status) + " slice=" + Utils.BytesReftoString(anchorSlice));
-			}
-			if (status == SEEK_OK) {
-				anyHit = true;
-			}
-		}
-		return anyHit;
-	}
-
-	/** 各探针桶位图 term 序号 AND；任一桶缺失则无可选候选。 */
-	private static DocIdSetIterator intersectBankIterators(FixedBitSet[] banks) {
-		if (banks == null || banks.length == 0) {
-			return null;
-		}
-		if (banks.length == 1) {
-			return banks[0] == null ? null : new BitSetIterator(banks[0], 0L);
-		}
-		final List<DocIdSetIterator> iters = new ArrayList<>(banks.length);
-		for (FixedBitSet bank : banks) {
-			if (bank == null) {
-				return null;
-			}
-			iters.add(new BitSetIterator(bank, 0L));
-		}
-		return ConjunctionDISI.intersectIterators(iters);
 	}
 
 	private static final int SEEK_OK = 0;

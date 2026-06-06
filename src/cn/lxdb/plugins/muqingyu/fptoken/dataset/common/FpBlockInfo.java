@@ -12,7 +12,7 @@ import org.apache.lucene.util.BytesRef;
 public class FpBlockInfo {
 
 	/** 与 {@link #writeto} / {@link #readfrom} 格式一致 */
-	public static final int FORMAT_VERSION = 2;
+	public static final int FORMAT_VERSION = 3;
 
 	/**
 	 * 交错区起点：{@code banksHot[0][0]} 在 bit 文件中的偏移。
@@ -98,7 +98,7 @@ public class FpBlockInfo {
 	public void readfrom(IndexInput in) throws IOException {
 		final int ver = in.readInt();
 		if (ver != FORMAT_VERSION) {
-			throw new IOException("FpBlockInfo unsupported format version: " + ver);
+			throw new IOException("FpBlockInfo unsupported format version: " + ver + " (expected " + FORMAT_VERSION + ")");
 		}
 		fpBanksHot = in.readLong();
 		fpBanksCommon = in.readLong();
@@ -117,14 +117,15 @@ public class FpBlockInfo {
 
 	}
 
-	/** 第 {@code li} 长度、桶 {@code b} 的热词 bitset 在 bit 文件中的起始偏移。 */
+	/** @deprecated v3 位图区为 tier 布局，请使用 {@link cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex} 内偏移。 */
+	@Deprecated
 	public long hotBankOffset(int li, int b) {
-		final long pair = cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig.bankPairIndex(li, b);
-		return fpBanksHot + pair * (long) (bytesPerHotSerialized + bytesPerCommonSerialized);
+		throw new UnsupportedOperationException("hotBankOffset is deprecated in FpBlockInfo v3");
 	}
 
-	/** 同上位置的普通词侧起始偏移。 */
+	/** @deprecated v3 位图区为 tier 布局。 */
+	@Deprecated
 	public long commonBankOffset(int li, int b) {
-		return hotBankOffset(li, b) + (long) bytesPerHotSerialized;
+		throw new UnsupportedOperationException("commonBankOffset is deprecated in FpBlockInfo v3");
 	}
 }

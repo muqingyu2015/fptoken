@@ -9,16 +9,15 @@ import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 class Lucene80FPSearchConfigBucketsTest {
 
 	@Test
-	void len1RowUses256Buckets_len2PlusUses512() {
-		assertEquals(256, Lucene80FPSearchConfig.bucketsForLengthIndex(0));
-		assertEquals(512, Lucene80FPSearchConfig.bucketsForLengthIndex(1));
-		assertEquals(512, Lucene80FPSearchConfig.bucketsForLengthIndex(5));
+	void allLengthRowsUseUnifiedBucketCount() {
+		for (int lenIdx = 0; lenIdx < Lucene80FPSearchConfig.NGRAM_MAX; lenIdx++) {
+			assertEquals(Lucene80FPSearchConfig.BUCKETS, Lucene80FPSearchConfig.bucketsForLengthIndex(lenIdx));
+		}
 	}
 
 	@Test
-	void totalBankPairs_savesOneRowOfWaste() {
-		final int uniform512 = Lucene80FPSearchConfig.NGRAM_MAX * Lucene80FPSearchConfig.BUCKETS;
-		final int variable = Lucene80FPSearchConfig.totalBankPairs();
-		assertEquals(uniform512 - 256, variable);
+	void totalBankPairs_isUniformGrid() {
+		assertEquals(Lucene80FPSearchConfig.NGRAM_MAX * Lucene80FPSearchConfig.BUCKETS,
+				Lucene80FPSearchConfig.totalBankPairs());
 	}
 }

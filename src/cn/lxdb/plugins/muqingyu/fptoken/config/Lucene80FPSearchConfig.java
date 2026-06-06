@@ -31,16 +31,6 @@ public final class Lucene80FPSearchConfig {
 	public static final int NGRAM_MIN = 1;
 
 	public static final int NGRAM_MAX = 6;
-	
-	public static final boolean[] COMMON_SKIP_LEN=new boolean[] {
-			true, //0 无用占位
-			true, //1 都在hot里
-			false,//2 存储bit
-			true, //3 不存储
-			false,//4 存储bit
-			true, //5 不存储
-			false,//6 存储
-		};//
 
 	/** 热词频率挖掘阈值（{@link cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild}）及「按档计数」上限。 */
 	public static final int HOT_TIER_TERM_COUNT_THRESHOLD = 16;
