@@ -52,7 +52,7 @@ public final class FpLog {
 		return line(tag, append(kv(), key, value));
 	}
 
-	/** 查询 trace 关联（{@link cn.lxdb.plugins.muqingyu.fptoken.api.FpSearch#DEBUG_UUID}）。 */
+	/** 查询 trace 关联（{@link cn.lxdb.plugins.muqingyu.fptoken.api.FpSearch#traceId}）。 */
 	public static String trace(String traceId, String tag, StringBuilder fields) {
 		if (traceId == null || traceId.isEmpty()) {
 			return line(tag, fields);

@@ -30,9 +30,10 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.Utils;
  * {@link Terms#iterator_fp()} seek 倒排并合并 doc，多切片 AND、同切片多组 OR。
  */
 public class FpSearch {
+	public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 
 	public FpSearchStat stat;
-	public final String DEBUG_UUID;
+	public final String traceId;
 
 	public FpSearch(FpSearchStat stat) {
 		this(stat, "");
@@ -41,15 +42,14 @@ public class FpSearch {
 	public FpSearch(FpSearchStat stat, String traceId) {
 		this.stat = stat;
 		if (traceId != null && !traceId.isEmpty()) {
-			this.DEBUG_UUID = traceId;
+			this.traceId = traceId;
 		} else if (Lucene80FPSearchConfig.LOG_FP_SEARCH || Lucene80FPSearchConfig.PRINT_DEBUG) {
-			this.DEBUG_UUID = java.util.UUID.randomUUID().toString();
+			this.traceId = java.util.UUID.randomUUID().toString();
 		} else {
-			this.DEBUG_UUID = "";
+			this.traceId = "";
 		}
 	}
 
-	public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 
 	/**
 	 * @param fpblock_list 段内 group_id → 位图区元数据
@@ -62,13 +62,6 @@ public class FpSearch {
 		stat.doccount+=maxDoc;
 		final FixedBitSet rtn = new FixedBitSet(OffheapPoolName.fptokenbitset, maxDoc);
 		if (slices == null || slices.length == 0) {
-			if (Lucene80FPSearchConfig.LOG_FP_SEARCH) {
-				final StringBuilder sb = FpLog.kv();
-				FpLog.append(sb, "event", "searchAbort");
-				FpLog.append(sb, "reason", "noSlices");
-				FpLog.append(sb, "column", Utils.BytesReftoString(columnName));
-				FpLog.searchTrace(LOG, DEBUG_UUID, sb);
-			}
 			return rtn;
 		}
 
@@ -78,17 +71,6 @@ public class FpSearch {
 		int columnSkippedGroups = 0;
 		String indexColumnSample = null;
 		final long[] bucketKeys = FpGroupHotNgramBitIndex.selectiveKeysForSlices(slices);
-		if (Lucene80FPSearchConfig.LOG_FP_SEARCH || Lucene80FPSearchConfig.PRINT_DEBUG) {
-			final StringBuilder sb = FpLog.kv();
-			FpLog.append(sb, "event", "searchBegin");
-			FpLog.append(sb, "column", Utils.BytesReftoString(columnName));
-			FpLog.append(sb, "maxDoc", maxDoc);
-			FpLog.appendSliceSummary(sb, slices);
-			FpLog.append(sb, "bucketKeyCount", bucketKeys.length);
-			FpLog.appendBucketKeys(sb, bucketKeys);
-			FpLog.append(sb, "fpGroupCount", fpblock_list == null ? 0 : fpblock_list.size());
-			FpLog.debugTrace(LOG, DEBUG_UUID, sb);
-		}
 
 		for (Entry<Integer, FpBlockInfo> e : fpblock_list.entrySet()) {
 			final FpBlockInfo blkinfo = e.getValue();
@@ -106,7 +88,7 @@ public class FpSearch {
 				maxGroupId = groupId;
 			}
 			
-
+			//通过skip index按需加载命中的hot和common的term_order_num
 			final FpGroupHotNgramBitIndex bitsetIndex = loadBitIndex(terms, groupId, bucketKeys);
 			if (bitsetIndex == null) {
 				if (Lucene80FPSearchConfig.LOG_FP_SEARCH || Lucene80FPSearchConfig.PRINT_DEBUG) {
@@ -115,11 +97,12 @@ public class FpSearch {
 					FpLog.append(sb, "reason", "fpBitsNull");
 					FpLog.append(sb, "groupId", groupId);
 					FpLog.append(sb, "level", "L" + blkinfo.targetLevel);
-					FpLog.debugTrace(LOG, DEBUG_UUID, sb);
+					FpLog.debugTrace(LOG, traceId, sb);
 				}
 				continue;
 			}
 
+			//根据term_order_num返回命中的docid
 			for (int i = 0; i < slices.length; i++) {
 				searchSliceInGroup(bitsetIndex, columnName, slices[i], blkinfo, groupId, terms, maxDoc, collect, i);
 			}
@@ -132,23 +115,15 @@ public class FpSearch {
 			FpLog.append(sb, "indexColumnSample", indexColumnSample);
 			FpLog.append(sb, "fpGroups", fpblock_list.size());
 			FpLog.append(sb, "skippedGroups", columnSkippedGroups);
-			FpLog.searchTrace(LOG, DEBUG_UUID, sb);
+			FpLog.searchTrace(LOG, traceId, sb);
 		}
 
+		//有些小组，暴力处理
 		searchSparseNoBitIndexTerms(terms, columnName, maxDoc, slices, collect, maxGroupId);
 
 		boolean merged = false;
 		for (int i = 0; i < slices.length; i++) {
 			if (collect[i] == null) {
-				if (Lucene80FPSearchConfig.LOG_FP_SEARCH || Lucene80FPSearchConfig.PRINT_DEBUG) {
-					final StringBuilder sb = FpLog.kv();
-					FpLog.append(sb, "event", "searchAbort");
-					FpLog.append(sb, "reason", "sliceNoHit");
-					FpLog.append(sb, "sliceIdx", i);
-					FpLog.append(sb, "slice", Utils.BytesReftoString(slices[i]));
-					FpLog.append(sb, "columnMatchedGroups", columnMatchedGroups);
-					FpLog.debugTrace(LOG, DEBUG_UUID, sb);
-				}
 				rtn.clear(0, maxDoc);
 				return rtn;
 			}
@@ -165,7 +140,7 @@ public class FpSearch {
 			FpLog.append(sb, "hitDocs", rtn.cardinality());
 			FpLog.append(sb, "columnMatchedGroups", columnMatchedGroups);
 			FpLog.append(sb, "stat", stat);
-			FpLog.debugTrace(LOG, DEBUG_UUID, sb);
+			FpLog.debugTrace(LOG, traceId, sb);
 		}
 		return rtn;
 	}
@@ -202,7 +177,7 @@ public class FpSearch {
 			FpLog.append(sb, "bucketKey", Long.toHexString(
 					FpGroupHotNgramBitIndex.packBucketKey(anchorSlice.length - 1,
 							FpGroupHotNgramBitIndex.bucketIndex(anchorSlice))));
-			FpLog.debugTrace(LOG, DEBUG_UUID, sb);
+			FpLog.debugTrace(LOG, traceId, sb);
 		}
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
 			final StringBuilder sb = FpLog.kv();
@@ -213,7 +188,7 @@ public class FpSearch {
 			FpLog.append(sb, "slice", Utils.BytesReftoString(anchorSlice));
 			FpLog.append(sb, "hotOrderCount", hotOrders.length);
 			FpLog.append(sb, "commonOrderCount", commonOrders.length);
-			FpLog.debugTrace(LOG, DEBUG_UUID, sb);
+			FpLog.debugTrace(LOG, traceId, sb);
 		}
 		final boolean hotHit = searchOrdersHot(bitIndex, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, acc,
 				hotOrders);
@@ -223,7 +198,7 @@ public class FpSearch {
 			FpLog.append(sb, "hit", hotHit);
 			FpLog.append(sb, "slice", Utils.BytesReftoString(anchorSlice));
 			FpLog.append(sb, "groupId", groupid);
-			FpLog.debugTrace(LOG, DEBUG_UUID, sb);
+			FpLog.debugTrace(LOG, traceId, sb);
 		}
 		if (!hotHit) {
 			final boolean commonHit = searchOrdersCommon(bitIndex, columnName, anchorSlice, blkinfo, groupid, terms,
@@ -234,7 +209,7 @@ public class FpSearch {
 				FpLog.append(sb, "hit", commonHit);
 				FpLog.append(sb, "slice", Utils.BytesReftoString(anchorSlice));
 				FpLog.append(sb, "groupId", groupid);
-				FpLog.debugTrace(LOG, DEBUG_UUID, sb);
+				FpLog.debugTrace(LOG, traceId, sb);
 			}
 		}
 	}
@@ -336,7 +311,7 @@ public class FpSearch {
 				FpLog.append(sb, "event", "sparseScanMiss");
 				FpLog.append(sb, "reason", "seekCeilEnd");
 				FpLog.append(sb, "column", Utils.BytesReftoString(columnName));
-				FpLog.debugTrace(LOG, DEBUG_UUID, sb);
+				FpLog.debugTrace(LOG, traceId, sb);
 			}
 			return;
 		}
@@ -346,7 +321,7 @@ public class FpSearch {
 			FpLog.append(sb, "event", "sparseScanBegin");
 			FpLog.append(sb, "column", Utils.BytesReftoString(columnName));
 			FpLog.append(sb, "maxGroupId", maxGroupId);
-			FpLog.debugTrace(LOG, DEBUG_UUID, sb);
+			FpLog.debugTrace(LOG, traceId, sb);
 		}
 
 		for (BytesRef found = termsEnum.term(); found != null; found = termsEnum.next()) {
@@ -413,7 +388,7 @@ public class FpSearch {
 			FpLog.append(sb, "termIndex", termIndex);
 			FpLog.append(sb, "exactPayload", requireExactPayloadMatch);
 			FpLog.append(sb, "slice", Utils.BytesReftoString(slice));
-			FpLog.debugTrace(LOG, DEBUG_UUID, sb);
+			FpLog.debugTrace(LOG, traceId, sb);
 		}
 		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
 			if (hotMark) {
@@ -429,7 +404,7 @@ public class FpSearch {
 				FpLog.append(sb, "groupId", groupid);
 				FpLog.append(sb, "termIndex", termIndex);
 				FpLog.append(sb, "hot", hotMark);
-				FpLog.debugTrace(LOG, DEBUG_UUID, sb);
+				FpLog.debugTrace(LOG, traceId, sb);
 			}
 			return SEEK_MISS;
 		}
@@ -444,7 +419,7 @@ public class FpSearch {
 			FpLog.append(sb, "hot", hotMark);
 			FpLog.append(sb, "isDel", isDelTerm);
 			FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(found));
-			FpLog.debugTrace(LOG, DEBUG_UUID, sb);
+			FpLog.debugTrace(LOG, traceId, sb);
 		}
 		if (!termHeaderMatches(found, columnName, groupid, groupLevel, hotMark, termIndex)) {
 			if (hotMark) {
@@ -459,7 +434,7 @@ public class FpSearch {
 				FpLog.append(sb, "stage", "headerMismatch");
 				FpLog.append(sb, "groupId", groupid);
 				FpLog.append(sb, "termIndex", termIndex);
-				FpLog.debugTrace(LOG, DEBUG_UUID, sb);
+				FpLog.debugTrace(LOG, traceId, sb);
 			}
 			return SEEK_MISS;
 		}
@@ -479,7 +454,7 @@ public class FpSearch {
 				FpLog.append(sb, "termIndex", termIndex);
 				FpLog.append(sb, "payload", Utils.BytesReftoString(payload));
 				FpLog.append(sb, "slice", Utils.BytesReftoString(slice));
-				FpLog.debugTrace(LOG, DEBUG_UUID, sb);
+				FpLog.debugTrace(LOG, traceId, sb);
 			}
 			return SEEK_MISS;
 		}
@@ -495,7 +470,7 @@ public class FpSearch {
 					FpLog.append(sb, "status", seekStatusLabel(SEEK_BREAK_PAYLOAD_LEN));
 					FpLog.append(sb, "maxHotPayloadLen", maxHotPayloadLenOrNull.get());
 					FpLog.append(sb, "payloadLen", payload.length);
-					FpLog.debugTrace(LOG, DEBUG_UUID, sb);
+					FpLog.debugTrace(LOG, traceId, sb);
 				}
 				return SEEK_BREAK_PAYLOAD_LEN;
 			}
