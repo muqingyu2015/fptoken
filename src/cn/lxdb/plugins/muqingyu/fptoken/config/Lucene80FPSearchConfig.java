@@ -104,7 +104,7 @@ public final class Lucene80FPSearchConfig {
 //	public static boolean SELECTIVE_FP_BITS_DIAG_COMPARE = true;
 
 	/** 写段时检测 writefp 是否仍按最终 term BytesRef 严格升序；乱序时打 WARN。 */
-	public static boolean CHECK_TERM_WRITE_ORDER = true;
+	public static boolean CHECK_TERM_WRITE_ORDER = false;
 
 //	/**
 //	 * 热词重建诊断：每组合并后打一行 {@code fp_ngram_diag}（便于 grep）；键表异常时另打 {@code fp_ngram_diag_KEY_SUSPECT}。
