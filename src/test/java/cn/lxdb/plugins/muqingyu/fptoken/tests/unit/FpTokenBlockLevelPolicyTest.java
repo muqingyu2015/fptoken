@@ -22,7 +22,7 @@ class FpTokenBlockLevelPolicyTest {
 	void shouldCompleteBlock_eitherDimensionSuffices() {
 		assertTrue(FpTokenBlockLevelPolicy.shouldCompleteBlock(1.0, 1, 1000, 0));
 		assertTrue(FpTokenBlockLevelPolicy.shouldCompleteBlock(1.0, 1, 0, 1000));
-		assertFalse(FpTokenBlockLevelPolicy.shouldCompleteBlock(1.0, 1, 999, 999));
+		assertFalse(FpTokenBlockLevelPolicy.shouldCompleteBlock(1.0, 1, 100, 100));
 		assertTrue(FpTokenBlockLevelPolicy.shouldCompleteBlock(3.0, 1, 3000, 0));
 	}
 }

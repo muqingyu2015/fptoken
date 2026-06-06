@@ -24,6 +24,13 @@ public final class InMemoryFpTerms extends Terms {
 		this.postingsByTerm = postingsByTerm == null ? new TreeMap<>() : postingsByTerm;
 	}
 
+	/** 替换某组的位图实例（selective 视图测试）。 */
+	public InMemoryFpTerms withGroupBitIndex(int groupId, FpGroupHotNgramBitIndex bits) {
+		final TreeMap<Integer, FpGroupHotNgramBitIndex> copy = new TreeMap<>(bitsByGroupId);
+		copy.put(groupId, bits);
+		return new InMemoryFpTerms(copy, postingsByTerm);
+	}
+
 	@Override
 	public FpGroupHotNgramBitIndex fpBits(short indexId, int groupId, long[] loadHot, long[] loadCommon)
 			throws IOException {

@@ -35,11 +35,11 @@ class BinarySlidingWindowApiTest {
 		for (WindowTerm w : wins) {
 			ByteRef ref = w.getSourceRef();
 			starts.add(ref.getOffset());
-			assertEquals(64, w.getWindowBytes().length);
+			assertEquals(32, w.getWindowBytes().length);
 		}
 		assertTrue(wins.size() >= 2, "expected step windows plus tail alignment");
 		assertTrue(starts.contains(0));
-		assertTrue(starts.contains(64), "tail-aligned last window at offset 64 for length 128");
+		assertTrue(starts.contains(96), "last 32-byte window starts at 128-32=96");
 	}
 
 	@Test
