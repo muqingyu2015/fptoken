@@ -812,12 +812,14 @@ public final class FpGroupHotNgramBitIndex {
 			}
 			in.seek(skipTableStart + (long) segment * 12L);
 			in.readInt();
-			final long keysStartRel = in.readLong();
+			// skip 表存的是 keys[segStart] 的相对偏移，不是 keys[0]；需还原 keys 区起点再按 entry 下标寻址
+			final long keysPtrRel = in.readLong();
 			final int segStart = segment * SKIP_INTERVAL;
 			final int segEnd = Math.min(segStart + SKIP_INTERVAL, entryCount);
+			final long keysBaseRel = keysPtrRel - (long) segStart * 4L;
 			int found = -1;
 			for (int i = segStart; i < segEnd; i++) {
-				in.seek(lenRowStart + keysStartRel + (long) i * 4L);
+				in.seek(lenRowStart + keysBaseRel + (long) i * 4L);
 				final int key = in.readInt();
 				if (key == bucket) {
 					found = i;
@@ -830,7 +832,7 @@ public final class FpGroupHotNgramBitIndex {
 			if (found < 0) {
 				return EMPTY_ORDERS;
 			}
-			final long metaStartRel = keysStartRel + (long) entryCount * 4L;
+			final long metaStartRel = keysBaseRel + (long) entryCount * 4L;
 			in.seek(lenRowStart + metaStartRel + (long) found * 4L);
 			final int meta = in.readInt();
 			if ((meta & 1) == ENTRY_TAG_SINGLE) {
