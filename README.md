@@ -1,10 +1,11 @@
 # FPToken（FP Token 模块）
 
-面向 **LXDB / 补丁版 Lucene** 的二进制指纹（Fingerprint）索引：在 BlockTree 写段阶段按 **列名 + 组（column + index_id + group_id）** 聚合词项，对 common 载荷做 **byte n-gram 热词挖掘** 与 **6×256 双套位图索引**，并支持高级别 term 的 **透传写出**（复用已有 `fpBits`）。
+面向 **LXDB / 补丁版 Lucene** 的二进制指纹（Fingerprint）索引：在 BlockTree 写段阶段按 **列名 + 组（column + index_id + group_id）** 聚合词项，对 common 载荷做 **byte n-gram 热词挖掘** 与 **v3 sorted bucket 倒排索引**（hot/common 双 tier + skip 跳跃读），并支持高级别 term 的 **透传写出**（复用已有 `fpBits`）。
 
-每个倒排词项在 **`FpTokenTermLayout`** 最前携带 **可变长 JSON 列名**（`4B 长度 + UTF-8 字段 key`），使同一 FP 字段下可索引 **海量稀疏列**（例如百万级 JSON key），查询时按 **列名 + ngram 切片** 精确定位，列名 **不参与** ngram 滑窗与位图统计。
+每个倒排词项在 **`FpTokenTermLayout`** 最前携带 **可变长 JSON 列名**（`4B 长度 + UTF-8 字段 key`），使同一 FP 字段下可索引 **海量稀疏列**（例如百万级 JSON key），查询时按 **列名 + ngram 切片** 精确定位，列名 **不参与** ngram 滑窗与 bucket 统计。
 
-> 本仓库为 **2026-05 重写** 后的独立模块源码；须与完整 LXDB 工程（含补丁 Lucene）联编。设计说明见 [`docs/fp-token-design_20260517.html`](docs/fp-token-design_20260517.html)。
+> 本仓库为 **2026-05 重写** 后的独立模块源码；须与完整 LXDB 工程（含补丁 Lucene）联编。  
+> **技术设计（v3）**：[docs/fp-token-design_20260517.md](docs/fp-token-design_20260517.md) · [HTML](docs/fp-token-design_20260517.html)
 
 ---
 
@@ -13,12 +14,11 @@
 | 文档 | 说明 |
 |------|------|
 | [本 README § JSON 稀疏列](#json-稀疏列列名前缀) | **列名前缀布局、百万级 JSON key 检索** |
-| [写段详细流程图 PNG](docs/fp-token-write-path-detailed.png) | **高分辨率整图（约 4324×16694）· 源文件 `docs/fp-token-write-path-detailed.mmd`** |
-| [浏览器查看](docs/fp-token-write-path-detailed.html) | 同上，HTML 页内可缩放滚动 |
-| [本 README § 写段总流程图](#写段总流程图入口fpblocktreetermswriter) | 简版 Mermaid（嵌入 README） |
-| [`docs/fp-token-design_20260517.html`](docs/fp-token-design_20260517.html) | 技术设计（类职责、数据流、落盘格式） |
-| [`docs/fp-token-review-and-test-report_20260517.html`](docs/fp-token-review-and-test-report_20260517.html) | 代码审查 + 单元测试结果 + 潜在缺陷清单 |
-| [`docs/README.md`](docs/README.md) | 历史/协作文档索引 |
+| [本 README § v3 bucket 索引](#v3-bucket-索引与查询) | **bucketIndex 规则、selective 查询、内存模型** |
+| [写段详细流程图 MD](docs/fp-token-write-path-detailed.md) · [PNG](docs/fp-token-write-path-detailed.png) · [HTML](docs/fp-token-write-path-detailed.html) | 方法级写段总流程 |
+| [fp-token-design_20260517.md](docs/fp-token-design_20260517.md) | 类职责、落盘格式、集成点 |
+| [fp-token-write-search-alignment-report.md](docs/fp-token-write-search-alignment-report.md) | 写段与查询对齐审查 |
+| [docs/index.md](docs/index.md) · [docs/README.md](docs/README.md) | 全站 HTML ↔ MD 索引 |
 | [`AGENTS.md`](AGENTS.md) | 贡献者与 Agent 速览 |
 
 ---
@@ -67,11 +67,49 @@ FP 定长头（14 字节，相对 headerOffset）：
 |------|------|
 | **组边界** | `FpTokenBlockOrchestrator` 用 `column_index_group_copy` / `column_index_group_equals`：换 **列名** 或换 **index_id+group_id** 即刷组；列级 `targetLevel` 来自 `field_targetlevel`（按列统计历史 common/doc） |
 | **内存 Map 键** | `FpTermKey` 存 `[列名前缀][ngram payload]`（列名与 payload 在完整 term 中由 14B 头隔开；ingest 侧为列名+载荷键） |
-| **热词 / 位图** | `FpGroupHotNgramRebuild`、`FpGroupHotNgramBitIndex` 只对 **ngram payload** 滑窗；位图标记时切片键仍带列名，避免跨列误命中 |
+| **热词 / 位图** | `FpGroupHotNgramRebuild`、`FpGroupHotNgramBitIndex` 只对 **ngram payload** 滑窗；v3 为 `bucketIndex → order[]` sorted posting |
 | **落盘 term** | `make_fp_term(reuse, columnName, …, ngramPayload)` 写出完整词项；`FpBlockInfo.fieldInfo` 记录列名 |
 | **查询** | `FpTokenQuery(fieldName, …)` → `FpSearch.search(…, new BytesRef(fieldName), slices)`；`seekCeil` 前缀含列名，`termHeaderMatches` 校验列名后再比 payload |
 
 列名长度 **不固定**（每列可不同），因此 term 总长可变；稀疏百万列时，倒排按 **列名字典序 + 组内序** 自然分区，查询只打开目标列对应 seek 前缀，避免全库扫描所有列的同名 ngram。
+
+---
+
+## v3 bucket 索引与查询
+
+### bucketIndex（`FpGroupHotNgramBitIndex.bucketIndex`）
+
+ngram 长度 **1~6**（`Lucene80FPSearchConfig.NGRAM_MIN/MAX`）：
+
+| 长度 | 规则 |
+|------|------|
+| 1 | `b0 & 0xFF` |
+| 2~4 | 大端字节直接拼成 `int`（不 hash） |
+| 5~6 | `StringHelper.murmurhash3_x86_32` |
+
+> 变更 2~4 字节规则后**须重建段**，否则写查 bucket 不一致。
+
+### 磁盘结构（`FpBlockInfo.FORMAT_VERSION = 3`）
+
+每组 termsbit 侧车：**hot tier** + **common tier**，各含 6 个 LenRow（按 ngram 长度）。  
+每个 LenRow：`sortedKeys` + `entryMeta` + `orderArena`；每 128 条 posting 一条 skip `(anchorKey, keysPtrRel)`。
+
+### selective 查询（`FpSearch`）
+
+```text
+selectiveKeysForSlices(slices) → bucketKeys[]
+loadBitIndex → terms.fpBits(indexId, groupId, bucketKeys, bucketKeys)
+  → readfromBanksSelective：skip 跳跃读盘，预取 orderList 到内存
+lookupHotOrders / lookupCommonOrders → 纯内存查 sparseOrders
+```
+
+- 不在位图实例上持有 `IndexInput`。
+- 不做全量 `fpBits(null,null)` 回退。
+- 无 bit 索引的小组：`searchSparseNoBitIndexTerms` 从 `maxGroupId+1` seek。
+
+### 热词阈值
+
+`HOT_TIER_TERM_COUNT_THRESHOLD = 64`（common ngram 出现次数升格 hot）。
 
 ---
 
@@ -164,13 +202,13 @@ flowchart TD
     P5A --> P5A1 --> P5A2 --> P5A3 --> P5A4
 
     P5B["FpGroupHotNgramBitIndex.execute"]
-    P5B1["热词/common 编号；热词按 长度→字典序"]
-    P5B2["两套 NGRAM_MAX×256 位图；common 侧跳过已是热词的切片"]
+    P5B1["热词/common 编号；6×LenRow sorted posting"]
+    P5B2["bucketIndex → order[]；common 跳过 hot 切片"]
     P5B --> P5B1 --> P5B2
 
     P5A4 --> P5B
     P5B2 --> P5C["writefp 热词+common"]
-    P5C --> P5D["位图写入 bitOut，fpblock_list 记偏移"]
+    P5C --> P5D["tier 写入 bitOut，FpBlockInfo 记 fpBanksHot/Common"]
     P5D --> P5E["清空组缓冲 resetAfterFlush"]
   end
   P4B --> P5A
@@ -196,9 +234,9 @@ flowchart TD
 
   subgraph P7["【阶段7】检索 LXDB 查询侧"]
     R0["FpTokenQuery：fieldName=列名"]
-    R1["FpSearch：seek 前缀含列名"]
-    R2["位图桶 → hot/common seek"]
-    R3["校验列名 + hotDownTierBudget 比 payload"]
+    R1["FpSearch：selective fpBits + 列名过滤"]
+    R2["bucket → order → seek 倒排"]
+    R3["多 slice AND；hotDownTierBudget 比 payload"]
     R0 --> R1 --> R2 --> R3
   end
   P6 --> P7
@@ -210,8 +248,8 @@ flowchart TD
 - **阶段2**：`writeTerms` 里创建编排器；按列维护 `field_targetlevel`（闭块阈值）。
 - **阶段3**：每个词项 `acceptTerm`——换 **列** 或换 **列+组** 先刷旧缓冲；高级别词进 `FpGroupDataOriginal`，低级词攒 common posting。
 - **阶段4~flushHigh**：大组够大就**透传**（复用 `fpBits`）；不够**降级**进重建。
-- **阶段5**：在 **单列组内** 从 common 挖热词、写 `hotDownTierBudget`、建位图、**writefp**（`FpBlockInfo.fieldInfo` 记列名）。
-- **阶段6~7**：倒排 + 位图 + 元数据；`FpTokenQuery` 传入列名，`FpSearch` 只在对应列的 term 上 seek 与比对 payload。
+- **阶段5**：在 **单列组内** 从 common 挖热词、写 `hotDownTierBudget`、建 v3 bucket 索引、**writefp**。
+- **阶段6~7**：倒排 + termsbit + `fpblock_list`；`FpTokenQuery` selective 读 order 再 seek 倒排。
 
 更细的列名字节 API 见源码 [`FpTokenTermLayout.java`](src/cn/lxdb/plugins/muqingyu/fptoken/dataset/common/FpTokenTermLayout.java)（`readColumnName`、`make_fp_term`、`make_fp_search_prefix`、`column_index_group_*`）。
 
@@ -239,7 +277,7 @@ flowchart TD
 2. 默认尝试编译全部 `src/cn`（需完整 `lib/`）。
 3. 若失败，回退编译子集（`token/` 部分类 + `dataset/common` 等）；完整模块仍应在 LXDB IDE 或补齐 `lib/` 后编译。
 
-**测试包**：`src/test/java/cn/lxdb/plugins/muqingyu/fptoken/tests/unit/`
+**测试包**：`src/test/java/cn/lxdb/plugins/muqingyu/fptoken/tests/`（当前 **48** 项，`-ExcludePerfTag`）
 
 ---
 
@@ -251,10 +289,11 @@ flowchart TD
 
 ## 已知问题（摘要）
 
-完整列表与测试证据见 [`docs/fp-token-review-and-test-report_20260517.html`](docs/fp-token-review-and-test-report_20260517.html)。摘要：
+完整列表见 [docs/fp-token-review-and-test-report_20260517.md](docs/fp-token-review-and-test-report_20260517.md)。摘要：
 
-- **P0 / P1**：无开放项（审查中的逻辑/行为点均已按产品约定撤回，见报告 §4）。
-- **P2（可选）**：块级别策略注释、Javadoc/类名一致性与集成测覆盖（BUG-201～204）。
+- **P0 / P1**：无开放项。
+- **已修复（2026-06）**：selective skip 偏移、selective 预取避免 `AlreadyClosedException`、2~4 字节 bucket 直拼 int。
+- **P2（可选）**：集成测、Javadoc 一致性与长 query slice 策略。
 
 ---
 

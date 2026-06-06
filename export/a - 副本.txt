@@ -1,0 +1,1250 @@
+##########################
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer.access$100(LxdbThreadPoolExecutorFinalizer.java:21)
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"openifchange_FIX256_1_20260604134658" #319 [2584] daemon prio=5 os_prio=0 cpu=5965.74ms elapsed=71.01s tid=0x00007f48e7be7f90 nid=2584 runnable  [0x00007f48dedea000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.markParentPrefixesSkippedInCommonTerm(FpGroupHotNgramRebuild.java:311)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:290)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.flushAllThreads(DocumentsWriter.java:705)
+	at org.apache.lucene.index.IndexWriter.getReader(IndexWriter.java:643)
+	- locked <0x000004001c44b550> (a java.lang.Object)
+	at org.apache.lucene.index.StandardDirectoryReader.doOpenFromWriter(StandardDirectoryReader.java:298)
+--
+	at com.luxindb.lxdb.pool.LxdbLinkedBlockingQueue.poll(LxdbLinkedBlockingQueue.java:99)
+	at com.luxindb.encrypt.skipjstack.SingleThreadRunable.run(SingleThreadRunable.java:30)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"adddoc_2" #356 [2647] daemon prio=5 os_prio=0 cpu=51910.50ms elapsed=63.74s tid=0x000055dea6934a50 nid=2647 runnable  [0x00007f48ce45d000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.addAllDocsFrom(FPDocList.java:133)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:289)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.postUpdate(DocumentsWriter.java:395)
+	at org.apache.lucene.index.DocumentsWriter.updateDocuments(DocumentsWriter.java:483)
+	at org.apache.lucene.index.IndexWriter.updateDocuments(IndexWriter.java:1533)
+	at org.apache.lucene.index.IndexWriter.updateDocument(IndexWriter.java:1822)
+--
+
+   Locked ownable synchronizers:
+	- None
+
+"m58s8_fp_token_example_102009:0_0" #651 [3021] daemon prio=5 os_prio=0 cpu=32677.68ms elapsed=35.89s tid=0x00007f4d4fdce950 nid=3021 runnable  [0x00007f0f5853e000]
+   java.lang.Thread.State: RUNNABLE
+	at org.apache.lucene.store.DataOutput.writeInt(DataOutput.java:80)
+	at org.apache.lucene.store.DataOutput.writeLong(DataOutput.java:221)
+	at org.apache.lucene.util.FixedBitSet.writeBits(FixedBitSet.java:259)
+	at org.apache.lucene.store.DataOutput.writeBits(DataOutput.java:226)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.flushto(FpGroupHotNgramBitIndex.java:153)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:248)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- <0x0000040048e06100> (a java.util.concurrent.ThreadPoolExecutor$Worker)
+
+"m150b8_fp_token_example_102009:2_3" #710 [3083] daemon prio=5 os_prio=0 cpu=22551.14ms elapsed=26.38s tid=0x00007f4d4e9081e0 nid=3083 runnable  [0x00007f0f1f377000]
+   java.lang.Thread.State: RUNNABLE
+	at java.util.HashMap.getNode(java.base@21.0.4/HashMap.java:585)
+	at java.util.HashMap.get(java.base@21.0.4/HashMap.java:564)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.markParentPrefixesSkippedInCommonTerm(FpGroupHotNgramRebuild.java:321)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:290)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.tryFlushCommonIfComplete(FpTokenBlockOrchestrator.java:221)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.acceptTerm(FpTokenBlockOrchestrator.java:176)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:64)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- <0x0000040048e06668> (a com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker)
+
+"m143b8_fp_token_example_102008:2_0" #712 [3084] daemon prio=5 os_prio=0 cpu=21413.15ms elapsed=25.33s tid=0x00007f4254673b10 nid=3084 runnable  [0x00007f0f1ce58000]
+   java.lang.Thread.State: RUNNABLE
+	at java.util.HashMap.getNode(java.base@21.0.4/HashMap.java:587)
+	at java.util.HashMap.get(java.base@21.0.4/HashMap.java:564)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:276)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.tryFlushCommonIfComplete(FpTokenBlockOrchestrator.java:221)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.acceptTerm(FpTokenBlockOrchestrator.java:176)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:64)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+##########################
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(java.base@21.0.4/ThreadPoolExecutor.java:1144)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(java.base@21.0.4/ThreadPoolExecutor.java:642)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- <0x00000400bb0612c0> (a java.util.concurrent.ThreadPoolExecutor$Worker)
+
+"openifchange_FIX256_1_20260604134658" #316 [2582] daemon prio=5 os_prio=0 cpu=6658.02ms elapsed=135.08s tid=0x00007f48d8510610 nid=2582 runnable  [0x00007f48defec000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:271)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.flushAllThreads(DocumentsWriter.java:705)
+	at org.apache.lucene.index.IndexWriter.getReader(IndexWriter.java:643)
+	- locked <0x000004001c43de08> (a java.lang.Object)
+	at org.apache.lucene.index.StandardDirectoryReader.doOpenFromWriter(StandardDirectoryReader.java:298)
+--
+	at com.luxindb.lxdb.pool.LxdbLinkedBlockingQueue.poll(LxdbLinkedBlockingQueue.java:99)
+	at com.luxindb.encrypt.skipjstack.SingleThreadRunable.run(SingleThreadRunable.java:30)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"openifchange_FIX256_1_20260604134706" #524 [2844] daemon prio=5 os_prio=0 cpu=8209.46ms elapsed=126.64s tid=0x000055dea8e65e50 nid=2844 runnable  [0x00007f2c83002000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.mergeSortedDocArrays(FPDocList.java:179)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.addAllDocsFrom(FPDocList.java:148)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:289)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.flushAllThreads(DocumentsWriter.java:705)
+	at org.apache.lucene.index.IndexWriter.getReader(IndexWriter.java:643)
+	- locked <0x00000405b56bef28> (a java.lang.Object)
+	at org.apache.lucene.index.StandardDirectoryReader.doOpenFromWriter(StandardDirectoryReader.java:298)
+--
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"adddoc_17" #533 [2852] daemon prio=5 os_prio=0 cpu=102506.37ms elapsed=126.63s tid=0x00007f48d1be54d0 nid=2852 runnable  [0x00007f2c827fb000]
+   java.lang.Thread.State: RUNNABLE
+	at java.util.HashMap.getNode(java.base@21.0.4/HashMap.java:585)
+	at java.util.HashMap.get(java.base@21.0.4/HashMap.java:564)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:276)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.postUpdate(DocumentsWriter.java:395)
+	at org.apache.lucene.index.DocumentsWriter.updateDocuments(DocumentsWriter.java:483)
+	at org.apache.lucene.index.IndexWriter.updateDocuments(IndexWriter.java:1533)
+	at org.apache.lucene.index.IndexWriter.updateDocument(IndexWriter.java:1822)
+--
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(java.base@21.0.4/ThreadPoolExecutor.java:1144)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(java.base@21.0.4/ThreadPoolExecutor.java:642)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- <0x00000400822a6bd8> (a java.util.concurrent.ThreadPoolExecutor$Worker)
+
+"m150b8_fp_token_example_102009:2_3" #710 [3083] daemon prio=5 os_prio=0 cpu=82236.30ms elapsed=90.45s tid=0x00007f4d4e9081e0 nid=3083 runnable  [0x00007f0f1f378000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.mergeSortedDocArrays(FPDocList.java:179)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.addAllDocsFrom(FPDocList.java:148)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:289)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(java.base@21.0.4/ThreadPoolExecutor.java:1130)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(java.base@21.0.4/ThreadPoolExecutor.java:642)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"m367b8_fp_token_example_102009:0_1" #787 [3189] daemon prio=5 os_prio=0 cpu=58886.01ms elapsed=69.61s tid=0x00007f4d546eba90 nid=3189 runnable  [0x00007f48de4e1000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.mergeSortedDocArrays(FPDocList.java:179)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.addAllDocsFrom(FPDocList.java:148)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:289)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.tryFlushCommonIfComplete(FpTokenBlockOrchestrator.java:221)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.acceptTerm(FpTokenBlockOrchestrator.java:176)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:64)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer.access$100(LxdbThreadPoolExecutorFinalizer.java:21)
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"m234b8_fp_token_example_102008:0_3" #861 [3305] daemon prio=5 os_prio=0 cpu=38926.62ms elapsed=44.56s tid=0x00007f48e6299090 nid=3305 runnable  [0x00007f48f17fb000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:271)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.tryFlushCommonIfComplete(FpTokenBlockOrchestrator.java:221)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.acceptTerm(FpTokenBlockOrchestrator.java:176)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:64)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer.access$100(LxdbThreadPoolExecutorFinalizer.java:21)
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"m65s8_fp_token_example_102009:2_4" #891 [3339] daemon prio=5 os_prio=0 cpu=27501.69ms elapsed=32.09s tid=0x000055dea9a76a80 nid=3339 runnable  [0x00007f0f1cd57000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.mergeSortedDocArrays(FPDocList.java:179)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.addAllDocsFrom(FPDocList.java:148)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:289)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+##########################
+	at cn.lucene.lxdb.lucene.readwrite.index.thread.LuceneWriteInsertRunable.run(LuceneWriteInsertRunable.java:128)
+	at com.luxindb.encrypt.skipjstack.SingleThreadRunable.run(SingleThreadRunable.java:33)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"adddoc_3" #357 [2648] daemon prio=5 os_prio=0 cpu=145179.19ms elapsed=194.43s tid=0x000055dea6934090 nid=2648 runnable  [0x00007f48ce35c000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.markCommonNgramsByUniqueSlices(FpGroupHotNgramBitIndex.java:265)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.execute(FpGroupHotNgramBitIndex.java:199)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:181)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.preUpdate(DocumentsWriter.java:385)
+	at org.apache.lucene.index.DocumentsWriter.updateDocuments(DocumentsWriter.java:450)
+	at org.apache.lucene.index.IndexWriter.updateDocuments(IndexWriter.java:1533)
+	at org.apache.lucene.index.IndexWriter.updateDocument(IndexWriter.java:1822)
+--
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"openifchange_FIX256_1_20260604134706" #524 [2844] daemon prio=5 os_prio=0 cpu=12646.05ms elapsed=193.25s tid=0x000055dea8e65e50 nid=2844 runnable  [0x00007f2c83002000]
+   java.lang.Thread.State: RUNNABLE
+	at java.util.HashMap.putVal(java.base@21.0.4/HashMap.java:641)
+	at java.util.HashMap.put(java.base@21.0.4/HashMap.java:618)
+	at java.util.HashSet.add(java.base@21.0.4/HashSet.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.countNgramOccurrencesInCommon(FpGroupHotNgramRebuild.java:183)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:75)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.flushAllThreads(DocumentsWriter.java:705)
+	at org.apache.lucene.index.IndexWriter.getReader(IndexWriter.java:643)
+	- locked <0x000004070f011d60> (a java.lang.Object)
+	at org.apache.lucene.index.StandardDirectoryReader.doOpenFromWriter(StandardDirectoryReader.java:298)
+--
+	at com.luxindb.lxdb.pool.LxdbLinkedBlockingQueue.poll(LxdbLinkedBlockingQueue.java:99)
+	at com.luxindb.encrypt.skipjstack.SingleThreadRunable.run(SingleThreadRunable.java:30)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"adddoc_17" #533 [2852] daemon prio=5 os_prio=0 cpu=159080.52ms elapsed=193.25s tid=0x00007f48d1be54d0 nid=2852 runnable  [0x00007f2c827fb000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.foreach(FPDocList.java:53)
+	at org.apache.lucene.codecs.PushPostingsWriterBase.writeFpTerm(PushPostingsWriterBase.java:144)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter$TermsWriter.writefp(BlockTreeTermsWriter.java:1239)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.writefpChecked(FpTokenBlockOrchestrator.java:158)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:210)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.postUpdate(DocumentsWriter.java:395)
+	at org.apache.lucene.index.DocumentsWriter.updateDocuments(DocumentsWriter.java:483)
+	at org.apache.lucene.index.IndexWriter.updateDocuments(IndexWriter.java:1533)
+	at org.apache.lucene.index.IndexWriter.updateDocument(IndexWriter.java:1822)
+--
+	at java.io.BufferedOutputStream.flushBuffer(java.base@21.0.4/BufferedOutputStream.java:125)
+	at java.io.BufferedOutputStream.implWrite(java.base@21.0.4/BufferedOutputStream.java:222)
+	at java.io.BufferedOutputStream.write(java.base@21.0.4/BufferedOutputStream.java:200)
+	at org.apache.lucene.store.OutputStreamIndexOutput.writeBytes(OutputStreamIndexOutput.java:56)
+	at org.apache.lucene.store.RateLimitedIndexOutput.writeBytes(RateLimitedIndexOutput.java:76)
+	at org.apache.lucene.util.offheap.array.LxdbBytesDirect.nolock_writeTo(LxdbBytesDirect.java:678)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter$TermsWriter.writeBlock(BlockTreeTermsWriter.java:1144)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter$TermsWriter.writeBlocks(BlockTreeTermsWriter.java:902)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter$TermsWriter.pushTerm(BlockTreeTermsWriter.java:1283)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter$TermsWriter.writefp(BlockTreeTermsWriter.java:1244)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.writefpChecked(FpTokenBlockOrchestrator.java:158)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:238)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.tryFlushCommonIfComplete(FpTokenBlockOrchestrator.java:221)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.acceptTerm(FpTokenBlockOrchestrator.java:176)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:64)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- <0x00000405b17ae098> (a com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker)
+	- <0x00000406f9221480> (a java.util.concurrent.locks.ReentrantLock$NonfairSync)
+
+"m234b8_fp_token_example_102008:0_3" #861 [3305] daemon prio=5 os_prio=0 cpu=97283.59ms elapsed=111.17s tid=0x00007f48e6299090 nid=3305 runnable  [0x00007f48f17fb000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.mergeSortedDocArrays(FPDocList.java:179)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.addAllDocsFrom(FPDocList.java:148)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:289)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.tryFlushCommonIfComplete(FpTokenBlockOrchestrator.java:221)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.acceptTerm(FpTokenBlockOrchestrator.java:176)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:64)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- <0x00000403b5145090> (a com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker)
+	- <0x00000401059959e8> (a java.util.concurrent.locks.ReentrantLock$NonfairSync)
+	- <0x000004051f2e25a8> (a java.util.concurrent.locks.ReentrantLock$NonfairSync)
+
+"m135b8_fp_token_example_102008:2_1" #974 [3478] daemon prio=5 os_prio=0 cpu=52330.84ms elapsed=62.04s tid=0x000055decfab2440 nid=3478 runnable  [0x00007f48cdb54000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.mergeSortedDocArrays(FPDocList.java:179)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.addAllDocsFrom(FPDocList.java:148)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:289)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.tryFlushCommonIfComplete(FpTokenBlockOrchestrator.java:221)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.acceptTerm(FpTokenBlockOrchestrator.java:176)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:64)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"m62s8_fp_token_example_102008:0_6" #1044 [3552] daemon prio=5 os_prio=0 cpu=25824.81ms elapsed=33.34s tid=0x00007f0f4e452720 nid=3552 runnable  [0x00007f48dd7d5000]
+   java.lang.Thread.State: RUNNABLE
+	at java.util.Arrays.fill(java.base@21.0.4/Arrays.java:3322)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:265)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer.access$100(LxdbThreadPoolExecutorFinalizer.java:21)
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- <0x000004073da009e0> (a com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker)
+
+"m168b8_fp_token_example_102009:1_0" #1051 [3561] daemon prio=5 os_prio=0 cpu=17143.99ms elapsed=29.46s tid=0x00007f0f5ef7eb80 nid=3561 runnable  [0x00007f0f2f7f5000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.countNgramOccurrencesInCommon(FpGroupHotNgramRebuild.java:186)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:75)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.tryFlushCommonIfComplete(FpTokenBlockOrchestrator.java:221)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.acceptTerm(FpTokenBlockOrchestrator.java:176)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:64)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer.access$100(LxdbThreadPoolExecutorFinalizer.java:21)
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- <0x00000404ea21a988> (a com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker)
+
+"m58s8_fp_token_example_102009:1_1" #1052 [3562] daemon prio=5 os_prio=0 cpu=21152.27ms elapsed=29.46s tid=0x00007f0f29703b30 nid=3562 runnable  [0x00007f0f1d24b000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.markParentPrefixesSkippedInCommonTerm(FpGroupHotNgramRebuild.java:311)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:290)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer.access$100(LxdbThreadPoolExecutorFinalizer.java:21)
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- <0x00000404ea21ae50> (a com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker)
+
+"m136b8_fp_token_example_102009:1_2" #1053 [3563] daemon prio=5 os_prio=0 cpu=17554.35ms elapsed=29.46s tid=0x00007f0f5cbceec0 nid=3563 runnable  [0x00007f48cba33000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.countNgramOccurrencesInCommon(FpGroupHotNgramRebuild.java:186)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:75)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.tryFlushCommonIfComplete(FpTokenBlockOrchestrator.java:221)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.acceptTerm(FpTokenBlockOrchestrator.java:176)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:64)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"m86s8_fp_token_example_102009:1_3" #1094 [3622] daemon prio=5 os_prio=0 cpu=8742.60ms elapsed=19.07s tid=0x00007f0f4e239f90 nid=3622 runnable  [0x00007f0f5813a000]
+   java.lang.Thread.State: RUNNABLE
+	at java.util.HashMap.merge(java.base@21.0.4/HashMap.java:1384)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.countNgramOccurrencesInCommon(FpGroupHotNgramRebuild.java:186)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:75)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+##########################
+	at com.luxindb.lxdb.pool.LxdbLinkedBlockingQueue.poll(LxdbLinkedBlockingQueue.java:99)
+	at com.luxindb.encrypt.skipjstack.SingleThreadRunable.run(SingleThreadRunable.java:30)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"adddoc_2" #356 [2647] daemon prio=5 os_prio=0 cpu=204985.13ms elapsed=260.33s tid=0x000055dea6934a50 nid=2647 runnable  [0x00007f48ce45d000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.mergeSortedDocArrays(FPDocList.java:179)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.addAllDocsFrom(FPDocList.java:148)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:289)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.postUpdate(DocumentsWriter.java:395)
+	at org.apache.lucene.index.DocumentsWriter.updateDocuments(DocumentsWriter.java:483)
+	at org.apache.lucene.index.IndexWriter.updateDocuments(IndexWriter.java:1533)
+	at org.apache.lucene.index.IndexWriter.updateDocument(IndexWriter.java:1822)
+--
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"adddoc_17" #533 [2852] daemon prio=5 os_prio=0 cpu=213190.78ms elapsed=259.16s tid=0x00007f48d1be54d0 nid=2852 runnable  [0x00007f2c827fb000]
+   java.lang.Thread.State: RUNNABLE
+	at java.util.HashMap.hash(java.base@21.0.4/HashMap.java:338)
+	at java.util.HashMap.put(java.base@21.0.4/HashMap.java:618)
+	at java.util.HashSet.add(java.base@21.0.4/HashSet.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.markCommonNgramsByUniqueSlices(FpGroupHotNgramBitIndex.java:265)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.execute(FpGroupHotNgramBitIndex.java:199)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:181)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.postUpdate(DocumentsWriter.java:395)
+	at org.apache.lucene.index.DocumentsWriter.updateDocuments(DocumentsWriter.java:483)
+	at org.apache.lucene.index.IndexWriter.updateDocuments(IndexWriter.java:1533)
+	at org.apache.lucene.index.IndexWriter.updateDocument(IndexWriter.java:1822)
+--
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- <0x0000040415fefba8> (a com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker)
+	- <0x00000407eb5c3528> (a java.util.concurrent.locks.ReentrantLock$NonfairSync)
+	- <0x0000040627a07ef8> (a java.util.concurrent.locks.ReentrantLock$NonfairSync)
+
+"m135b8_fp_token_example_102008:2_1" #974 [3478] daemon prio=5 os_prio=0 cpu=110522.88ms elapsed=127.94s tid=0x000055decfab2440 nid=3478 runnable  [0x00007f48cdb54000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.bucketIndex(FpGroupHotNgramBitIndex.java:236)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.markCommonNgramsByUniqueSlices(FpGroupHotNgramBitIndex.java:273)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.execute(FpGroupHotNgramBitIndex.java:199)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:181)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"m64s8_fp_token_example_102009:1_5" #1044 [3552] daemon prio=5 os_prio=0 cpu=47581.48ms elapsed=99.25s tid=0x00007f0f4e452720 nid=3552 runnable  [0x00007f48dd7d5000]
+   java.lang.Thread.State: RUNNABLE
+	at java.util.HashMap.merge(java.base@21.0.4/HashMap.java:1384)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.countNgramOccurrencesInCommon(FpGroupHotNgramRebuild.java:186)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:75)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- <0x00000402278fe718> (a com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker)
+
+"m168b8_fp_token_example_102009:1_0" #1051 [3561] daemon prio=5 os_prio=0 cpu=75558.84ms elapsed=95.37s tid=0x00007f0f5ef7eb80 nid=3561 runnable  [0x00007f0f2f7f4000]
+   java.lang.Thread.State: RUNNABLE
+	at java.util.HashMap.hash(java.base@21.0.4/HashMap.java:338)
+	at java.util.HashMap.put(java.base@21.0.4/HashMap.java:618)
+	at java.util.HashSet.add(java.base@21.0.4/HashSet.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.markCommonNgramsByUniqueSlices(FpGroupHotNgramBitIndex.java:265)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.execute(FpGroupHotNgramBitIndex.java:199)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:181)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.tryFlushCommonIfComplete(FpTokenBlockOrchestrator.java:221)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.acceptTerm(FpTokenBlockOrchestrator.java:176)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:64)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer.access$100(LxdbThreadPoolExecutorFinalizer.java:21)
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"m136b8_fp_token_example_102009:1_2" #1053 [3563] daemon prio=5 os_prio=0 cpu=74711.71ms elapsed=95.37s tid=0x00007f0f5cbceec0 nid=3563 runnable  [0x00007f48cba33000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey.copyOf(FpTermKey.java:37)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.markCommonNgramsByUniqueSlices(FpGroupHotNgramBitIndex.java:265)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.execute(FpGroupHotNgramBitIndex.java:199)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:181)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.tryFlushCommonIfComplete(FpTokenBlockOrchestrator.java:221)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.acceptTerm(FpTokenBlockOrchestrator.java:176)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:64)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer.access$100(LxdbThreadPoolExecutorFinalizer.java:21)
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"m167b8_fp_token_example_102009:2_5" #1216 [4892] daemon prio=5 os_prio=0 cpu=32428.38ms elapsed=43.20s tid=0x000055decaacb0c0 nid=4892 runnable  [0x00007f1992666000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.addAllDocsFrom(FPDocList.java:133)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:289)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.tryFlushCommonIfComplete(FpTokenBlockOrchestrator.java:221)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.acceptTerm(FpTokenBlockOrchestrator.java:176)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:64)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+##########################
+	at com.luxindb.lxdb.pool.LxdbLinkedBlockingQueue.poll(LxdbLinkedBlockingQueue.java:99)
+	at com.luxindb.encrypt.skipjstack.SingleThreadRunable.run(SingleThreadRunable.java:30)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"adddoc_2" #356 [2647] daemon prio=5 os_prio=0 cpu=255244.21ms elapsed=326.41s tid=0x000055dea6934a50 nid=2647 runnable  [0x00007f48ce45c000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.markCommonNgramsByUniqueSlices(FpGroupHotNgramBitIndex.java:265)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.execute(FpGroupHotNgramBitIndex.java:199)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:181)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.preUpdate(DocumentsWriter.java:385)
+	at org.apache.lucene.index.DocumentsWriter.updateDocuments(DocumentsWriter.java:450)
+	at org.apache.lucene.index.IndexWriter.updateDocuments(IndexWriter.java:1533)
+	at org.apache.lucene.index.IndexWriter.updateDocument(IndexWriter.java:1822)
+--
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- <0x000004042ca4adf8> (a java.util.concurrent.ThreadPoolExecutor$Worker)
+
+"adddoc_4" #359 [2650] daemon prio=5 os_prio=0 cpu=43572.70ms elapsed=326.41s tid=0x000055dea8a4a560 nid=2650 runnable  [0x00007f48ce15a000]
+   java.lang.Thread.State: RUNNABLE
+	at java.util.TreeMap.put(java.base@21.0.4/TreeMap.java:861)
+	at java.util.TreeMap.put(java.base@21.0.4/TreeMap.java:569)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.ingestTermPostings(FpGroupDataRebuild.java:281)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.acceptTerm(FpTokenBlockOrchestrator.java:197)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:64)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.postUpdate(DocumentsWriter.java:395)
+	at org.apache.lucene.index.DocumentsWriter.updateDocuments(DocumentsWriter.java:483)
+	at org.apache.lucene.index.IndexWriter.updateDocuments(IndexWriter.java:1533)
+	at org.apache.lucene.index.IndexWriter.updateDocument(IndexWriter.java:1822)
+--
+	at com.luxindb.lxdb.pool.LxdbLinkedBlockingQueue.poll(LxdbLinkedBlockingQueue.java:99)
+	at com.luxindb.encrypt.skipjstack.SingleThreadRunable.run(SingleThreadRunable.java:30)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"adddoc_1" #515 [2834] daemon prio=5 os_prio=0 cpu=120060.37ms elapsed=325.24s tid=0x00007f48d16d8ae0 nid=2834 runnable  [0x00007f2c83a0d000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.mergeSortedDocArrays(FPDocList.java:179)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.addAllDocsFrom(FPDocList.java:148)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:289)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.preUpdate(DocumentsWriter.java:385)
+	at org.apache.lucene.index.DocumentsWriter.updateDocuments(DocumentsWriter.java:450)
+	at org.apache.lucene.index.IndexWriter.updateDocuments(IndexWriter.java:1533)
+	at org.apache.lucene.index.IndexWriter.updateDocument(IndexWriter.java:1822)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer.access$100(LxdbThreadPoolExecutorFinalizer.java:21)
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"m168b8_fp_token_example_102009:1_0" #1051 [3561] daemon prio=5 os_prio=0 cpu=134995.31ms elapsed=161.45s tid=0x00007f0f5ef7eb80 nid=3561 runnable  [0x00007f0f2f7f5000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.markCommonNgramsByUniqueSlices(FpGroupHotNgramBitIndex.java:268)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.execute(FpGroupHotNgramBitIndex.java:199)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:181)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer.access$100(LxdbThreadPoolExecutorFinalizer.java:21)
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"m51s8_fp_token_example_102008:0_10" #1208 [4884] daemon prio=5 os_prio=0 cpu=49477.21ms elapsed=110.63s tid=0x00007f0f299a46b0 nid=4884 runnable  [0x00007f0f1f378000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:270)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer.access$100(LxdbThreadPoolExecutorFinalizer.java:21)
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- <0x00000403983da508> (a com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker)
+
+"m167b8_fp_token_example_102009:2_5" #1216 [4892] daemon prio=5 os_prio=0 cpu=91870.30ms elapsed=109.27s tid=0x000055decaacb0c0 nid=4892 runnable  [0x00007f1992666000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.countNgramOccurrencesInCommon(FpGroupHotNgramRebuild.java:186)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:75)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer.access$100(LxdbThreadPoolExecutorFinalizer.java:21)
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"m54s8_fp_token_example_102009:1_8" #1720 [5511] daemon prio=5 os_prio=0 cpu=9215.87ms elapsed=16.16s tid=0x00007f0d1f075790 nid=5511 runnable  [0x00007f48de4e2000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.mergeSortedDocArrays(FPDocList.java:179)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.addAllDocsFrom(FPDocList.java:148)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:289)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+##########################
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(java.base@21.0.4/ThreadPoolExecutor.java:1144)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(java.base@21.0.4/ThreadPoolExecutor.java:642)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- <0x0000040299f6c880> (a java.util.concurrent.ThreadPoolExecutor$Worker)
+
+"adddoc_4" #359 [2650] daemon prio=5 os_prio=0 cpu=94544.45ms elapsed=395.50s tid=0x000055dea8a4a560 nid=2650 runnable  [0x00007f48ce15a000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:59)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.postUpdate(DocumentsWriter.java:395)
+	at org.apache.lucene.index.DocumentsWriter.updateDocuments(DocumentsWriter.java:483)
+	at org.apache.lucene.index.IndexWriter.updateDocuments(IndexWriter.java:1533)
+	at org.apache.lucene.index.IndexWriter.updateDocument(IndexWriter.java:1822)
+--
+	at com.luxindb.lxdb.pool.LxdbLinkedBlockingQueue.poll(LxdbLinkedBlockingQueue.java:99)
+	at com.luxindb.encrypt.skipjstack.SingleThreadRunable.run(SingleThreadRunable.java:30)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"adddoc_1" #515 [2834] daemon prio=5 os_prio=0 cpu=166039.62ms elapsed=394.33s tid=0x00007f48d16d8ae0 nid=2834 runnable  [0x00007f2c83a0d000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.mergeSortedDocArrays(FPDocList.java:179)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.addAllDocsFrom(FPDocList.java:148)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:289)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.postUpdate(DocumentsWriter.java:399)
+	at org.apache.lucene.index.DocumentsWriter.updateDocuments(DocumentsWriter.java:483)
+	at org.apache.lucene.index.IndexWriter.updateDocuments(IndexWriter.java:1533)
+	at org.apache.lucene.index.IndexWriter.updateDocument(IndexWriter.java:1822)
+--
+	at cn.lucene.lxdb.lucene.readwrite.index.thread.LuceneWriteInsertRunable.run(LuceneWriteInsertRunable.java:128)
+	at com.luxindb.encrypt.skipjstack.SingleThreadRunable.run(SingleThreadRunable.java:33)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"adddoc_2" #517 [2835] daemon prio=5 os_prio=0 cpu=66327.03ms elapsed=394.33s tid=0x00007f48d182ae70 nid=2835 runnable  [0x00007f2c8390c000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.mergeSortedDocArrays(FPDocList.java:179)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.addAllDocsFrom(FPDocList.java:148)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:289)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.write(PerFieldPostingsFormat.java:173)
+	at org.apache.lucene.index.FreqProxTermsWriter.flush(FreqProxTermsWriter.java:140)
+	at org.apache.lucene.index.DefaultIndexingChain.flush_2_disk(DefaultIndexingChain.java:279)
+	at org.apache.lucene.index.DocumentsWriterPerThread.flush_with_direct_pool(DocumentsWriterPerThread.java:433)
+	at org.apache.lucene.index.DocumentsWriter.doFlush(DocumentsWriter.java:523)
+	at org.apache.lucene.index.DocumentsWriter.postUpdate(DocumentsWriter.java:395)
+	at org.apache.lucene.index.DocumentsWriter.updateDocuments(DocumentsWriter.java:483)
+	at org.apache.lucene.index.IndexWriter.updateDocuments(IndexWriter.java:1533)
+	at org.apache.lucene.index.IndexWriter.updateDocument(IndexWriter.java:1822)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer.access$100(LxdbThreadPoolExecutorFinalizer.java:21)
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"m63s8_fp_token_example_102009:2_9" #1208 [4884] daemon prio=5 os_prio=0 cpu=76115.76ms elapsed=179.72s tid=0x00007f0f299a46b0 nid=4884 runnable  [0x00007f0f1f378000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList.addAllDocsFrom(FPDocList.java:133)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.mergeCommonDocsIntoHotTerms(FpGroupHotNgramRebuild.java:289)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:95)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at cn.lucene.lxdb.lucene.directory.hdfs.LxdbHdfsIndexInput.readInternal(LxdbHdfsIndexInput.java:75)
+	at cn.lucene.lxdb.lucene.directory.hdfs.LxdbHdfsInputSlice.readInternal(LxdbHdfsInputSlice.java:64)
+	at cn.lucene.lxdb.lucene.directory.hdfs.LxdbHdfsInputBuffered.refill_soft(LxdbHdfsInputBuffered.java:276)
+	at cn.lucene.lxdb.lucene.directory.hdfs.LxdbHdfsInputBuffered.readBytes(LxdbHdfsInputBuffered.java:82)
+	at cn.lucene.lxdb.lucene.directory.hdfs.LxdbHdfsInputBuffered.readBytes(LxdbHdfsInputBuffered.java:51)
+	at org.apache.lucene.util.offheap.array.LxdbBytesDirect.nolock_copyFrom(LxdbBytesDirect.java:572)
+	at org.apache.lucene.codecs.blocktree.CompressionAlgorithm$1.read(CompressionAlgorithm.java:35)
+	at org.apache.lucene.codecs.blocktree.SegmentTermsEnumFrame.loadBlock(SegmentTermsEnumFrame.java:245)
+	at org.apache.lucene.codecs.blocktree.SegmentTermsEnumFrame.loadNextFloorBlock(SegmentTermsEnumFrame.java:186)
+	at org.apache.lucene.codecs.blocktree.SegmentTermsEnum.next(SegmentTermsEnum.java:1024)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpFilteredTermsEnum.next(FpFilteredTermsEnum.java:44)
+	at org.apache.lucene.index.MultiTermsEnum.pushTop(MultiTermsEnum.java:275)
+	at org.apache.lucene.index.MultiTermsEnum.next(MultiTermsEnum.java:301)
+	at org.apache.lucene.index.FilterLeafReader$FilterTermsEnum.next(FilterLeafReader.java:200)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:59)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at cn.lucene.lxdb.lucene.directory.hdfs.LxdbHdfsIndexInput$1.readFully(LxdbHdfsIndexInput.java:233)
+	at org.apache.lucene.util.offheap.array.LxdbBytesDirect.nolock_readAhead(LxdbBytesDirect.java:624)
+	at cn.lucene.lxdb.lucene.directory.hdfs.LxdbHdfsIndexInput.buildCurrentBlock(LxdbHdfsIndexInput.java:239)
+	at cn.lucene.lxdb.lucene.directory.hdfs.LxdbHdfsIndexInput.readBlockCache(LxdbHdfsIndexInput.java:150)
+	- locked <0x000004016f925e48> (a java.lang.Object)
+	at cn.lucene.lxdb.lucene.directory.hdfs.LxdbHdfsIndexInput.readInternal(LxdbHdfsIndexInput.java:63)
+	at cn.lucene.lxdb.lucene.directory.hdfs.LxdbHdfsInputSlice.readInternal(LxdbHdfsInputSlice.java:57)
+	at cn.lucene.lxdb.lucene.directory.hdfs.LxdbHdfsInputBuffered.readBytes(LxdbHdfsInputBuffered.java:107)
+	at cn.lucene.lxdb.lucene.directory.hdfs.LxdbHdfsInputBuffered.readBytes(LxdbHdfsInputBuffered.java:51)
+	at org.apache.lucene.store.DataInput.readBits(DataInput.java:184)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex.readfrom(FpGroupHotNgramBitIndex.java:68)
+	at org.apache.lucene.codecs.blocktree.FieldReader.fpBits(FieldReader.java:154)
+	at org.apache.lucene.index.MultiTerms.fpBits(MultiTerms.java:199)
+	at org.apache.lucene.index.MappedMultiFields$MappedMultiTerms.fpBits(MappedMultiFields.java:74)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushHighGroup(FpTokenBlockOrchestrator.java:268)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.acceptTerm(FpTokenBlockOrchestrator.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:64)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"m71s8_fp_token_example_102009:1_10" #1720 [5511] daemon prio=5 os_prio=0 cpu=36201.90ms elapsed=85.24s tid=0x00007f0d1f075790 nid=5511 runnable  [0x00007f48de4e2000]
+   java.lang.Thread.State: RUNNABLE
+	at java.util.HashMap.merge(java.base@21.0.4/HashMap.java:1384)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.countNgramOccurrencesInCommon(FpGroupHotNgramRebuild.java:186)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:75)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+--
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer.access$100(LxdbThreadPoolExecutorFinalizer.java:21)
+	at com.luxindb.lxdb.pool.LxdbThreadPoolExecutorFinalizer$Worker.run(LxdbThreadPoolExecutorFinalizer.java:363)
+	at java.lang.Thread.runWith(java.base@21.0.4/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.4/Thread.java:1583)
+
+   Locked ownable synchronizers:
+	- None
+
+"m51s8_fp_token_example_102008:1_4" #1776 [5604] daemon prio=5 os_prio=0 cpu=8479.90ms elapsed=64.88s tid=0x00007f0eb1618450 nid=5604 runnable  [0x00007f48dfbf9000]
+   java.lang.Thread.State: RUNNABLE
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.countNgramOccurrencesInCommon(FpGroupHotNgramRebuild.java:186)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.execute(FpGroupHotNgramRebuild.java:75)
+	at cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild.flushto(FpGroupDataRebuild.java:172)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.flushCommonGroup(FpTokenBlockOrchestrator.java:305)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator.finish(FpTokenBlockOrchestrator.java:229)
+	at cn.lxdb.plugins.muqingyu.fptoken.api.FpTermsWriter.writeTerms(FpTermsWriter.java:66)
+	at org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter.write(BlockTreeTermsWriter.java:490)
+	at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:110)
+	at org.apache.lucene.codecs.perfield.PerFieldPostingsFormat$FieldsWriter.merge(PerFieldPostingsFormat.java:200)
+	at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:327)
+	at org.apache.lucene.index.SegmentMerger.__merge(SegmentMerger.java:222)
+	at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:163)
+	at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:5287)
+	at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:4888)
+	at org.apache.lucene.index.IndexWriter$IndexWriterMergeSource.merge(IndexWriter.java:6498)
+	at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:944)
+##########################
