@@ -20,6 +20,7 @@ import org.slf4j.Logger;
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 
 /**
@@ -218,7 +219,15 @@ public final class FpGroupHotNgramBitIndex {
 				bytesPerCommonSerialized, hotArenaBytes, commonArenaBytes, hotCount, commonCount, this.targetlevel,
 				fieldInfo, docCount);
 
-		LOG.info("[fp_bitindex] flush phase=" + from + " perLength=" + formatFlushStats(hot, common) + " block=" + info);
+		final StringBuilder sb = FpLog.kv();
+		FpLog.append(sb, "event", "flush");
+		FpLog.append(sb, "phase", from);
+		FpLog.append(sb, "perLength", formatFlushStats(hot, common));
+		FpLog.append(sb, "hotCount", hotCount);
+		FpLog.append(sb, "commonCount", commonCount);
+		FpLog.append(sb, "targetLevel", "L" + targetlevel);
+		FpLog.append(sb, "block", info);
+		LOG.info(FpLog.line(FpLog.TAG_BITINDEX, sb));
 		return info;
 	}
 
@@ -434,8 +443,19 @@ public final class FpGroupHotNgramBitIndex {
 		return common.maxArenaBytes();
 	}
 
+	/** true 表示由 selective 读或 {@link #viewSelective} 构造，仅含部分 bucket。 */
 	public boolean isSparse() {
 		return sparse;
+	}
+
+	/** 当前 hot tier 已加载的 bucket 条数（sparse 实例可能远小于 {@link #getHotCount()}）。 */
+	public int loadedHotBucketCount() {
+		return hot.totalEntryCount();
+	}
+
+	/** 当前 common tier 已加载的 bucket 条数。 */
+	public int loadedCommonBucketCount() {
+		return common.totalEntryCount();
 	}
 
 	/** 内存全量实例上截取 selective 视图（测试或上游仅内存缓存时可用）。 */
@@ -490,6 +510,14 @@ public final class FpGroupHotNgramBitIndex {
 				max = Math.max(max, row.orderArena == null ? 0 : row.orderArena.length);
 			}
 			return max;
+		}
+
+		int totalEntryCount() {
+			int n = 0;
+			for (LenRow row : rows) {
+				n += row.entryCount();
+			}
+			return n;
 		}
 
 		int[] lookup(int lenIdx, int bucket) {

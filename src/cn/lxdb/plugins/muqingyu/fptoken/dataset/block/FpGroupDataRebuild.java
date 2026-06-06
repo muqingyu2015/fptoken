@@ -20,6 +20,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpStatNgram;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
@@ -151,11 +152,14 @@ public final class FpGroupDataRebuild {
 				BlockTermState stat=parentItem.writefpChecked(reuse_term, val, debug_msg + " rebuild:commonskip");
 				if(Lucene80FPSearchConfig.PRINT_DEBUG)
 				{
-				
-		
-					LOG.info("[fp_rebuild] commonSkip termIndex=" + index + " docFreq=" + val.docsize() + " postings="
-							+ stat.docFreq + " term=" + FpTokenTermLayout.toReadableString(reuse_term));
-				
+					final StringBuilder sb = FpLog.kv();
+					FpLog.append(sb, "event", "commonSkipTerm");
+					FpLog.append(sb, "phase", debug_msg);
+					FpLog.append(sb, "termIndex", index);
+					FpLog.append(sb, "docFreq", val.docsize());
+					FpLog.append(sb, "postings", stat.docFreq);
+					FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(reuse_term));
+					LOG.info(FpLog.line(FpLog.TAG_REBUILD, sb));
 				}
 			}
 			
@@ -166,9 +170,16 @@ public final class FpGroupDataRebuild {
 		
 			long ts_end=CLMillisecondClock.CLOCK.now();
 
-			LOG.info("[fp_rebuild] flushZero phase=" + debug_msg + " ms=" + (ts_end - ts_begin) + " doclistCommon="
-					+ stat_common_doc_cnt + " delHotTerms=" + stat_del_hotterm_cnt + " distinctDocs="
-					+ distinctDocUnion.cardinality() + " commonTerms=" + commonTermToDocs.size());
+			final StringBuilder sbZero = FpLog.kv();
+			FpLog.append(sbZero, "event", "flushZero");
+			FpLog.append(sbZero, "phase", debug_msg);
+			FpLog.append(sbZero, "ms", ts_end - ts_begin);
+			FpLog.append(sbZero, "groupId", group_id);
+			FpLog.append(sbZero, "doclistCommon", stat_common_doc_cnt);
+			FpLog.append(sbZero, "delHotTerms", stat_del_hotterm_cnt);
+			FpLog.append(sbZero, "distinctDocs", distinctDocUnion.cardinality());
+			FpLog.append(sbZero, "commonTerms", commonTermToDocs.size());
+			LOG.info(FpLog.line(FpLog.TAG_REBUILD, sbZero));
 
 		
 		}else {
@@ -214,10 +225,15 @@ public final class FpGroupDataRebuild {
 				
 				if(Lucene80FPSearchConfig.PRINT_DEBUG)
 				{
-					LOG.info("[fp_rebuild] hotTerm termIndex=" + index + " docFreq=" + val.docsize() + " term="
-							+ FpTokenTermLayout.toReadableString(reuse_term));
-
-				
+					final StringBuilder sb = FpLog.kv();
+					FpLog.append(sb, "event", "hotTerm");
+					FpLog.append(sb, "phase", debug_msg);
+					FpLog.append(sb, "termIndex", index);
+					FpLog.append(sb, "docFreq", val.docsize());
+					FpLog.append(sb, "downTier", downTierBudget);
+					FpLog.append(sb, "isDel", isDelTerm);
+					FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(reuse_term));
+					LOG.info(FpLog.line(FpLog.TAG_REBUILD, sb));
 				}
 			}
 			
@@ -241,11 +257,14 @@ public final class FpGroupDataRebuild {
 				parentItem.writefpChecked(reuse_term, val, debug_msg + " rebuild:common");
 				if(Lucene80FPSearchConfig.PRINT_DEBUG)
 				{
-					LOG.info("[fp_rebuild] commonTerm termIndex=" + index + " docFreq=" + val.docsize()
-							+ " targetLevel=L" + columnLevel + " term="
-							+ FpTokenTermLayout.toReadableString(reuse_term));
-
-				
+					final StringBuilder sb = FpLog.kv();
+					FpLog.append(sb, "event", "commonTerm");
+					FpLog.append(sb, "phase", debug_msg);
+					FpLog.append(sb, "termIndex", index);
+					FpLog.append(sb, "docFreq", val.docsize());
+					FpLog.append(sb, "targetLevel", "L" + columnLevel);
+					FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(reuse_term));
+					LOG.info(FpLog.line(FpLog.TAG_REBUILD, sb));
 				}
 			}
 			
@@ -259,11 +278,23 @@ public final class FpGroupDataRebuild {
 		
 			long ts_end=CLMillisecondClock.CLOCK.now();
 
-			LOG.info("[fp_rebuild] flush phase=" + debug_msg + " msTotal=" + (ts_end - ts_begin) + " msNgram="
-					+ (ts_ngram - ts_begin) + " msBitset=" + (ts_bitset - ts_ngram) + " targetLevel=L" + columnLevel
-					+ " doclistHot=" + stat_hot_doc_cnt + " doclistCommon=" + stat_common_doc_cnt + " delHotTerms="
-					+ stat_del_hotterm_cnt + " distinctDocs=" + distinctDocUnion.cardinality() + " hotTerms="
-					+ hotTermToDocs.size() + " commonTerms=" + commonTermToDocs.size() + " ngramStat=" + ngramstat);
+			final StringBuilder sbFlush = FpLog.kv();
+			FpLog.append(sbFlush, "event", "flush");
+			FpLog.append(sbFlush, "phase", debug_msg);
+			FpLog.append(sbFlush, "groupId", group_id);
+			FpLog.append(sbFlush, "msTotal", ts_end - ts_begin);
+			FpLog.append(sbFlush, "msNgram", ts_ngram - ts_begin);
+			FpLog.append(sbFlush, "msBitset", ts_bitset - ts_ngram);
+			FpLog.append(sbFlush, "targetLevel", "L" + columnLevel);
+			FpLog.append(sbFlush, "doclistHot", stat_hot_doc_cnt);
+			FpLog.append(sbFlush, "doclistCommon", stat_common_doc_cnt);
+			FpLog.append(sbFlush, "delHotTerms", stat_del_hotterm_cnt);
+			FpLog.append(sbFlush, "distinctDocs", distinctDocUnion.cardinality());
+			FpLog.append(sbFlush, "hotTerms", hotTermToDocs.size());
+			FpLog.append(sbFlush, "commonTerms", commonTermToDocs.size());
+			FpLog.append(sbFlush, "ngramStat", ngramstat);
+			FpLog.append(sbFlush, "block", blkinfo);
+			LOG.info(FpLog.line(FpLog.TAG_REBUILD, sbFlush));
 
 		}
 		

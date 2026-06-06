@@ -19,6 +19,7 @@ import com.luxindb.lxdb.pool.objectpool.ObjectPoolMulti;
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lucene.proguard.keep.lxdb.common.CLMillisecondClock;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
 
 /**
  * BlockTree 写词项入口的 FP 扩展：在写某个字段的 {@link Terms} 时，使用 {@link FpTokenBlockOrchestrator}
@@ -68,8 +69,14 @@ public class FpTermsWriter {
 
 		long ts_end=CLMillisecondClock.CLOCK.now();
 
-		LOG.info("[fp_write] finish ms=" + (ts_end - ts_begin) + " termCount=" + term_cnt + " maxDoc=" + maxDoc
-				+ " stat=" + orchestrator.stat);
+		final StringBuilder sb = FpLog.kv();
+		FpLog.append(sb, "event", "fieldFinish");
+		FpLog.append(sb, "ms", ts_end - ts_begin);
+		FpLog.append(sb, "termCount", term_cnt);
+		FpLog.append(sb, "maxDoc", maxDoc);
+		FpLog.append(sb, "fpBlockCount", fpblock_list.size());
+		FpLog.append(sb, "stat", orchestrator.stat);
+		LOG.info(FpLog.line(FpLog.TAG_WRITE, sb));
 
 	
 	}

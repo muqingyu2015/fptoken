@@ -28,6 +28,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpGroupKVOriginal;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpGroupKVRebuild;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpStat;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.Utils;
@@ -117,9 +118,15 @@ public final class FpTokenBlockOrchestrator {
 			Integer[] info=e.getValue();
 			int level=FpTokenBlockLevelPolicy.resolveTargetBlockLevel(info[0], info[1]);
 			field_targetlevel.put(e.getKey(),level );
-			LOG.info("[fp_write] columnLevelGuess distinctDocs=" + info[0] + " distinctTerms=" + info[1]
-					+ " columnsSeen=" + cnt1 + " columnsResolved=" + cnt2 + " targetLevel=L" + level + " column="
-					+ Utils.BytesReftoString(e.getKey()));
+			final StringBuilder sb = FpLog.kv();
+			FpLog.append(sb, "event", "columnLevelGuess");
+			FpLog.append(sb, "column", Utils.BytesReftoString(e.getKey()));
+			FpLog.append(sb, "distinctDocs", info[0]);
+			FpLog.append(sb, "distinctTerms", info[1]);
+			FpLog.append(sb, "segmentsSeen", cnt1);
+			FpLog.append(sb, "blocksResolved", cnt2);
+			FpLog.append(sb, "targetLevel", "L" + level);
+			LOG.info(FpLog.line(FpLog.TAG_WRITE, sb));
 		}
 
 		
@@ -145,10 +152,14 @@ public final class FpTokenBlockOrchestrator {
 				final int cmp = term.compareTo(lastWrittenTerm);
 				if (cmp <= 0) {
 					termWriteOrderViolationCount++;
-					LOG.error("[fp_write] termOrderViolation #" + termWriteOrderViolationCount + " context=" + context
-							+ " cmp=" + cmp + " (require cmp>0)\n  prev: "
-							+ FpTokenTermLayout.toReadableString(lastWrittenTerm) + "\n  curr: "
-							+ FpTokenTermLayout.toReadableString(term), new IOException());
+					final StringBuilder sb = FpLog.kv();
+					FpLog.append(sb, "event", "termOrderViolation");
+					FpLog.append(sb, "seq", termWriteOrderViolationCount);
+					FpLog.append(sb, "context", context);
+					FpLog.append(sb, "cmp", cmp);
+					FpLog.append(sb, "prev", FpTokenTermLayout.toReadableString(lastWrittenTerm));
+					FpLog.append(sb, "curr", FpTokenTermLayout.toReadableString(term));
+					LOG.error(FpLog.line(FpLog.TAG_WRITE, sb), new IOException());
 				}
 			}
 			lastWrittenTerm = BytesRef.deepCopyOf(term);
@@ -228,7 +239,10 @@ public final class FpTokenBlockOrchestrator {
 		flushHighGroup("finish");
 		flushCommonGroup("finish");
 		if (termWriteOrderViolationCount > 0) {
-			LOG.warn("[fp_write] finish termOrderViolations=" + termWriteOrderViolationCount);
+			final StringBuilder sb = FpLog.kv();
+			FpLog.append(sb, "event", "finishWarn");
+			FpLog.append(sb, "termOrderViolations", termWriteOrderViolationCount);
+			LOG.warn(FpLog.line(FpLog.TAG_WRITE, sb));
 		}
 	}
 
@@ -275,8 +289,12 @@ public final class FpTokenBlockOrchestrator {
 				this.stat.flush_high_cnt_original++;
 				needCommonMerger=false;
 			}else {
-				LOG.error("[fp_write] missingBitIndex indexId=" + index_id + " logicalGroup=" + logical_group);
-
+				final StringBuilder sb = FpLog.kv();
+				FpLog.append(sb, "event", "missingBitIndex");
+				FpLog.append(sb, "indexId", index_id);
+				FpLog.append(sb, "logicalGroup", logical_group);
+				FpLog.append(sb, "action", "downgradeToRebuild");
+				LOG.error(FpLog.line(FpLog.TAG_WRITE, sb));
 			}
 			
 		} 

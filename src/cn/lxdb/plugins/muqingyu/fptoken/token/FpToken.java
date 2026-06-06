@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 
 /**
@@ -33,7 +34,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
  */
 public class FpToken extends Tokenizer {
 
-    public static final Logger LOG = LxdbLogerEncrypt.getLogger("cl.28118");
+    public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 
     /** 保留与历史构造参数一致；当前索引/查询共用同一分词逻辑。 */
     private final boolean isQuery;
@@ -138,9 +139,10 @@ public class FpToken extends Tokenizer {
             
             if(Lucene80FPSearchConfig.PRINT_DEBUG)
 			{
-				LOG.info("[fp_token] windowTerm term=" + FpTokenTermLayout.toReadableString(new BytesRef(prefixed)));
-
-			
+				final StringBuilder sb = FpLog.kv();
+				FpLog.append(sb, "event", "windowTerm");
+				FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(new BytesRef(prefixed)));
+				LOG.info(FpLog.line(FpLog.TAG_TOKEN, sb));
 			}
             DedupKey probe = new DedupKey(prefixed, prefixed.length);
             if (firstOccurrence.containsKey(probe)) {
@@ -151,9 +153,15 @@ public class FpToken extends Tokenizer {
         }
         pending.addAll(firstOccurrence.values());
 
-        if (LOG.isDebugEnabled()) {
-            LOG.info("[fp_token] reset isQuery=" + isQuery + " bytesMode=" + bytesMode + " sourceLen="
-                    + sourceBytes.length + " windows=" + windows.size() + " uniqueTerms=" + pending.size());
+        if (Lucene80FPSearchConfig.PRINT_DEBUG) {
+            final StringBuilder sb = FpLog.kv();
+            FpLog.append(sb, "event", "reset");
+            FpLog.append(sb, "isQuery", isQuery);
+            FpLog.append(sb, "bytesMode", bytesMode);
+            FpLog.append(sb, "sourceLen", sourceBytes.length);
+            FpLog.append(sb, "windows", windows.size());
+            FpLog.append(sb, "uniqueTerms", pending.size());
+            LOG.info(FpLog.line(FpLog.TAG_TOKEN, sb));
         }
     }
 

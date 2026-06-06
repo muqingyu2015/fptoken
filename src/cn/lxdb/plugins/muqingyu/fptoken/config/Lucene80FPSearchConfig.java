@@ -85,6 +85,24 @@ public final class Lucene80FPSearchConfig {
 
 	public static boolean PRINT_DEBUG = false;
 
+	/**
+	 * 查询链路摘要日志（默认 true）：{@code [fp_search] event=queryCreate|queryScorer|searchBegin|searchEnd|...}，
+	 * 不依赖 {@link #PRINT_DEBUG}，便于确认 SQL 是否进入 {@link cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenQuery}。
+	 * 明细 seek/slice 日志仍仅 {@link #PRINT_DEBUG} 时输出。
+	 */
+	public static boolean LOG_FP_SEARCH = true;
+
+	/**
+	 * selective 未命中时是否用全量 {@code fpBits(..., null, null)} 继续查询（默认 false，避免掩盖 selective 读盘问题）。
+	 */
+	public static boolean SELECTIVE_FP_BITS_FALLBACK = false;
+
+	/**
+	 * selective 异常时额外全量读一次，<b>仅打对比日志、不改变查询结果</b>，用于区分
+	 * {@code selectiveIoBroken}（全量有 order、selective 无）与 {@code ngramAbsent}（全量也无）。
+	 */
+	public static boolean SELECTIVE_FP_BITS_DIAG_COMPARE = true;
+
 	/** 写段时检测 writefp 是否仍按最终 term BytesRef 严格升序；乱序时打 WARN。 */
 	public static boolean CHECK_TERM_WRITE_ORDER = true;
 

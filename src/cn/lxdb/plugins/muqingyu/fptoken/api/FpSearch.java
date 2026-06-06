@@ -20,6 +20,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpSearchStat;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.Utils;
@@ -31,14 +32,24 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.Utils;
 public class FpSearch {
 
 	public FpSearchStat stat;
+	public final String DEBUG_UUID;
+
 	public FpSearch(FpSearchStat stat) {
+		this(stat, "");
+	}
+
+	public FpSearch(FpSearchStat stat, String traceId) {
 		this.stat = stat;
+		if (traceId != null && !traceId.isEmpty()) {
+			this.DEBUG_UUID = traceId;
+		} else if (Lucene80FPSearchConfig.LOG_FP_SEARCH || Lucene80FPSearchConfig.PRINT_DEBUG) {
+			this.DEBUG_UUID = java.util.UUID.randomUUID().toString();
+		} else {
+			this.DEBUG_UUID = "";
+		}
 	}
 
 	public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
-	public String DEBUG_UUID=Lucene80FPSearchConfig.PRINT_DEBUG?java.util.UUID.randomUUID().toString():"";
-
-
 
 	/**
 	 * @param fpblock_list 段内 group_id → 位图区元数据
@@ -51,19 +62,44 @@ public class FpSearch {
 		stat.doccount+=maxDoc;
 		final FixedBitSet rtn = new FixedBitSet(OffheapPoolName.fptokenbitset, maxDoc);
 		if (slices == null || slices.length == 0) {
+			if (Lucene80FPSearchConfig.LOG_FP_SEARCH) {
+				final StringBuilder sb = FpLog.kv();
+				FpLog.append(sb, "event", "searchAbort");
+				FpLog.append(sb, "reason", "noSlices");
+				FpLog.append(sb, "column", Utils.BytesReftoString(columnName));
+				LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
+			}
 			return rtn;
 		}
 
 		final FixedBitSet[] collect = new FixedBitSet[slices.length];
 		int maxGroupId = -1;
+		int columnMatchedGroups = 0;
+		int columnSkippedGroups = 0;
+		String indexColumnSample = null;
 		final long[] bucketKeys = FpGroupHotNgramBitIndex.selectiveKeysForSlices(slices);
+		if (Lucene80FPSearchConfig.LOG_FP_SEARCH || Lucene80FPSearchConfig.PRINT_DEBUG) {
+			final StringBuilder sb = FpLog.kv();
+			FpLog.append(sb, "event", "searchBegin");
+			FpLog.append(sb, "column", Utils.BytesReftoString(columnName));
+			FpLog.append(sb, "maxDoc", maxDoc);
+			FpLog.appendSliceSummary(sb, slices);
+			FpLog.append(sb, "bucketKeyCount", bucketKeys.length);
+			FpLog.appendBucketKeys(sb, bucketKeys);
+			FpLog.append(sb, "fpGroupCount", fpblock_list == null ? 0 : fpblock_list.size());
+			LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
+		}
 
 		for (Entry<Integer, FpBlockInfo> e : fpblock_list.entrySet()) {
 			final FpBlockInfo blkinfo = e.getValue();
+			if (indexColumnSample == null && blkinfo.fieldInfo != null) {
+				indexColumnSample = Utils.BytesReftoString(blkinfo.fieldInfo);
+			}
 			if (!fieldInfoMatchesColumn(blkinfo, columnName)) {
+				columnSkippedGroups++;
 				continue;
 			}
-			
+			columnMatchedGroups++;
 			stat.blkCount[blkinfo.targetLevel]+=slices.length;
 			final int groupId = e.getKey().intValue();
 			if (groupId > maxGroupId) {
@@ -71,9 +107,16 @@ public class FpSearch {
 			}
 			
 
-			final FpGroupHotNgramBitIndex bitsetIndex = terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId,
-					bucketKeys, bucketKeys);
+			final FpGroupHotNgramBitIndex bitsetIndex = loadBitIndex(terms, groupId, blkinfo, bucketKeys, slices);
 			if (bitsetIndex == null) {
+				if (Lucene80FPSearchConfig.LOG_FP_SEARCH || Lucene80FPSearchConfig.PRINT_DEBUG) {
+					final StringBuilder sb = FpLog.kv();
+					FpLog.append(sb, "event", "skipGroup");
+					FpLog.append(sb, "reason", "fpBitsNull");
+					FpLog.append(sb, "groupId", groupId);
+					FpLog.append(sb, "level", "L" + blkinfo.targetLevel);
+					LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
+				}
 				continue;
 			}
 
@@ -82,11 +125,30 @@ public class FpSearch {
 			}
 		}
 
+		if (Lucene80FPSearchConfig.LOG_FP_SEARCH && columnMatchedGroups == 0 && fpblock_list.size() > 0) {
+			final StringBuilder sb = FpLog.kv();
+			FpLog.append(sb, "event", "columnMismatch");
+			FpLog.append(sb, "queryColumn", Utils.BytesReftoString(columnName));
+			FpLog.append(sb, "indexColumnSample", indexColumnSample);
+			FpLog.append(sb, "fpGroups", fpblock_list.size());
+			FpLog.append(sb, "skippedGroups", columnSkippedGroups);
+			LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
+		}
+
 		searchSparseNoBitIndexTerms(terms, columnName, maxDoc, slices, collect, maxGroupId);
 
 		boolean merged = false;
 		for (int i = 0; i < slices.length; i++) {
 			if (collect[i] == null) {
+				if (Lucene80FPSearchConfig.LOG_FP_SEARCH || Lucene80FPSearchConfig.PRINT_DEBUG) {
+					final StringBuilder sb = FpLog.kv();
+					FpLog.append(sb, "event", "searchAbort");
+					FpLog.append(sb, "reason", "sliceNoHit");
+					FpLog.append(sb, "sliceIdx", i);
+					FpLog.append(sb, "slice", Utils.BytesReftoString(slices[i]));
+					FpLog.append(sb, "columnMatchedGroups", columnMatchedGroups);
+					LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
+				}
 				rtn.clear(0, maxDoc);
 				return rtn;
 			}
@@ -97,24 +159,184 @@ public class FpSearch {
 				rtn.and(collect[i]);
 			}
 		}
+		if (Lucene80FPSearchConfig.LOG_FP_SEARCH || Lucene80FPSearchConfig.PRINT_DEBUG) {
+			final StringBuilder sb = FpLog.kv();
+			FpLog.append(sb, "event", "searchEnd");
+			FpLog.append(sb, "hitDocs", rtn.cardinality());
+			FpLog.append(sb, "columnMatchedGroups", columnMatchedGroups);
+			FpLog.append(sb, "stat", stat);
+			LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
+		}
 		return rtn;
+	}
+
+	/**
+	 * 加载组位图（selective {@code fpBits}）。失败时不默认全量读；见 {@link #diagnoseSelectiveLoad}。
+	 * 仅当 {@link Lucene80FPSearchConfig#SELECTIVE_FP_BITS_FALLBACK} 显式开启时才回退全量读。
+	 */
+	private FpGroupHotNgramBitIndex loadBitIndex(Terms terms, int groupId, FpBlockInfo blkinfo, long[] bucketKeys,
+			BytesRef[] slices) throws IOException {
+		final FpGroupHotNgramBitIndex selective = terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId,
+				bucketKeys, bucketKeys);
+		if (selective == null) {
+			return null;
+		}
+		final boolean selectiveLookupEmpty = !selectiveLookupHitsAnySlice(selective, slices);
+		if (Lucene80FPSearchConfig.LOG_FP_SEARCH) {
+			final boolean emptyTier = selective.isSparse()
+					&& selective.loadedHotBucketCount() + selective.loadedCommonBucketCount() == 0
+					&& (blkinfo.hotCount > 0 || blkinfo.commonCount > 0);
+			if (selectiveLookupEmpty || emptyTier) {
+				diagnoseSelectiveLoad(terms, groupId, blkinfo, bucketKeys, slices, selective, selectiveLookupEmpty);
+			}
+		}
+		if (!Lucene80FPSearchConfig.SELECTIVE_FP_BITS_FALLBACK || !selectiveLookupEmpty) {
+			return selective;
+		}
+		if (Lucene80FPSearchConfig.LOG_FP_SEARCH || Lucene80FPSearchConfig.PRINT_DEBUG) {
+			final StringBuilder sb = FpLog.kv();
+			FpLog.append(sb, "event", "selectiveFallback");
+			FpLog.append(sb, "note", "SELECTIVE_FP_BITS_FALLBACK=true");
+			FpLog.append(sb, "groupId", groupId);
+			FpLog.appendBucketKeys(sb, bucketKeys);
+			FpLog.appendSliceSummary(sb, slices);
+			LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
+		}
+		return terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId, null, null);
+	}
+
+	/**
+	 * selective 读盘/lookup 异常诊断（不改查询路径）。
+	 * <ul>
+	 *   <li>{@code selectiveTierEmpty} — sparse 实例但 hot/common 已加载 bucket 均为 0，块元数据却有词</li>
+	 *   <li>{@code selectiveBucketMiss} — sparse 有数据但请求的 bucketKey 未命中</li>
+	 *   <li>{@code selectiveIoBroken} — 对比全量读：全量 lookup 有 order、selective 无（Lucene selective IO 问题）</li>
+	 *   <li>{@code ngramAbsent} — 对比全量读：全量也无 order（语料无此 ngram 或 query 字节不一致）</li>
+	 *   <li>{@code fullIndexLookupMiss} — 非 sparse 全量实例 lookup 为空</li>
+	 * </ul>
+	 */
+	private void diagnoseSelectiveLoad(Terms terms, int groupId, FpBlockInfo blkinfo, long[] bucketKeys,
+			BytesRef[] slices, FpGroupHotNgramBitIndex selective, boolean selectiveLookupEmpty) throws IOException {
+		final int loadedHot = selective.loadedHotBucketCount();
+		final int loadedCommon = selective.loadedCommonBucketCount();
+		final StringBuilder sb = FpLog.kv();
+		FpLog.append(sb, "event", "selectiveLoadDiagnosis");
+		FpLog.append(sb, "groupId", groupId);
+		FpLog.append(sb, "level", "L" + blkinfo.targetLevel);
+		FpLog.append(sb, "sparse", selective.isSparse());
+		FpLog.append(sb, "indexHotTerms", blkinfo.hotCount);
+		FpLog.append(sb, "indexCommonTerms", blkinfo.commonCount);
+		FpLog.append(sb, "loadedHotBuckets", loadedHot);
+		FpLog.append(sb, "loadedCommonBuckets", loadedCommon);
+		FpLog.append(sb, "fpBanksHot", blkinfo.fpBanksHot);
+		FpLog.append(sb, "fpBanksCommon", blkinfo.fpBanksCommon);
+		FpLog.appendBucketKeys(sb, bucketKeys);
+		FpLog.appendSliceSummary(sb, slices);
+
+		String reason;
+		int fullHotOrders = -1;
+		int fullCommonOrders = -1;
+		if (selective.isSparse() && loadedHot == 0 && loadedCommon == 0
+				&& (blkinfo.hotCount > 0 || blkinfo.commonCount > 0)) {
+			reason = "selectiveTierEmpty";
+		} else if (selective.isSparse() && selectiveLookupEmpty && (loadedHot > 0 || loadedCommon > 0)) {
+			reason = "selectiveBucketMiss";
+		} else if (!selective.isSparse() && selectiveLookupEmpty) {
+			reason = "fullIndexLookupMiss";
+		} else {
+			reason = "selectiveLookupEmpty";
+		}
+
+		if (Lucene80FPSearchConfig.SELECTIVE_FP_BITS_DIAG_COMPARE && selectiveLookupEmpty) {
+			final FpGroupHotNgramBitIndex full = terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId, null,
+					null);
+			if (full != null && slices != null && slices.length > 0 && slices[0] != null) {
+				fullHotOrders = full.lookupHotOrders(slices[0]).length;
+				fullCommonOrders = full.lookupCommonOrders(slices[0]).length;
+				FpLog.append(sb, "compareFullHotOrders", fullHotOrders);
+				FpLog.append(sb, "compareFullCommonOrders", fullCommonOrders);
+				FpLog.append(sb, "compareFullSparse", full.isSparse());
+				if (fullHotOrders > 0 || fullCommonOrders > 0) {
+					reason = "selectiveIoBroken";
+				} else if (selective.isSparse()) {
+					reason = "ngramAbsent";
+				}
+			}
+		}
+		FpLog.append(sb, "diagReason", reason);
+		LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
+	}
+
+	private static boolean selectiveLookupHitsAnySlice(FpGroupHotNgramBitIndex bitIndex, BytesRef[] slices) {
+		for (BytesRef slice : slices) {
+			if (slice == null) {
+				continue;
+			}
+			if (bitIndex.lookupHotOrders(slice).length > 0 || bitIndex.lookupCommonOrders(slice).length > 0) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private void searchSliceInGroup(FpGroupHotNgramBitIndex bitIndex, BytesRef columnName, BytesRef anchorSlice,
 			FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet[] collect, int sliceIndex)
 			throws IOException {
 		final FixedBitSet acc = ensureCollect(collect, sliceIndex, maxDoc);
-		final boolean hotHit = searchOrdersHot(bitIndex, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, acc);
+		final int[] hotOrders = bitIndex.lookupHotOrders(anchorSlice);
+		final int[] commonOrders = bitIndex.lookupCommonOrders(anchorSlice);
+		if (Lucene80FPSearchConfig.LOG_FP_SEARCH && hotOrders.length == 0 && commonOrders.length == 0) {
+			final StringBuilder sb = FpLog.kv();
+			FpLog.append(sb, "event", "sliceLookupMiss");
+			FpLog.append(sb, "groupId", groupid);
+			FpLog.append(sb, "level", "L" + blkinfo.targetLevel);
+			FpLog.append(sb, "sparse", bitIndex.isSparse());
+			FpLog.append(sb, "loadedHotBuckets", bitIndex.loadedHotBucketCount());
+			FpLog.append(sb, "loadedCommonBuckets", bitIndex.loadedCommonBucketCount());
+			FpLog.append(sb, "sliceIdx", sliceIndex);
+			FpLog.append(sb, "slice", Utils.BytesReftoString(anchorSlice));
+			if (anchorSlice != null && anchorSlice.length > 0) {
+				FpLog.append(sb, "sliceHex",
+						FpLog.bytesToHex(anchorSlice.bytes, anchorSlice.offset, anchorSlice.length));
+			}
+			FpLog.append(sb, "lenIdx", anchorSlice.length - 1);
+			FpLog.append(sb, "bucket", FpGroupHotNgramBitIndex.bucketIndex(anchorSlice));
+			FpLog.append(sb, "bucketKey", Long.toHexString(
+					FpGroupHotNgramBitIndex.packBucketKey(anchorSlice.length - 1,
+							FpGroupHotNgramBitIndex.bucketIndex(anchorSlice))));
+			LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
+		}
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			LOG.info(DEBUG_UUID + "[fp_search] searchOrdersHot hit=" + hotHit + " slice="
-					+ Utils.BytesReftoString(anchorSlice));
+			final StringBuilder sb = FpLog.kv();
+			FpLog.append(sb, "event", "sliceInGroup");
+			FpLog.append(sb, "groupId", groupid);
+			FpLog.append(sb, "level", "L" + blkinfo.targetLevel);
+			FpLog.append(sb, "sliceIdx", sliceIndex);
+			FpLog.append(sb, "slice", Utils.BytesReftoString(anchorSlice));
+			FpLog.append(sb, "hotOrderCount", hotOrders.length);
+			FpLog.append(sb, "commonOrderCount", commonOrders.length);
+			LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
+		}
+		final boolean hotHit = searchOrdersHot(bitIndex, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, acc,
+				hotOrders);
+		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
+			final StringBuilder sb = FpLog.kv();
+			FpLog.append(sb, "event", "searchOrdersHot");
+			FpLog.append(sb, "hit", hotHit);
+			FpLog.append(sb, "slice", Utils.BytesReftoString(anchorSlice));
+			FpLog.append(sb, "groupId", groupid);
+			LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
 		}
 		if (!hotHit) {
 			final boolean commonHit = searchOrdersCommon(bitIndex, columnName, anchorSlice, blkinfo, groupid, terms,
-					maxDoc, acc);
+					maxDoc, acc, commonOrders);
 			if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-				LOG.info(DEBUG_UUID + "[fp_search] searchOrdersCommon hit=" + commonHit + " slice="
-						+ Utils.BytesReftoString(anchorSlice));
+				final StringBuilder sb = FpLog.kv();
+				FpLog.append(sb, "event", "searchOrdersCommon");
+				FpLog.append(sb, "hit", commonHit);
+				FpLog.append(sb, "slice", Utils.BytesReftoString(anchorSlice));
+				FpLog.append(sb, "groupId", groupid);
+				LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
 			}
 		}
 	}
@@ -127,15 +349,15 @@ public class FpSearch {
 	}
 
 	private boolean searchOrdersHot(FpGroupHotNgramBitIndex bitIndex, BytesRef columnName, BytesRef anchorSlice,
-			FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet collect) throws IOException {
-		return seekOrderList(bitIndex.lookupHotOrders(anchorSlice), true, columnName, anchorSlice, blkinfo, groupid,
-				terms, maxDoc, collect);
+			FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet collect, int[] orders)
+			throws IOException {
+		return seekOrderList(orders, true, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, collect);
 	}
 
 	private boolean searchOrdersCommon(FpGroupHotNgramBitIndex bitIndex, BytesRef columnName, BytesRef anchorSlice,
-			FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet collect) throws IOException {
-		return seekOrderList(bitIndex.lookupCommonOrders(anchorSlice), false, columnName, anchorSlice, blkinfo,
-				groupid, terms, maxDoc, collect);
+			FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet collect, int[] orders)
+			throws IOException {
+		return seekOrderList(orders, false, columnName, anchorSlice, blkinfo, groupid, terms, maxDoc, collect);
 	}
 
 	private boolean seekOrderList(int[] orders, boolean hotMark, BytesRef columnName, BytesRef anchorSlice,
@@ -210,12 +432,22 @@ public class FpSearch {
 				(byte) FpTokenBlockLevelPolicy.BLOCK_LEVEL_NOGROUP, false, 0);
 		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
 			stat.termMiss0++;
+			if (Lucene80FPSearchConfig.PRINT_DEBUG) {
+				final StringBuilder sb = FpLog.kv();
+				FpLog.append(sb, "event", "sparseScanMiss");
+				FpLog.append(sb, "reason", "seekCeilEnd");
+				FpLog.append(sb, "column", Utils.BytesReftoString(columnName));
+				LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
+			}
 			return;
 		}
 
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			LOG.info(DEBUG_UUID + "[fp_search] sparseScan column=" + Utils.BytesReftoString(columnName) + " maxGroupId="
-					+ maxGroupId);
+			final StringBuilder sb = FpLog.kv();
+			FpLog.append(sb, "event", "sparseScanBegin");
+			FpLog.append(sb, "column", Utils.BytesReftoString(columnName));
+			FpLog.append(sb, "maxGroupId", maxGroupId);
+			LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
 		}
 
 		for (BytesRef found = termsEnum.term(); found != null; found = termsEnum.next()) {
@@ -273,47 +505,82 @@ public class FpSearch {
 		FpTokenTermLayout.make_fp_search_prefix(reuse, columnName, indexId, groupid, groupLevel, hotMark, termIndex);
 
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			LOG.info(DEBUG_UUID + "[fp_search] seekCeil prefix indexId=" + indexId + " groupId=" + groupid
-					+ " groupLevel=L" + groupLevel + " hot=" + hotMark + " termIndex=" + termIndex + " slice="
-					+ Utils.BytesReftoString(slice));
+			final StringBuilder sb = FpLog.kv();
+			FpLog.append(sb, "event", "seekCeil");
+			FpLog.append(sb, "indexId", indexId);
+			FpLog.append(sb, "groupId", groupid);
+			FpLog.append(sb, "level", "L" + groupLevel);
+			FpLog.append(sb, "hot", hotMark);
+			FpLog.append(sb, "termIndex", termIndex);
+			FpLog.append(sb, "exactPayload", requireExactPayloadMatch);
+			FpLog.append(sb, "slice", Utils.BytesReftoString(slice));
+			LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
 		}
 		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
-			if(hotMark)
-			{
+			if (hotMark) {
 				stat.termMissHot1[groupLevel]++;
-			}else {
+			} else {
 				stat.termMissCommon1[groupLevel]++;
 			}
 			if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-				LOG.info(DEBUG_UUID + "[fp_search] seekCeil miss indexId=" + indexId + " groupId=" + groupid
-						+ " groupLevel=L" + groupLevel + " hot=" + hotMark + " termIndex=" + termIndex + " slice="
-						+ Utils.BytesReftoString(slice));
+				final StringBuilder sb = FpLog.kv();
+				FpLog.append(sb, "event", "seekResult");
+				FpLog.append(sb, "status", seekStatusLabel(SEEK_MISS));
+				FpLog.append(sb, "stage", "seekCeilEnd");
+				FpLog.append(sb, "groupId", groupid);
+				FpLog.append(sb, "termIndex", termIndex);
+				FpLog.append(sb, "hot", hotMark);
+				LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
 			}
 			return SEEK_MISS;
 		}
 		final BytesRef found = termsEnum.term();
 		boolean isDelTerm = FpTokenTermLayout.readIsDelTerm(found);
 		if (Lucene80FPSearchConfig.PRINT_DEBUG) {
-			LOG.info(DEBUG_UUID + "[fp_search] seekCeil found indexId=" + indexId + " groupId=" + groupid
-					+ " groupLevel=L" + groupLevel + " hot=" + hotMark + " termIndex=" + termIndex + " slice="
-					+ Utils.BytesReftoString(slice) + " term=" + FpTokenTermLayout.toReadableString(found));
+			final StringBuilder sb = FpLog.kv();
+			FpLog.append(sb, "event", "seekResult");
+			FpLog.append(sb, "status", "FOUND");
+			FpLog.append(sb, "groupId", groupid);
+			FpLog.append(sb, "termIndex", termIndex);
+			FpLog.append(sb, "hot", hotMark);
+			FpLog.append(sb, "isDel", isDelTerm);
+			FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(found));
+			LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
 		}
 		if (!termHeaderMatches(found, columnName, groupid, groupLevel, hotMark, termIndex)) {
-			if(hotMark)
-			{
+			if (hotMark) {
 				stat.termMissHot2[groupLevel]++;
-			}else {
+			} else {
 				stat.termMissCommon2[groupLevel]++;
+			}
+			if (Lucene80FPSearchConfig.PRINT_DEBUG) {
+				final StringBuilder sb = FpLog.kv();
+				FpLog.append(sb, "event", "seekResult");
+				FpLog.append(sb, "status", seekStatusLabel(SEEK_MISS));
+				FpLog.append(sb, "stage", "headerMismatch");
+				FpLog.append(sb, "groupId", groupid);
+				FpLog.append(sb, "termIndex", termIndex);
+				LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
 			}
 			return SEEK_MISS;
 		}
 		final BytesRef payload = FpTokenTermLayout.removeColumnAndHeaderBytes(found);
 		if (!payloadMatchesSlice(requireExactPayloadMatch, payload, slice)) {
-			if(hotMark)
-			{
+			if (hotMark) {
 				stat.termMissHot3[groupLevel]++;
-			}else {
+			} else {
 				stat.termMissCommon3[groupLevel]++;
+			}
+			if (Lucene80FPSearchConfig.PRINT_DEBUG) {
+				final StringBuilder sb = FpLog.kv();
+				FpLog.append(sb, "event", "seekResult");
+				FpLog.append(sb, "status", seekStatusLabel(SEEK_MISS));
+				FpLog.append(sb, "stage", "payloadMismatch");
+				FpLog.append(sb, "groupId", groupid);
+				FpLog.append(sb, "termIndex", termIndex);
+				FpLog.append(sb, "payload", Utils.BytesReftoString(payload));
+				FpLog.append(sb, "slice", Utils.BytesReftoString(slice));
+				LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
 			}
 			return SEEK_MISS;
 		}
@@ -323,6 +590,14 @@ public class FpSearch {
 				maxHotPayloadLenOrNull.set(FpTokenTermLayout.maxHotPayloadLenFromHeader(found, payload.length));
 			}
 			if (maxHotPayloadLenOrNull.get() < payload.length) {
+				if (Lucene80FPSearchConfig.PRINT_DEBUG) {
+					final StringBuilder sb = FpLog.kv();
+					FpLog.append(sb, "event", "seekResult");
+					FpLog.append(sb, "status", seekStatusLabel(SEEK_BREAK_PAYLOAD_LEN));
+					FpLog.append(sb, "maxHotPayloadLen", maxHotPayloadLenOrNull.get());
+					FpLog.append(sb, "payloadLen", payload.length);
+					LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
+				}
 				return SEEK_BREAK_PAYLOAD_LEN;
 			}
 		}

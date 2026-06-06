@@ -19,6 +19,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.Utils;
@@ -118,9 +119,13 @@ public final class FpGroupDataOriginal {
 			{
 				if(noheader_term.length<=0)
 				{
-					
-					LOG.info("[fp_original] hotTerm emptyPayload termIndex=" + index + " termBytes="
-							+ reuse_term.length + " term=" + Utils.BytesReftoString(reuse_term));
+					final StringBuilder sb = FpLog.kv();
+					FpLog.append(sb, "event", "hotTermEmptyPayload");
+					FpLog.append(sb, "phase", debug_msg);
+					FpLog.append(sb, "termIndex", index);
+					FpLog.append(sb, "termBytes", reuse_term.length);
+					FpLog.append(sb, "term", Utils.BytesReftoString(reuse_term));
+					LOG.info(FpLog.line(FpLog.TAG_ORIGINAL, sb));
 					continue;
 				}
 			
@@ -133,11 +138,19 @@ public final class FpGroupDataOriginal {
 				BytesRef ref=FpTokenTermLayout.removeColumnAndHeaderBytes(reuse_term);
 				
 				
-	
-				LOG.info("[fp_original] hotTerm phase=" + debug_msg + " termIndex=" + index + " indexId="
-						+ read_index_id + " groupId=" + group_id_reuse + " level=L" + level + " isHot=" + ishot
-						+ " isDel=" + isdel + " hotDownTier=" + hot_down_tier + " docFreq=" + val.docsize()
-						+ " payload=" + Utils.BytesReftoString(ref));
+				final StringBuilder sb = FpLog.kv();
+				FpLog.append(sb, "event", "hotTerm");
+				FpLog.append(sb, "phase", debug_msg);
+				FpLog.append(sb, "termIndex", index);
+				FpLog.append(sb, "indexId", read_index_id);
+				FpLog.append(sb, "groupId", group_id_reuse);
+				FpLog.append(sb, "level", "L" + level);
+				FpLog.append(sb, "isHot", ishot);
+				FpLog.append(sb, "isDel", isdel);
+				FpLog.append(sb, "hotDownTier", hot_down_tier);
+				FpLog.append(sb, "docFreq", val.docsize());
+				FpLog.append(sb, "payload", Utils.BytesReftoString(ref));
+				LOG.info(FpLog.line(FpLog.TAG_ORIGINAL, sb));
 			
 			}
 		}
@@ -168,9 +181,13 @@ public final class FpGroupDataOriginal {
 			{
 				if(noheader_term.length<=0)
 				{
-					
-					LOG.info("[fp_original] commonTerm emptyPayload termIndex=" + index + " termBytes="
-							+ reuse_term.length + " term=" + Utils.BytesReftoString(reuse_term));
+					final StringBuilder sb = FpLog.kv();
+					FpLog.append(sb, "event", "commonTermEmptyPayload");
+					FpLog.append(sb, "phase", debug_msg);
+					FpLog.append(sb, "termIndex", index);
+					FpLog.append(sb, "termBytes", reuse_term.length);
+					FpLog.append(sb, "term", Utils.BytesReftoString(reuse_term));
+					LOG.info(FpLog.line(FpLog.TAG_ORIGINAL, sb));
 					continue;
 				}
 			
@@ -183,11 +200,19 @@ public final class FpGroupDataOriginal {
 				BytesRef ref=FpTokenTermLayout.removeColumnAndHeaderBytes(reuse_term);
 				
 				
-	
-				LOG.info("[fp_original] commonTerm phase=" + debug_msg + " termIndex=" + index + " indexId="
-						+ read_index_id + " groupId=" + group_id_reuse + " level=L" + level + " isHot=" + ishot
-						+ " isDel=" + isdel + " hotDownTier=" + hot_down_tier + " docFreq=" + val.docsize()
-						+ " payload=" + Utils.BytesReftoString(ref));
+				final StringBuilder sb = FpLog.kv();
+				FpLog.append(sb, "event", "commonTerm");
+				FpLog.append(sb, "phase", debug_msg);
+				FpLog.append(sb, "termIndex", index);
+				FpLog.append(sb, "indexId", read_index_id);
+				FpLog.append(sb, "groupId", group_id_reuse);
+				FpLog.append(sb, "level", "L" + level);
+				FpLog.append(sb, "isHot", ishot);
+				FpLog.append(sb, "isDel", isdel);
+				FpLog.append(sb, "hotDownTier", hot_down_tier);
+				FpLog.append(sb, "docFreq", val.docsize());
+				FpLog.append(sb, "payload", Utils.BytesReftoString(ref));
+				LOG.info(FpLog.line(FpLog.TAG_ORIGINAL, sb));
 			
 			}
 			
@@ -200,10 +225,20 @@ public final class FpGroupDataOriginal {
 	
 		long ts_end=CLMillisecondClock.CLOCK.now();
 
-		LOG.info("[fp_original] flush phase=" + debug_msg + " ms=" + (ts_end - ts_begin) + " targetLevel=L"
-				+ columnLevel + " doclistHot=" + stat_hot_doc_cnt + " doclistCommon=" + stat_common_doc_cnt
-				+ " delHotTerms=" + stat_del_hotterm_cnt + " distinctDocs=" + distinctDocUnion.cardinality()
-				+ " hotTerms=" + hotTermToDocs.size() + " commonTerms=" + commonTermToDocs.size());
+		final StringBuilder sbFlush = FpLog.kv();
+		FpLog.append(sbFlush, "event", "flush");
+		FpLog.append(sbFlush, "phase", debug_msg);
+		FpLog.append(sbFlush, "groupId", group_id);
+		FpLog.append(sbFlush, "ms", ts_end - ts_begin);
+		FpLog.append(sbFlush, "targetLevel", "L" + columnLevel);
+		FpLog.append(sbFlush, "doclistHot", stat_hot_doc_cnt);
+		FpLog.append(sbFlush, "doclistCommon", stat_common_doc_cnt);
+		FpLog.append(sbFlush, "delHotTerms", stat_del_hotterm_cnt);
+		FpLog.append(sbFlush, "distinctDocs", distinctDocUnion.cardinality());
+		FpLog.append(sbFlush, "hotTerms", hotTermToDocs.size());
+		FpLog.append(sbFlush, "commonTerms", commonTermToDocs.size());
+		FpLog.append(sbFlush, "block", blkinfo);
+		LOG.info(FpLog.line(FpLog.TAG_ORIGINAL, sbFlush));
 
 	
 		this.resetAfterFlush();
