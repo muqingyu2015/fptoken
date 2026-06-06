@@ -142,7 +142,7 @@ public class FpToken extends Tokenizer {
 				final StringBuilder sb = FpLog.kv();
 				FpLog.append(sb, "event", "windowTerm");
 				FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(new BytesRef(prefixed)));
-				LOG.info(FpLog.line(FpLog.TAG_TOKEN, sb));
+				FpLog.debugLine(LOG, FpLog.TAG_TOKEN, sb);
 			}
             DedupKey probe = new DedupKey(prefixed, prefixed.length);
             if (firstOccurrence.containsKey(probe)) {
@@ -161,7 +161,7 @@ public class FpToken extends Tokenizer {
             FpLog.append(sb, "sourceLen", sourceBytes.length);
             FpLog.append(sb, "windows", windows.size());
             FpLog.append(sb, "uniqueTerms", pending.size());
-            LOG.info(FpLog.line(FpLog.TAG_TOKEN, sb));
+            FpLog.debugLine(LOG, FpLog.TAG_TOKEN, sb);
         }
     }
 

@@ -125,7 +125,7 @@ public final class FpGroupDataOriginal {
 					FpLog.append(sb, "termIndex", index);
 					FpLog.append(sb, "termBytes", reuse_term.length);
 					FpLog.append(sb, "term", Utils.BytesReftoString(reuse_term));
-					LOG.info(FpLog.line(FpLog.TAG_ORIGINAL, sb));
+					FpLog.debugLine(LOG, FpLog.TAG_ORIGINAL, sb);
 					continue;
 				}
 			
@@ -150,7 +150,7 @@ public final class FpGroupDataOriginal {
 				FpLog.append(sb, "hotDownTier", hot_down_tier);
 				FpLog.append(sb, "docFreq", val.docsize());
 				FpLog.append(sb, "payload", Utils.BytesReftoString(ref));
-				LOG.info(FpLog.line(FpLog.TAG_ORIGINAL, sb));
+				FpLog.debugLine(LOG, FpLog.TAG_ORIGINAL, sb);
 			
 			}
 		}
@@ -187,7 +187,7 @@ public final class FpGroupDataOriginal {
 					FpLog.append(sb, "termIndex", index);
 					FpLog.append(sb, "termBytes", reuse_term.length);
 					FpLog.append(sb, "term", Utils.BytesReftoString(reuse_term));
-					LOG.info(FpLog.line(FpLog.TAG_ORIGINAL, sb));
+					FpLog.debugLine(LOG, FpLog.TAG_ORIGINAL, sb);
 					continue;
 				}
 			
@@ -212,7 +212,7 @@ public final class FpGroupDataOriginal {
 				FpLog.append(sb, "hotDownTier", hot_down_tier);
 				FpLog.append(sb, "docFreq", val.docsize());
 				FpLog.append(sb, "payload", Utils.BytesReftoString(ref));
-				LOG.info(FpLog.line(FpLog.TAG_ORIGINAL, sb));
+				FpLog.debugLine(LOG, FpLog.TAG_ORIGINAL, sb);
 			
 			}
 			
@@ -238,7 +238,7 @@ public final class FpGroupDataOriginal {
 		FpLog.append(sbFlush, "hotTerms", hotTermToDocs.size());
 		FpLog.append(sbFlush, "commonTerms", commonTermToDocs.size());
 		FpLog.append(sbFlush, "block", blkinfo);
-		LOG.info(FpLog.line(FpLog.TAG_ORIGINAL, sbFlush));
+		FpLog.infoLine(LOG, FpLog.TAG_ORIGINAL, sbFlush);
 
 	
 		this.resetAfterFlush();

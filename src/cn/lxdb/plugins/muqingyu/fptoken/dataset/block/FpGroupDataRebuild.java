@@ -159,7 +159,7 @@ public final class FpGroupDataRebuild {
 					FpLog.append(sb, "docFreq", val.docsize());
 					FpLog.append(sb, "postings", stat.docFreq);
 					FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(reuse_term));
-					LOG.info(FpLog.line(FpLog.TAG_REBUILD, sb));
+					FpLog.debugLine(LOG, FpLog.TAG_REBUILD, sb);
 				}
 			}
 			
@@ -179,7 +179,7 @@ public final class FpGroupDataRebuild {
 			FpLog.append(sbZero, "delHotTerms", stat_del_hotterm_cnt);
 			FpLog.append(sbZero, "distinctDocs", distinctDocUnion.cardinality());
 			FpLog.append(sbZero, "commonTerms", commonTermToDocs.size());
-			LOG.info(FpLog.line(FpLog.TAG_REBUILD, sbZero));
+			FpLog.infoLine(LOG, FpLog.TAG_REBUILD, sbZero);
 
 		
 		}else {
@@ -233,7 +233,7 @@ public final class FpGroupDataRebuild {
 					FpLog.append(sb, "downTier", downTierBudget);
 					FpLog.append(sb, "isDel", isDelTerm);
 					FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(reuse_term));
-					LOG.info(FpLog.line(FpLog.TAG_REBUILD, sb));
+					FpLog.debugLine(LOG, FpLog.TAG_REBUILD, sb);
 				}
 			}
 			
@@ -264,7 +264,7 @@ public final class FpGroupDataRebuild {
 					FpLog.append(sb, "docFreq", val.docsize());
 					FpLog.append(sb, "targetLevel", "L" + columnLevel);
 					FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(reuse_term));
-					LOG.info(FpLog.line(FpLog.TAG_REBUILD, sb));
+					FpLog.debugLine(LOG, FpLog.TAG_REBUILD, sb);
 				}
 			}
 			
@@ -294,7 +294,7 @@ public final class FpGroupDataRebuild {
 			FpLog.append(sbFlush, "commonTerms", commonTermToDocs.size());
 			FpLog.append(sbFlush, "ngramStat", ngramstat);
 			FpLog.append(sbFlush, "block", blkinfo);
-			LOG.info(FpLog.line(FpLog.TAG_REBUILD, sbFlush));
+			FpLog.infoLine(LOG, FpLog.TAG_REBUILD, sbFlush);
 
 		}
 		

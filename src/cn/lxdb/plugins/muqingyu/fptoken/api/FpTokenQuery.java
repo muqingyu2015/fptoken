@@ -53,12 +53,10 @@ public class FpTokenQuery extends Query {
         String[] fieldParse=FpToken.ParseFieldAndText(slices);
         this.tokenField=fieldParse[0];
         String tokentext=fieldParse[1];
-        if (tokentext != null) {
-        	tokentext = tokentext.strip();
-        }
+    
        
         byte[] sourceBytes=FpToken.textToSourceBytes(tokentext, mode);
-        List<WindowTerm> windows = BinarySlidingWindowApi.slidingWindows(sourceBytes, 0, sourceBytes.length,Lucene80FPSearchConfig.NGRAM_MAX,Lucene80FPSearchConfig.NGRAM_MAX-1);
+        List<WindowTerm> windows = BinarySlidingWindowApi.slidingWindows(sourceBytes, 0, sourceBytes.length,Lucene80FPSearchConfig.NGRAM_MAX,Lucene80FPSearchConfig.NGRAM_MAX-2);
 
         Map<FpToken.DedupKey, FpToken.PendingTerm> firstOccurrence = new LinkedHashMap<>();
         for (int i = 0; i < windows.size(); i++) {
@@ -93,7 +91,7 @@ public class FpTokenQuery extends Query {
         	FpLog.append(sb, "queryBytes", sourceBytes.length);
         	FpLog.append(sb, "bytesMode", mode);
         	FpLog.appendSliceSummary(sb, this.slices);
-        	LOG.info(FpLog.trace(searchTraceId, FpLog.TAG_SEARCH, sb));
+        	FpLog.searchTrace(LOG, searchTraceId, sb);
         }
     }
 
@@ -109,7 +107,7 @@ public class FpTokenQuery extends Query {
         	FpLog.append(sb, "luceneField", fieldName);
         	FpLog.append(sb, "column", tokenField);
         	FpLog.appendSliceSummary(sb, slices);
-        	LOG.info(FpLog.trace(searchTraceId, FpLog.TAG_SEARCH, sb));
+        	FpLog.searchTrace(LOG, searchTraceId, sb);
         }
         return new BruteForceWeight(this, searcher, scoreMode, boost);
     }
@@ -137,7 +135,7 @@ public class FpTokenQuery extends Query {
             		FpLog.append(sb, "column", tokenField);
             		FpLog.append(sb, "segment", context.ord);
             		FpLog.appendSliceSummary(sb, slices);
-            		LOG.info(FpLog.trace(searchTraceId, FpLog.TAG_SEARCH, sb));
+            		FpLog.searchTrace(LOG, searchTraceId, sb);
             	}
                 return null;
             }
@@ -154,9 +152,9 @@ public class FpTokenQuery extends Query {
             
             long ts_end=System.currentTimeMillis();
             long diff=ts_end-ts_init;
-            if (Lucene80FPSearchConfig.LOG_FP_SEARCH || diff > 500) {
+            if (diff > 500) {
                 final StringBuilder sb = FpLog.kv();
-                FpLog.append(sb, "event", diff > 500 ? "slowQuery" : "queryScorer");
+                FpLog.append(sb, "event", "slowQuery");
                 FpLog.append(sb, "ms", diff);
                 FpLog.append(sb, "luceneField", fieldName);
                 FpLog.append(sb, "column", tokenField);
@@ -166,7 +164,20 @@ public class FpTokenQuery extends Query {
                 FpLog.append(sb, "maxDoc", context.reader().maxDoc());
                 FpLog.append(sb, "hitDocs", bitset.cardinality());
                 FpLog.append(sb, "stat", stat);
-                LOG.info(FpLog.trace(searchTraceId, FpLog.TAG_SEARCH, sb));
+                LOG.warn(FpLog.trace(searchTraceId, FpLog.TAG_SEARCH, sb));
+            } else if (Lucene80FPSearchConfig.LOG_FP_SEARCH) {
+                final StringBuilder sb = FpLog.kv();
+                FpLog.append(sb, "event", "queryScorer");
+                FpLog.append(sb, "ms", diff);
+                FpLog.append(sb, "luceneField", fieldName);
+                FpLog.append(sb, "column", tokenField);
+                FpLog.append(sb, "segment", context.ord);
+                FpLog.appendSliceSummary(sb, slices);
+                FpLog.append(sb, "fpGroups", blocklist.size());
+                FpLog.append(sb, "maxDoc", context.reader().maxDoc());
+                FpLog.append(sb, "hitDocs", bitset.cardinality());
+                FpLog.append(sb, "stat", stat);
+                FpLog.searchTrace(LOG, searchTraceId, sb);
             }
             BitDocIdSet docIdSet = new BitDocIdSet(bitset, 1, context.reader().maxDoc());
             
@@ -180,7 +191,7 @@ public class FpTokenQuery extends Query {
             		FpLog.append(sb, "luceneField", fieldName);
             		FpLog.append(sb, "column", tokenField);
             		FpLog.append(sb, "segment", context.ord);
-            		LOG.info(FpLog.trace(searchTraceId, FpLog.TAG_SEARCH, sb));
+            		FpLog.searchTrace(LOG, searchTraceId, sb);
             	}
                 return null;
             }

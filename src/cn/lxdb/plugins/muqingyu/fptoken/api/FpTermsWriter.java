@@ -76,7 +76,7 @@ public class FpTermsWriter {
 		FpLog.append(sb, "maxDoc", maxDoc);
 		FpLog.append(sb, "fpBlockCount", fpblock_list.size());
 		FpLog.append(sb, "stat", orchestrator.stat);
-		LOG.info(FpLog.line(FpLog.TAG_WRITE, sb));
+		FpLog.infoLine(LOG, FpLog.TAG_WRITE, sb);
 
 	
 	}

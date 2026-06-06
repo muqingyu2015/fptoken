@@ -126,7 +126,7 @@ public final class FpTokenBlockOrchestrator {
 			FpLog.append(sb, "segmentsSeen", cnt1);
 			FpLog.append(sb, "blocksResolved", cnt2);
 			FpLog.append(sb, "targetLevel", "L" + level);
-			LOG.info(FpLog.line(FpLog.TAG_WRITE, sb));
+			FpLog.infoLine(LOG, FpLog.TAG_WRITE, sb);
 		}
 
 		

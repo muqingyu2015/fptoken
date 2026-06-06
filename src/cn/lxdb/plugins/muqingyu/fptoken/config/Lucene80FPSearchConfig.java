@@ -87,11 +87,10 @@ public final class Lucene80FPSearchConfig {
 	public static boolean PRINT_DEBUG = false;
 
 	/**
-	 * 查询链路摘要日志（默认 true）：{@code [fp_search] event=queryCreate|queryScorer|searchBegin|searchEnd|...}，
-	 * 不依赖 {@link #PRINT_DEBUG}，便于确认 SQL 是否进入 {@link cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenQuery}。
-	 * 明细 seek/slice 日志仍仅 {@link #PRINT_DEBUG} 时输出。
+	 * 查询链路 trace（默认 false，DEBUG 级输出；灌数据/生产保持关闭）。
+	 * 写段摘要不受此开关影响，仍为 INFO。
 	 */
-	public static boolean LOG_FP_SEARCH = true;
+	public static boolean LOG_FP_SEARCH = false;
 
 //	/**
 //	 * selective 未命中时是否用全量 {@code fpBits(..., null, null)} 继续查询（默认 false，避免掩盖 selective 读盘问题）。

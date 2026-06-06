@@ -1,9 +1,19 @@
 package cn.lxdb.plugins.muqingyu.fptoken.dataset.common;
 
+import org.slf4j.Logger;
+
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 
 /**
  * FP 模块统一日志格式：{@code [tag] key=value key=value ...}，Log4J 侧用 {@code +} 拼串，不用 {@code {}}。
+ *
+ * <p>分级约定（灌数据 / 生产默认 log4j INFO）：
+ * <ul>
+ *   <li><b>INFO</b> — 写段/重建摘要：{@code fp_write}、{@code fp_original} flush、{@code fp_rebuild} flush、{@code fp_bitindex} flush</li>
+ *   <li><b>DEBUG</b> — 查询 trace、逐 term、seek 明细；调用方先判断 {@code LOG_FP_SEARCH} / {@code PRINT_DEBUG} 再拼串，
+ *       通过 {@link #searchTrace} / {@link #debugTrace} / {@link #debugLine} 输出（且 log4j 级别须 DEBUG）</li>
+ *   <li><b>WARN</b> — 慢查询、term 乱序等异常</li>
+ * </ul>
  */
 public final class FpLog {
 
@@ -48,6 +58,26 @@ public final class FpLog {
 			return line(tag, fields);
 		}
 		return "trace=" + traceId + ' ' + line(tag, fields);
+	}
+
+	/** 写段/重建摘要，始终 INFO。 */
+	public static void infoLine(Logger log, String tag, StringBuilder fields) {
+		log.info(line(tag, fields));
+	}
+
+	/** DEBUG 级查询 trace；调用方须先 {@code if (Lucene80FPSearchConfig.LOG_FP_SEARCH)} 再拼字段。 */
+	public static void searchTrace(Logger log, String traceId, StringBuilder fields) {
+		log.debug(trace(traceId, TAG_SEARCH, fields));
+	}
+
+	/** DEBUG 级查询 trace（同上，用于 fp_search tag 通用输出）。 */
+	public static void debugTrace(Logger log, String traceId, StringBuilder fields) {
+		log.debug(trace(traceId, TAG_SEARCH, fields));
+	}
+
+	/** DEBUG 级单行；调用方须先 {@code if (Lucene80FPSearchConfig.PRINT_DEBUG)} 再拼字段。 */
+	public static void debugLine(Logger log, String tag, StringBuilder fields) {
+		log.debug(line(tag, fields));
 	}
 
 	/** 追加 slice 摘要：{@code sliceCount=2 sliceLens=2,6 slice0=...}。 */

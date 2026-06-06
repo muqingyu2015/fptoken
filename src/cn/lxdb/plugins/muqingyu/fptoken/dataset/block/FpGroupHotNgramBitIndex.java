@@ -227,7 +227,7 @@ public final class FpGroupHotNgramBitIndex {
 		FpLog.append(sb, "commonCount", commonCount);
 		FpLog.append(sb, "targetLevel", "L" + targetlevel);
 		FpLog.append(sb, "block", info);
-		LOG.info(FpLog.line(FpLog.TAG_BITINDEX, sb));
+		FpLog.infoLine(LOG, FpLog.TAG_BITINDEX, sb);
 		return info;
 	}
 
