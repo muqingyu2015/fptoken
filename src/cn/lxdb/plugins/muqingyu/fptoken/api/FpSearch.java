@@ -146,7 +146,9 @@ public class FpSearch {
 	}
 
 	/**
-	 * 加载组位图（selective {@code fpBits}）；不做全量 {@code fpBits(..., null, null)} 回退。
+	 * 加载组位图：{@code fpBits} 在返回前已按 {@code bucketKeys} 把 hot/common 各 bucket 的 orderList 读入内存；
+	 * 后续 {@link FpGroupHotNgramBitIndex#lookupHotOrders} / {@link FpGroupHotNgramBitIndex#lookupCommonOrders} 纯查表。
+	 * 不做全量 {@code fpBits(..., null, null)} 回退。
 	 */
 	private FpGroupHotNgramBitIndex loadBitIndex(Terms terms, int groupId, long[] bucketKeys) throws IOException {
 		return terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId, bucketKeys, bucketKeys);

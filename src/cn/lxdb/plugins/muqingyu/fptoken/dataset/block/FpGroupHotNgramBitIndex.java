@@ -49,8 +49,8 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
  * ├── entryMeta[int]          // 与 sortedKeys 同下标；见下方 entryMeta 编码
  * └── orderArena[byte]        // 多条 order 的 vint 增量序列池（单条 order 内联在 entryMeta）
  *
- * LenRow（稀疏实例，selective 读 / viewSelective）
- * └── sparseOrders: Map&lt;bucketIndex, int[] orders&gt;
+ * LenRow（稀疏 / selective 查询实例）
+ * └── sparseOrders: HashMap&lt;bucket, order[]&gt;  // readSelective 用 skip 跳跃读盘后填入；lookup 纯内存
  * </pre>
  *
  * <h3>磁盘布局（段内连续两块，由 {@link FpBlockInfo} 定位）</h3>
@@ -237,12 +237,15 @@ public final class FpGroupHotNgramBitIndex {
 	}
 
 	/**
-	 * 按 bucketKey 选择性读盘。
+	 * 按 bucketKey 选择性读盘，并在返回前把各 bucket 的 orderList 解析进内存。
 	 * <ul>
-	 *   <li>{@code loadHotKeys/loadCommonKeys} 均为 null → 等同 {@link #readfrom}</li>
-	 *   <li>非 null → 仅对 listed bucket 做 skip 定位 + 读 orderList，返回 {@code sparse=true} 实例</li>
+	 *   <li>{@code loadHotKeys/loadCommonKeys} 均为 null → 等同 {@link #readfrom}（全量 tier）</li>
+	 *   <li>非 null → 仅对 listed bucket 做 skip 跳跃读盘，结果写入 {@link LenRow#sparseOrders}；
+	 *       之后 {@link #lookupHotOrders}/{@link #lookupCommonOrders} 纯内存查表</li>
 	 *   <li>空数组 → 对应 tier 为空 sparse（不读盘）</li>
 	 * </ul>
+	 *
+	 * <p>不持有 {@link IndexInput}：IO 在本方法内完成，{@code fpBits} 返回后 Lucene 可安全关闭底层流。
 	 */
 	public static FpGroupHotNgramBitIndex readfromBanksSelective(IndexInput in, FpBlockInfo blkinfo,
 			long[] loadHotKeys, long[] loadCommonKeys) throws IOException {
@@ -254,12 +257,17 @@ public final class FpGroupHotNgramBitIndex {
 			return new FpGroupHotNgramBitIndex(blkinfo.targetLevel, hotTier, commonTier, blkinfo.hotCount,
 					blkinfo.commonCount, false);
 		}
-		final TierIndex hotTier = loadHotKeys == null || loadHotKeys.length == 0 ? TierIndex.emptySparse()
-				: TierIndex.readSelective(in, blkinfo.fpBanksHot, loadHotKeys);
-		final TierIndex commonTier = loadCommonKeys == null || loadCommonKeys.length == 0 ? TierIndex.emptySparse()
-				: TierIndex.readSelective(in, blkinfo.fpBanksCommon, loadCommonKeys);
-		return new FpGroupHotNgramBitIndex(blkinfo.targetLevel, hotTier, commonTier, blkinfo.hotCount,
-				blkinfo.commonCount, true);
+		final IndexInput disk = in.clone();
+		try {
+			final TierIndex hotTier = loadHotKeys == null || loadHotKeys.length == 0 ? TierIndex.emptySparse()
+					: TierIndex.readSelective(disk, blkinfo.fpBanksHot, loadHotKeys);
+			final TierIndex commonTier = loadCommonKeys == null || loadCommonKeys.length == 0 ? TierIndex.emptySparse()
+					: TierIndex.readSelective(disk, blkinfo.fpBanksCommon, loadCommonKeys);
+			return new FpGroupHotNgramBitIndex(blkinfo.targetLevel, hotTier, commonTier, blkinfo.hotCount,
+					blkinfo.commonCount, true);
+		} finally {
+			disk.close();
+		}
 	}
 
 	/**
@@ -311,12 +319,12 @@ public final class FpGroupHotNgramBitIndex {
 
 	private static final long[] EMPTY_LONG = new long[0];
 
-	/** 查询 slice 在 hot tier 中命中的 order 列表；无命中返回空数组。 */
+	/** 查询 slice 在 hot tier 中命中的 order 列表；selective 实例在 {@link #readfromBanksSelective} 时已预加载。 */
 	public int[] lookupHotOrders(BytesRef slice) {
 		return lookupOrders(hot, slice);
 	}
 
-	/** 查询 slice 在 common tier 中命中的 order 列表；无命中返回空数组。 */
+	/** 查询 slice 在 common tier 中命中的 order 列表；selective 实例在 {@link #readfromBanksSelective} 时已预加载。 */
 	public int[] lookupCommonOrders(BytesRef slice) {
 		return lookupOrders(common, slice);
 	}
@@ -453,8 +461,8 @@ public final class FpGroupHotNgramBitIndex {
 	 * <ul>
 	 *   <li><b>全量</b>（{@code sparse=false}）：构建期 / {@link #readTier} 后，
 	 *       每行有完整的 sortedKeys + entryMeta + orderArena</li>
-	 *   <li><b>稀疏</b>（{@code sparse=true}）：{@link #readSelective} 或 {@link #viewSelective} 后，
-	 *       每行只有查询用到的 bucket（{@link LenRow#sparseOrders}）</li>
+	 *   <li><b>稀疏</b>（{@code sparse=true}）：{@link #readSelective} 用 skip 跳跃读 {@code keys} 对应 bucket 的 orderList 到 {@link LenRow#sparseOrders}；
+	 *       或 {@link #viewSelective} 从全量内存实例截取</li>
 	 * </ul>
 	 *
 	 * <p><b>磁盘上 Tier 的布局</b>（{@link #writeTier} 写出，{@link #readTier} / {@link #readSelective} 读入）
@@ -473,8 +481,8 @@ public final class FpGroupHotNgramBitIndex {
 	 *       利用 skip 表做 O(段数 + 128) 跳跃定位，避免读整张 LenRow</li>
 	 * </ul>
 	 *
-	 * @see LenRow#readOrdersForBucket  skip 跳跃读的核心实现
-	 * @see #readSelective              按 bucketKey 列表触发 selective IO
+	 * @see DiskLenRow#lookupOrders           skip 跳跃 + 按需 seek（仅 readSelective 预取阶段）
+	 * @see #readSelective                    按 bucketKey 预取 orderList，不持有 IndexInput
 	 */
 	static final class TierIndex {
 		final LenRow[] rows = new LenRow[Lucene80FPSearchConfig.NGRAM_MAX];
@@ -614,40 +622,170 @@ public final class FpGroupHotNgramBitIndex {
 		 *   <li>seek {@code tierOffset}，校验 magic，读 6 个 lenRowOffset</li>
 		 *   <li>unpack key → lenIdx + bucketIndex</li>
 		 *   <li>seek {@code tierOffset + lenRowOffsets[lenIdx]} 到对应 LenRow 起点</li>
-		 *   <li>调用 {@link LenRow#readOrdersForBucket} 只读这一个 bucket 的 order[]</li>
-		 *   <li>若有 order，写入 sparse TierIndex 的 {@code rows[lenIdx].sparseOrders}</li>
-		 * </ol>
-		 *
-		 * <p><b>注意</b>：同一 lenIdx 若 keys 数组里出现多个 bucket，会多次 seek 同一 LenRow；
-		 * 未出现在 keys 里的 LenRow 完全不读。
-		 */
-		static TierIndex readSelective(IndexInput in, long tierOffset, long[] keys) throws IOException {
-			in.seek(tierOffset);
-			final int magic = in.readInt();
+	 *   <li>对每个涉及的 lenIdx 打开 {@link DiskLenRow}（skip 表 + min/max bucket，局部变量）</li>
+	 *   <li>对 {@code keys} 中每个 bucket 跳跃读 orderList，写入 {@link LenRow#sparseOrders}</li>
+	 * </ol>
+	 *
+	 * <p>调用方 {@link #readfromBanksSelective} 负责 clone/close {@link IndexInput}；本 tier 返回后 lookup 纯内存。
+	 */
+		static TierIndex readSelective(IndexInput disk, long tierOffset, long[] keys) throws IOException {
+			if (keys == null || keys.length == 0) {
+				return emptySparse();
+			}
+			disk.seek(tierOffset);
+			final int magic = disk.readInt();
 			if (magic != TIER_MAGIC) {
 				throw new IOException("unexpected tier magic: " + magic);
 			}
-			// lenRowOffset[i] = 第 i 种 ngram 长度（lenIdx=i）的 LenRow 相对 tierOffset 的字节偏移
 			final long[] lenRowOffsets = new long[Lucene80FPSearchConfig.NGRAM_MAX];
 			for (int i = 0; i < lenRowOffsets.length; i++) {
-				lenRowOffsets[i] = in.readLong();
+				lenRowOffsets[i] = disk.readLong();
 			}
 			final TierIndex tier = emptySparse();
+			final DiskLenRow[] diskRows = new DiskLenRow[Lucene80FPSearchConfig.NGRAM_MAX];
 			for (long key : keys) {
 				final int lenIdx = unpackLenIdx(key);
-				final int bucket = unpackBucketIndex(key);
 				if (lenIdx < 0 || lenIdx >= Lucene80FPSearchConfig.NGRAM_MAX) {
 					continue;
 				}
-				// 跳到「该 ngram 长度」对应的 LenRow，再在该行内做 skip 跳跃读单个 bucket
-				in.seek(tierOffset + lenRowOffsets[lenIdx]);
-				final int[] orders = LenRow.readOrdersForBucket(in, bucket);
+				if (diskRows[lenIdx] == null) {
+					disk.seek(tierOffset + lenRowOffsets[lenIdx]);
+					diskRows[lenIdx] = DiskLenRow.open(disk);
+				}
+				final int bucket = unpackBucketIndex(key);
+				final int[] orders = diskRows[lenIdx].lookupOrders(bucket);
 				if (orders.length > 0) {
 					tier.rows[lenIdx].putSparse(bucket, orders);
 				}
 			}
 			return tier;
 		}
+	}
+
+	// -------------------------------------------------------------------------
+	// DiskLenRow — readSelective 预取阶段：skip 表在内存，keys/meta/arena 按需 seek（局部变量，不挂实例）
+	// -------------------------------------------------------------------------
+
+	/**
+	 * LenRow 的磁盘视图。open 时只读 entryCount、skip 表、min/max bucket、各区偏移；不读 keys/meta/arena 正文。
+	 */
+	static final class DiskLenRow {
+		final IndexInput in;
+		final long lenRowStart;
+		final int entryCount;
+		final int minBucket;
+		final int maxBucket;
+		final int skipCount;
+		final int[] skipAnchors;
+		final long[] skipKeysPtrRel;
+		final long keysBaseRel;
+		final long metaStartRel;
+		final long arenaDataStart;
+
+		private DiskLenRow(IndexInput in, long lenRowStart, int entryCount, int minBucket, int maxBucket,
+				int skipCount, int[] skipAnchors, long[] skipKeysPtrRel, long keysBaseRel, long metaStartRel,
+				long arenaDataStart) {
+			this.in = in;
+			this.lenRowStart = lenRowStart;
+			this.entryCount = entryCount;
+			this.minBucket = minBucket;
+			this.maxBucket = maxBucket;
+			this.skipCount = skipCount;
+			this.skipAnchors = skipAnchors;
+			this.skipKeysPtrRel = skipKeysPtrRel;
+			this.keysBaseRel = keysBaseRel;
+			this.metaStartRel = metaStartRel;
+			this.arenaDataStart = arenaDataStart;
+		}
+
+		static DiskLenRow open(IndexInput in) throws IOException {
+			final long lenRowStart = in.getFilePointer();
+			final int entryCount = in.readInt();
+			if (entryCount == 0) {
+				return new DiskLenRow(in, lenRowStart, 0, 0, 0, 0, EMPTY_INT, EMPTY_LONG, 0L, 0L, 0L);
+			}
+			final int skipCount = (entryCount + SKIP_INTERVAL - 1) / SKIP_INTERVAL;
+			final long skipTableStart = in.getFilePointer();
+			final int[] skipAnchors = new int[skipCount];
+			final long[] skipKeysPtrRel = new long[skipCount];
+			for (int s = 0; s < skipCount; s++) {
+				in.seek(skipTableStart + (long) s * 12L);
+				skipAnchors[s] = in.readInt();
+				skipKeysPtrRel[s] = in.readLong();
+			}
+			final long keysBaseRel = skipKeysPtrRel[0];
+			final long metaStartRel = keysBaseRel + (long) entryCount * 4L;
+			in.seek(lenRowStart + keysBaseRel + (long) (entryCount - 1) * 4L);
+			final int maxBucket = in.readInt();
+			in.seek(lenRowStart + metaStartRel + (long) entryCount * 4L);
+			final int arenaLen = in.readInt();
+			final long arenaDataStart = in.getFilePointer();
+			if (arenaLen > 0) {
+				in.seek(arenaDataStart + arenaLen);
+			}
+			return new DiskLenRow(in, lenRowStart, entryCount, skipAnchors[0], maxBucket, skipCount, skipAnchors,
+					skipKeysPtrRel, keysBaseRel, metaStartRel, arenaDataStart);
+		}
+
+		int[] lookupOrders(int bucket) throws IOException {
+			if (entryCount == 0 || bucket < minBucket || bucket > maxBucket) {
+				return EMPTY_ORDERS;
+			}
+			int segment = 0;
+			int lo = 0;
+			int hi = skipCount - 1;
+			while (lo <= hi) {
+				final int mid = (lo + hi) >>> 1;
+				if (skipAnchors[mid] <= bucket) {
+					segment = mid;
+					lo = mid + 1;
+				} else {
+					hi = mid - 1;
+				}
+			}
+			if (segment + 1 < skipCount && bucket >= skipAnchors[segment + 1]) {
+				return EMPTY_ORDERS;
+			}
+			final int segStart = segment * SKIP_INTERVAL;
+			final int segEnd = Math.min(segStart + SKIP_INTERVAL, entryCount);
+			final long segKeysBaseRel = skipKeysPtrRel[segment] - (long) segStart * 4L;
+			int found = -1;
+			for (int i = segStart; i < segEnd; i++) {
+				in.seek(lenRowStart + segKeysBaseRel + (long) i * 4L);
+				final int key = in.readInt();
+				if (key == bucket) {
+					found = i;
+					break;
+				}
+				if (key > bucket) {
+					break;
+				}
+			}
+			if (found < 0) {
+				return EMPTY_ORDERS;
+			}
+			in.seek(lenRowStart + metaStartRel + (long) found * 4L);
+			final int meta = in.readInt();
+			if ((meta & 1) == ENTRY_TAG_SINGLE) {
+				return new int[] { meta >>> 1 };
+			}
+			return readOrderListFromInput(in, arenaDataStart + (meta >>> 1));
+		}
+	}
+
+	static int[] readOrderListFromInput(IndexInput in, long offset) throws IOException {
+		in.seek(offset);
+		final int count = in.readVInt();
+		if (count <= 0) {
+			return EMPTY_ORDERS;
+		}
+		final int[] orders = new int[count];
+		int prev = 0;
+		for (int i = 0; i < count; i++) {
+			prev += in.readVInt();
+			orders[i] = prev;
+		}
+		return orders;
 	}
 
 	// -------------------------------------------------------------------------
@@ -702,7 +840,7 @@ public final class FpGroupHotNgramBitIndex {
 	 * </pre>
 	 *
 	 * <p>构建期用 {@link TreeMap} 聚合；{@link #finalizeRow()} 后变为 sortedKeys + entryMeta + orderArena。
-	 * 稀疏实例仅保留 {@link #sparseOrders}（selective 读结果）。
+	 * selective 读在 {@link TierIndex#readSelective} 预取到 {@link #sparseOrders}；{@link #viewSelective} 从全量实例截取。
 	 */
 	static final class LenRow {
 		private TreeMap<Integer, IntList> buildMap;
@@ -713,9 +851,7 @@ public final class FpGroupHotNgramBitIndex {
 		byte[] orderArena;
 
 		LenRow(boolean sparse) {
-			if (sparse) {
-				sparseOrders = new HashMap<>();
-			} else {
+			if (!sparse) {
 				buildMap = new TreeMap<>();
 			}
 		}
@@ -733,6 +869,9 @@ public final class FpGroupHotNgramBitIndex {
 		}
 
 		void putSparse(int bucket, int[] orders) {
+			if (sparseOrders == null) {
+				sparseOrders = new HashMap<>();
+			}
 			sparseOrders.put(bucket, orders);
 		}
 
@@ -869,95 +1008,9 @@ public final class FpGroupHotNgramBitIndex {
 			return row;
 		}
 
-		/**
-		 * <b>Selective 跳跃读：在 LenRow 内定位单个 bucket 并返回其 order[]。</b>
-		 *
-		 * <p><b>前置条件</b>：{@link IndexInput} 当前指针已在 LenRow 起点（{@code lenRowStart}），
-		 * 通常由 {@link TierIndex#readSelective} 在 {@code seek(tierOffset + lenRowOffsets[lenIdx])} 后调用。
-		 *
-		 * <p><b>算法（四步）</b>
-		 * <ol>
-		 *   <li><b>读头</b>：entryCount；若 0 直接返回空</li>
-		 *   <li><b>skip 粗定位</b>：skip 表每条 12B = (anchorKey:int, keysPtrRel:long)。
-		 *       从左到右找「最后一个 anchorKey ≤ 目标 bucket」的段号 segment。
-		 *       （等价于在段锚点上做 lower-bound，段数 = ceil(N/128)，通常 ≪ N）</li>
-		 *   <li><b>段内细找</b>：从 skip[segment] 取出 keysPtrRel（指向 keys[segStart]）。
-		 *       还原 keysBaseRel = keysPtrRel − segStart×4，使 keys[i] 位于 lenRowStart + keysBaseRel + i×4。
-		 *       在 i ∈ [segStart, min(segStart+128, N)) 顺序扫描；key==bucket 命中，key&gt;bucket 可提前退出</li>
-		 *   <li><b>解码 order</b>：读 meta[found]；tag=单条则内联返回，tag=多条则 seek arena 读 vint 列表</li>
-		 * </ol>
-		 *
-		 * <p><b>keysPtrRel 为何要还原 keysBaseRel？</b>
-		 * 写盘时 skip 表存的是「段首元素 keys[segStart] 的偏移」，不是 keys[0] 的偏移。
-		 * 读时必须减去 segStart×4 得到 keys 数组基址，再用下标 i 寻址 keys[i]、meta[i]。
-		 *
-		 * <p><b>与全量读的区别</b>：{@link #readLenRow} 顺序读完所有 keys/meta/arena；
-		 * 本方法只 touch skip 表 + 至多 128 个 key + 1 个 meta +（必要时）arena 片段，
-		 * 且<b>不</b>把整行载入内存（结果直接返回 int[] 给 sparse TierIndex）。
-		 *
-		 * @param in     已 seek 到 LenRow 起点
-		 * @param bucket 目标 bucketIndex（murmurhash，来自查询 slice）
-		 * @return 该 bucket 下的 term order 列表；不存在则 {@link #EMPTY_ORDERS}
-		 */
+		/** selective 单 bucket 跳跃读（测试或独立调用）；生产由 {@link TierIndex#readSelective} 预取到 {@link #sparseOrders}。 */
 		static int[] readOrdersForBucket(IndexInput in, int bucket) throws IOException {
-			final long lenRowStart = in.getFilePointer();
-			final int entryCount = in.readInt();
-			if (entryCount == 0) {
-				return EMPTY_ORDERS;
-			}
-			final int skipCount = (entryCount + SKIP_INTERVAL - 1) / SKIP_INTERVAL;
-			final long skipTableStart = in.getFilePointer();
-			// --- 步骤 2：skip 粗定位 segment（一次读入 anchor，二分找最后一个 anchorKey ≤ bucket）---
-			final int[] skipAnchors = new int[skipCount];
-			final long[] skipKeysPtrRel = new long[skipCount];
-			for (int s = 0; s < skipCount; s++) {
-				in.seek(skipTableStart + (long) s * 12L);
-				skipAnchors[s] = in.readInt();
-				skipKeysPtrRel[s] = in.readLong();
-			}
-			int segment = 0;
-			int lo = 0;
-			int hi = skipCount - 1;
-			while (lo <= hi) {
-				final int mid = (lo + hi) >>> 1;
-				if (skipAnchors[mid] <= bucket) {
-					segment = mid;
-					lo = mid + 1;
-				} else {
-					hi = mid - 1;
-				}
-			}
-			// --- 步骤 3：段内细找 bucket（批量读 keys 段 + 二分，避免逐 key seek）---
-			final int segStart = segment * SKIP_INTERVAL;
-			final int segEnd = Math.min(segStart + SKIP_INTERVAL, entryCount);
-			final int segLen = segEnd - segStart;
-			final long keysBaseRel = skipKeysPtrRel[segment] - (long) segStart * 4L;
-			in.seek(lenRowStart + keysBaseRel + (long) segStart * 4L);
-			final int[] segKeys = new int[segLen];
-			for (int j = 0; j < segLen; j++) {
-				segKeys[j] = in.readInt();
-			}
-			final int rel = Arrays.binarySearch(segKeys, bucket);
-			if (rel < 0) {
-				return EMPTY_ORDERS;
-			}
-			final int found = segStart + rel;
-			// --- 步骤 4：读 meta[found] 并解码 order ---
-			final long metaStartRel = keysBaseRel + (long) entryCount * 4L;
-			in.seek(lenRowStart + metaStartRel + (long) found * 4L);
-			final int meta = in.readInt();
-			if ((meta & 1) == ENTRY_TAG_SINGLE) {
-				return new int[] { meta >>> 1 };
-			}
-			final int arenaOffset = meta >>> 1;
-			in.seek(lenRowStart + metaStartRel + (long) entryCount * 4L);
-			final int arenaLen = in.readInt();
-			if (arenaLen <= 0) {
-				return EMPTY_ORDERS;
-			}
-			final byte[] arena = new byte[arenaLen];
-			in.readBytes(arena, 0, arenaLen);
-			return readOrderList(arena, arenaOffset);
+			return DiskLenRow.open(in).lookupOrders(bucket);
 		}
 	}
 

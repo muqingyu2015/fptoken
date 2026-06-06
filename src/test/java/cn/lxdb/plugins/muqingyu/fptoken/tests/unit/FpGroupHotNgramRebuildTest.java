@@ -37,7 +37,8 @@ class FpGroupHotNgramRebuildTest {
 	@Test
 	void rebuildPipeline_hotTermCarriesMergedDocs() throws Exception {
 		final FpGroupDataRebuild group = new FpGroupDataRebuild(256);
-		FpTestFixtures.putCommonTermsSharingNgram(group, "ab", 16);
+		final int threshold = Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD;
+		FpTestFixtures.putCommonTermsSharingNgram(group, "ab", threshold);
 
 		final FpTestIndexBuilder.BuiltIndex idx = FpTestIndexBuilder.buildFromRebuildGroup(group,
 				FpTestColumnNames.DEFAULT, 1);
