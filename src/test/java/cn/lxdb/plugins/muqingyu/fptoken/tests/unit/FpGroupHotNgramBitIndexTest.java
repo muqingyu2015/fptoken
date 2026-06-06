@@ -59,10 +59,15 @@ class FpGroupHotNgramBitIndexTest {
 	}
 
 	@Test
-	void bucketIndex_isStableIntHash() {
-		final byte[] buf = new byte[] { 1, 2, 3 };
-		final int a = FpGroupHotNgramBitIndex.bucketIndex(buf, 0, 3);
-		final int b = FpGroupHotNgramBitIndex.bucketIndex(buf, 0, 3);
-		assertEquals(a, b);
+	void bucketIndex_shortNgrams_packBytes_longNgrams_useHash() {
+		assertEquals(0x61, FpGroupHotNgramBitIndex.bucketIndex(new byte[] { 'a' }, 0, 1));
+		assertEquals(0x6162, FpGroupHotNgramBitIndex.bucketIndex(new byte[] { 'a', 'b' }, 0, 2));
+		assertEquals(0x010203, FpGroupHotNgramBitIndex.bucketIndex(new byte[] { 1, 2, 3 }, 0, 3));
+		assertEquals(0x01020304, FpGroupHotNgramBitIndex.bucketIndex(new byte[] { 1, 2, 3, 4 }, 0, 4));
+
+		final byte[] five = new byte[] { 1, 2, 3, 4, 5 };
+		final int hash = FpGroupHotNgramBitIndex.bucketIndex(five, 0, 5);
+		assertEquals(hash, FpGroupHotNgramBitIndex.bucketIndex(five, 0, 5));
+		assertEquals(0x01020304, FpGroupHotNgramBitIndex.bucketIndex(five, 0, 4));
 	}
 }

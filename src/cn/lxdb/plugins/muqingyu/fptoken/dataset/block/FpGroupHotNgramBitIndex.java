@@ -98,7 +98,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
  * long key = packBucketKey(lenIdx, bucketIndex)
  *          = (lenIdx &lt;&lt; 32) | (bucketIndex &amp; 0xFFFFFFFFL)
  *
- * bucketIndex = murmurhash3_x86_32(ngram bytes)   // 整型域，不再 mod 512/256
+ * bucketIndex = len≤4 时大端字节拼 int；len≥5 时 murmurhash3_x86_32
  * lenIdx      = ngramLen - 1                      // 1..6 → 0..5
  * </pre>
  *
@@ -158,12 +158,26 @@ public final class FpGroupHotNgramBitIndex {
 		return (int) key;
 	}
 
-	/** 统一 bucketIndex：整型域 murmurhash，不再截断到 512/256。 */
+	/**
+	 * 统一 bucketIndex：1~4 字节直接大端拼成 int（无需 hash）；5~6 字节用 murmurhash3_x86_32。
+	 */
 	public static int bucketIndex(byte[] buf, int off, int len) {
 		if (len <= 0) {
 			return 0;
 		}
-		return StringHelper.murmurhash3_x86_32(buf, off, len, 0);
+		switch (len) {
+			case 1:
+				return buf[off] & 0xFF;
+			case 2:
+				return ((buf[off] & 0xFF) << 8) | (buf[off + 1] & 0xFF);
+			case 3:
+				return ((buf[off] & 0xFF) << 16) | ((buf[off + 1] & 0xFF) << 8) | (buf[off + 2] & 0xFF);
+			case 4:
+				return ((buf[off] & 0xFF) << 24) | ((buf[off + 1] & 0xFF) << 16) | ((buf[off + 2] & 0xFF) << 8)
+						| (buf[off + 3] & 0xFF);
+			default:
+				return StringHelper.murmurhash3_x86_32(buf, off, len, 0);
+		}
 	}
 
 	public static int bucketIndex(BytesRef ref) {
