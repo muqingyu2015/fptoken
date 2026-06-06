@@ -97,11 +97,11 @@ public final class Lucene80FPSearchConfig {
 //	 * selective 未命中时是否用全量 {@code fpBits(..., null, null)} 继续查询（默认 false，避免掩盖 selective 读盘问题）。
 //	 */
 //	public static boolean SELECTIVE_FP_BITS_FALLBACK = false;
-
-	/**
-	 * selective 异常时额外全量读一次，<b>仅打对比日志、不改变查询结果</b>，用于区分
-	 * {@code selectiveIoBroken}（全量有 order、selective 无）与 {@code ngramAbsent}（全量也无）。
-	 */
+//
+//	/**
+//	 * selective 异常时额外全量读一次，<b>仅打对比日志、不改变查询结果</b>，用于区分
+//	 * {@code selectiveIoBroken}（全量有 order、selective 无）与 {@code ngramAbsent}（全量也无）。
+//	 */
 //	public static boolean SELECTIVE_FP_BITS_DIAG_COMPARE = true;
 
 	/** 写段时检测 writefp 是否仍按最终 term BytesRef 严格升序；乱序时打 WARN。 */

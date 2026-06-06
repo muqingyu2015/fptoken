@@ -107,7 +107,7 @@ public class FpSearch {
 			}
 			
 
-			final FpGroupHotNgramBitIndex bitsetIndex = loadBitIndex(terms, groupId, blkinfo, bucketKeys, slices);
+			final FpGroupHotNgramBitIndex bitsetIndex = loadBitIndex(terms, groupId, bucketKeys);
 			if (bitsetIndex == null) {
 				if (Lucene80FPSearchConfig.LOG_FP_SEARCH || Lucene80FPSearchConfig.PRINT_DEBUG) {
 					final StringBuilder sb = FpLog.kv();
@@ -171,113 +171,11 @@ public class FpSearch {
 	}
 
 	/**
-	 * 加载组位图（selective {@code fpBits}）。失败时不默认全量读；见 {@link #diagnoseSelectiveLoad}。
-	 * 仅当 {@link Lucene80FPSearchConfig#SELECTIVE_FP_BITS_FALLBACK} 显式开启时才回退全量读。
+	 * 加载组位图（selective {@code fpBits}）；不做全量 {@code fpBits(..., null, null)} 回退。
 	 */
-	private FpGroupHotNgramBitIndex loadBitIndex(Terms terms, int groupId, FpBlockInfo blkinfo, long[] bucketKeys,
-			BytesRef[] slices) throws IOException {
-		final FpGroupHotNgramBitIndex selective = terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId,
-				bucketKeys, bucketKeys);
-//		if (selective == null) {
-//			return null;
-//		}
-//		final boolean selectiveLookupEmpty = !selectiveLookupHitsAnySlice(selective, slices);
-//		if (Lucene80FPSearchConfig.LOG_FP_SEARCH) {
-//			final boolean emptyTier = selective.isSparse()
-//					&& selective.loadedHotBucketCount() + selective.loadedCommonBucketCount() == 0
-//					&& (blkinfo.hotCount > 0 || blkinfo.commonCount > 0);
-//			if (selectiveLookupEmpty || emptyTier) {
-//				diagnoseSelectiveLoad(terms, groupId, blkinfo, bucketKeys, slices, selective, selectiveLookupEmpty);
-//			}
-//		}
-//		if (!Lucene80FPSearchConfig.SELECTIVE_FP_BITS_FALLBACK || !selectiveLookupEmpty) {
-			return selective;
-//		}
-//		if (Lucene80FPSearchConfig.LOG_FP_SEARCH || Lucene80FPSearchConfig.PRINT_DEBUG) {
-//			final StringBuilder sb = FpLog.kv();
-//			FpLog.append(sb, "event", "selectiveFallback");
-//			FpLog.append(sb, "note", "SELECTIVE_FP_BITS_FALLBACK=true");
-//			FpLog.append(sb, "groupId", groupId);
-//			FpLog.appendBucketKeys(sb, bucketKeys);
-//			FpLog.appendSliceSummary(sb, slices);
-//			LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
-//		}
-//		return terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId, null, null);
+	private FpGroupHotNgramBitIndex loadBitIndex(Terms terms, int groupId, long[] bucketKeys) throws IOException {
+		return terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId, bucketKeys, bucketKeys);
 	}
-
-	/**
-	 * selective 读盘/lookup 异常诊断（不改查询路径）。
-	 * <ul>
-	 *   <li>{@code selectiveTierEmpty} — sparse 实例但 hot/common 已加载 bucket 均为 0，块元数据却有词</li>
-	 *   <li>{@code selectiveBucketMiss} — sparse 有数据但请求的 bucketKey 未命中</li>
-	 *   <li>{@code selectiveIoBroken} — 对比全量读：全量 lookup 有 order、selective 无（Lucene selective IO 问题）</li>
-	 *   <li>{@code ngramAbsent} — 对比全量读：全量也无 order（语料无此 ngram 或 query 字节不一致）</li>
-	 *   <li>{@code fullIndexLookupMiss} — 非 sparse 全量实例 lookup 为空</li>
-	 * </ul>
-	 */
-//	private void diagnoseSelectiveLoad(Terms terms, int groupId, FpBlockInfo blkinfo, long[] bucketKeys,
-//			BytesRef[] slices, FpGroupHotNgramBitIndex selective, boolean selectiveLookupEmpty) throws IOException {
-//		final int loadedHot = selective.loadedHotBucketCount();
-//		final int loadedCommon = selective.loadedCommonBucketCount();
-//		final StringBuilder sb = FpLog.kv();
-//		FpLog.append(sb, "event", "selectiveLoadDiagnosis");
-//		FpLog.append(sb, "groupId", groupId);
-//		FpLog.append(sb, "level", "L" + blkinfo.targetLevel);
-//		FpLog.append(sb, "sparse", selective.isSparse());
-//		FpLog.append(sb, "indexHotTerms", blkinfo.hotCount);
-//		FpLog.append(sb, "indexCommonTerms", blkinfo.commonCount);
-//		FpLog.append(sb, "loadedHotBuckets", loadedHot);
-//		FpLog.append(sb, "loadedCommonBuckets", loadedCommon);
-//		FpLog.append(sb, "fpBanksHot", blkinfo.fpBanksHot);
-//		FpLog.append(sb, "fpBanksCommon", blkinfo.fpBanksCommon);
-//		FpLog.appendBucketKeys(sb, bucketKeys);
-//		FpLog.appendSliceSummary(sb, slices);
-//
-//		String reason;
-//		int fullHotOrders = -1;
-//		int fullCommonOrders = -1;
-//		if (selective.isSparse() && loadedHot == 0 && loadedCommon == 0
-//				&& (blkinfo.hotCount > 0 || blkinfo.commonCount > 0)) {
-//			reason = "selectiveTierEmpty";
-//		} else if (selective.isSparse() && selectiveLookupEmpty && (loadedHot > 0 || loadedCommon > 0)) {
-//			reason = "selectiveBucketMiss";
-//		} else if (!selective.isSparse() && selectiveLookupEmpty) {
-//			reason = "fullIndexLookupMiss";
-//		} else {
-//			reason = "selectiveLookupEmpty";
-//		}
-//
-//		if (Lucene80FPSearchConfig.SELECTIVE_FP_BITS_DIAG_COMPARE && selectiveLookupEmpty) {
-//			final FpGroupHotNgramBitIndex full = terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId, null,
-//					null);
-//			if (full != null && slices != null && slices.length > 0 && slices[0] != null) {
-//				fullHotOrders = full.lookupHotOrders(slices[0]).length;
-//				fullCommonOrders = full.lookupCommonOrders(slices[0]).length;
-//				FpLog.append(sb, "compareFullHotOrders", fullHotOrders);
-//				FpLog.append(sb, "compareFullCommonOrders", fullCommonOrders);
-//				FpLog.append(sb, "compareFullSparse", full.isSparse());
-//				if (fullHotOrders > 0 || fullCommonOrders > 0) {
-//					reason = "selectiveIoBroken";
-//				} else if (selective.isSparse()) {
-//					reason = "ngramAbsent";
-//				}
-//			}
-//		}
-//		FpLog.append(sb, "diagReason", reason);
-//		LOG.info(FpLog.trace(DEBUG_UUID, FpLog.TAG_SEARCH, sb));
-//	}
-
-//	private static boolean selectiveLookupHitsAnySlice(FpGroupHotNgramBitIndex bitIndex, BytesRef[] slices) {
-//		for (BytesRef slice : slices) {
-//			if (slice == null) {
-//				continue;
-//			}
-//			if (bitIndex.lookupHotOrders(slice).length > 0 || bitIndex.lookupCommonOrders(slice).length > 0) {
-//				return true;
-//			}
-//		}
-//		return false;
-//	}
 
 	private void searchSliceInGroup(FpGroupHotNgramBitIndex bitIndex, BytesRef columnName, BytesRef anchorSlice,
 			FpBlockInfo blkinfo, int groupid, Terms terms, int maxDoc, FixedBitSet[] collect, int sliceIndex)
@@ -285,7 +183,7 @@ public class FpSearch {
 		final FixedBitSet acc = ensureCollect(collect, sliceIndex, maxDoc);
 		final int[] hotOrders = bitIndex.lookupHotOrders(anchorSlice);
 		final int[] commonOrders = bitIndex.lookupCommonOrders(anchorSlice);
-		if (Lucene80FPSearchConfig.LOG_FP_SEARCH && hotOrders.length == 0 && commonOrders.length == 0) {
+		if (Lucene80FPSearchConfig.PRINT_DEBUG && hotOrders.length == 0 && commonOrders.length == 0) {
 			final StringBuilder sb = FpLog.kv();
 			FpLog.append(sb, "event", "sliceLookupMiss");
 			FpLog.append(sb, "groupId", groupid);
@@ -418,7 +316,7 @@ public class FpSearch {
 
 	/**
 	 * 稀疏列（写段时 common 词数 ≤ {@link FpTokenBlockLevelPolicy#NO_INDEX_THRESHOLD}、无 ngram 位图）：
-	 * 从 {@code (column, index_id, group_id, level=0, …)} seek 起扫描，校验头字段后按 payload 子串命中 OR 进各 slice 的 doc 集。
+	 * 仅扫 level=NOGROUP 的 term；有 {@link FpBlockInfo} 的 group 已在主循环走位图路径，此处从 {@code maxGroupId+1} seek 起补扫。
 	 */
 	private void searchSparseNoBitIndexTerms(Terms terms, BytesRef columnName, int maxDoc, BytesRef[] slices,
 			FixedBitSet[] collect, int maxGroupId) throws IOException {
@@ -427,8 +325,9 @@ public class FpSearch {
 		final TermsEnum termsEnum = terms.iterator();
 		final BytesRef reuse = new BytesRef(new byte[512]);
 
-		// 稀疏列 term 的 group_level=0，按列+index_id+group_id 字典序分散；从 group_id=0 起扫，勿用 maxGroupId 作下界。
-		FpTokenTermLayout.make_fp_search_prefix(reuse, columnName, indexId, maxGroupId+1,
+		// 稀疏列 NOGROUP term 的 group_id 在写段时递增分配，通常落在已索引 group 之后；
+		// 从 maxGroupId+1 seek，跳过 fpblock_list 中已有位图的 group，避免从 0 暴力扫全字典。
+		FpTokenTermLayout.make_fp_search_prefix(reuse, columnName, indexId, maxGroupId + 1,
 				(byte) FpTokenBlockLevelPolicy.BLOCK_LEVEL_NOGROUP, false, 0);
 		if (termsEnum.seekCeil(reuse) == TermsEnum$SeekStatus.END) {
 			stat.termMiss0++;
@@ -679,10 +578,4 @@ public class FpSearch {
 		}
 	}
 
-	private static int ngramLengthIndex(int sliceLength) {
-		if (sliceLength < Lucene80FPSearchConfig.NGRAM_MIN || sliceLength > Lucene80FPSearchConfig.NGRAM_MAX) {
-			throw new IllegalArgumentException("slice length out of range: " + sliceLength);
-		}
-		return sliceLength - 1;
-	}
 }
