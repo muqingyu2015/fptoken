@@ -103,7 +103,7 @@ public final class FpGroupHotNgramRebuild {
 		final HashMap<FpTermKey, Integer> hotTermDownTierBudgetFast = new HashMap<>(hotTermDownTierBudget);
 		ensureAllHotDocListsSparse(hotTermsPendingDocMerge);
 		final HashMap<FpTermKey, HotMergeSlot> hotMergeTable = buildHotMergeTable(hotTermsPendingDocMerge);
-		@SuppressWarnings("unchecked")
+		
 		final HashMap<FpTermKey, Integer>[] budgetByLen = partitionBudgetByAnchorLength(hotTermDownTierBudgetFast);
 		final boolean[] anchorLenHasBudget = anchorLengthsPresentInBudget(hotTermDownTierBudgetFast);
 		t0 = CLMillisecondClock.CLOCK.now();
