@@ -69,7 +69,6 @@ public final class FpGroupHotNgramRebuild {
 			) throws IOException {
 		
 
-		final long hotFreqThreshold=Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD;
 		FpStatNgram stat = new FpStatNgram();
 		final TreeMap<FpTermKey, FPDocList> hotTermToDocs = group.hotTermMapInternal();
 		final TreeMap<FpTermKey, Integer> hotTermDownTierBudget = group.hotTermDownTierBudgetInternal();
@@ -91,12 +90,12 @@ public final class FpGroupHotNgramRebuild {
 		final HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm = new HashMap<>(mapCapacity);
 		t0 = CLMillisecondClock.CLOCK.now();
 		final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = buildHotTermsAndAnchorTierIndex(stat,
-				ngramOccurrenceCount, hotFreqThreshold, maxDoc, anchorTierIndexByHotTerm);
+				ngramOccurrenceCount, Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD, maxDoc, anchorTierIndexByHotTerm);
 		stat.ms_build = CLMillisecondClock.CLOCK.now() - t0;
 		stat.hot_pending = hotTermsPendingDocMerge.size();
 
 		t0 = CLMillisecondClock.CLOCK.now();
-		computeHotDownTierBudgets(stat,hotTermDownTierBudget, anchorTierIndexByHotTerm, hotFreqThreshold);
+		computeHotDownTierBudgets(stat,hotTermDownTierBudget, anchorTierIndexByHotTerm, Lucene80FPSearchConfig.COMMON_TIER_TERM_COUNT_THRESHOLD);
 		stat.ms_budget = CLMillisecondClock.CLOCK.now() - t0;
 		stat.budget_entries = hotTermDownTierBudget.size();
 
