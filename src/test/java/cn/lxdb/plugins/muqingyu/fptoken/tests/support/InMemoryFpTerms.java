@@ -31,18 +31,7 @@ public final class InMemoryFpTerms extends Terms {
 		return new InMemoryFpTerms(copy, postingsByTerm);
 	}
 
-	@Override
-	public FpGroupHotNgramBitIndex fpBits(short indexId, int groupId, long[] loadHot, long[] loadCommon)
-			throws IOException {
-		final FpGroupHotNgramBitIndex bits = bitsByGroupId.get(groupId);
-		if (bits == null) {
-			throw new IOException("no fp bits for group_id=" + groupId);
-		}
-		if (loadHot == null && loadCommon == null) {
-			return bits;
-		}
-		return bits.viewSelective(loadHot, loadCommon);
-	}
+
 
 	@Override
 	public TermsEnum iterator() {

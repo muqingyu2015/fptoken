@@ -73,24 +73,7 @@ class FpIndexBuildQueryFunctionalTest {
 		assertTrue(FpTestDocSets.equals(hits, idx.maxDoc, new int[0]));
 	}
 
-	@Test
-	void search_selectiveFpBits_matchesFullIndex() throws Exception {
-		final FpTestIndexBuilder.BuiltIndex idx = buildStandardIndex();
-		final FpSearch search = new FpSearch(new FpSearchStat());
-		final BytesRef[] slices = { new BytesRef(new byte[] { 'a', 'b' }) };
-		final long[] keys = cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex
-				.selectiveKeysForSlices(slices);
-
-		final FixedBitSet full = search.search(idx.fpblockList, idx.terms, idx.maxDoc, idx.columnName, slices);
-
-		final cn.lxdb.plugins.muqingyu.fptoken.tests.support.InMemoryFpTerms selectiveTerms = idx.terms
-				.withGroupBitIndex(idx.groupId, idx.memoryBitIndex.viewSelective(keys, keys));
-		final FixedBitSet selective = search.search(idx.fpblockList, selectiveTerms, idx.maxDoc, idx.columnName,
-				slices);
-
-		assertTrue(java.util.Arrays.equals(FpTestDocSets.toSortedArray(full, idx.maxDoc),
-				FpTestDocSets.toSortedArray(selective, idx.maxDoc)));
-	}
+	
 
 	private static FpTestIndexBuilder.BuiltIndex buildStandardIndex() throws Exception {
 		final FpGroupDataRebuild group = new FpGroupDataRebuild(256);

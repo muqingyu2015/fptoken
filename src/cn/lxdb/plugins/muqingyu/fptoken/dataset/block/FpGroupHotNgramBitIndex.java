@@ -115,26 +115,44 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
  * @see cn.lxdb.plugins.muqingyu.fptoken.api.FpSearch
  */
 public final class FpGroupHotNgramBitIndex {
+	/** 日志记录器，使用加密/脱敏日志工具获取 */
 	public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 
 	/** skip 表采样间隔：每 128 条 posting 一条 (anchorKey, keysPtrRel)；见 {@link LenRow#readOrdersForBucket}。 */
 	static final int SKIP_INTERVAL = 128;
 	/** Tier 魔数 {@code 'FPTR'}，用于校验 hot/common 段边界。 */
 	static final int TIER_MAGIC = 0x46505452; // 'FPTR'
-	/** entryMeta 低 bit：单 order 内联在 meta 高 31 位。 */
+	/** entryMeta 低 bit 标记：单 order 内联在 meta 高 31 位。 */
 	static final int ENTRY_TAG_SINGLE = 0;
-	/** entryMeta 低 bit：多 order，高 31 位为 orderArena 内 vint 列表偏移。 */
+	/** entryMeta 低 bit 标记：多 order，高 31 位为 orderArena 内 vint 列表偏移。 */
 	static final int ENTRY_TAG_MULTI = 1;
 
+	/** 空 order 数组常量，避免频繁分配 */
 	private static final int[] EMPTY_ORDERS = new int[0];
 
+	/** 热词 tier 索引 */
 	private final TierIndex hot;
+	/** 普通词 tier 索引 */
 	private final TierIndex common;
+	/** 组内热词 term 数量 */
 	private final int hotCount;
+	/** 组内普通词 term 数量 */
 	private final int commonCount;
+	/** 目标层级（如 L1/L2/L3） */
 	private final int targetlevel;
+	/** 是否为稀疏模式（仅加载了部分 bucket） */
 	private final boolean sparse;
 
+	/**
+	 * 私有构造函数，仅通过静态工厂方法创建实例
+	 *
+	 * @param targetlevel 目标层级
+	 * @param hot         热词 tier 索引
+	 * @param common      普通词 tier 索引
+	 * @param hotCount    热词 term 数
+	 * @param commonCount 普通词 term 数
+	 * @param sparse      是否为稀疏加载模式
+	 */
 	private FpGroupHotNgramBitIndex(int targetlevel, TierIndex hot, TierIndex common, int hotCount, int commonCount,
 			boolean sparse) {
 		this.targetlevel = targetlevel;
@@ -145,21 +163,47 @@ public final class FpGroupHotNgramBitIndex {
 		this.sparse = sparse;
 	}
 
-	/** lenIdx 放高 32 位，bucketIndex 放低 32 位。 */
+	/**
+	 * 将 lenIdx 和 bucketIndex 打包为一个 long 型 key。
+	 * lenIdx 放高 32 位，bucketIndex 放低 32 位。
+	 *
+	 * @param lenIdx      ngram 长度索引 (0..5)
+	 * @param bucketIndex bucket 哈希值
+	 * @return 打包后的 long key
+	 */
 	public static long packBucketKey(int lenIdx, int bucketIndex) {
 		return ((long) lenIdx << 32) | (bucketIndex & 0xFFFFFFFFL);
 	}
 
+	/**
+	 * 从打包的 key 中解出 lenIdx（高 32 位）
+	 *
+	 * @param key 打包后的 bucket key
+	 * @return ngram 长度索引
+	 */
 	public static int unpackLenIdx(long key) {
 		return (int) (key >>> 32);
 	}
 
+	/**
+	 * 从打包的 key 中解出 bucketIndex（低 32 位）
+	 *
+	 * @param key 打包后的 bucket key
+	 * @return bucket 哈希值
+	 */
 	public static int unpackBucketIndex(long key) {
 		return (int) key;
 	}
 
 	/**
-	 * 统一 bucketIndex：1~4 字节直接大端拼成 int（无需 hash）；5~6 字节用 murmurhash3_x86_32。
+	 * 统一计算 bucketIndex：
+	 * 1~4 字节直接大端拼接成 int（无需 hash，保留原始字节序）；
+	 * 5~6 字节使用 murmurhash3_x86_32 哈希。
+	 *
+	 * @param buf 字节数组
+	 * @param off 起始偏移
+	 * @param len 字节长度
+	 * @return bucket 索引值
 	 */
 	public static int bucketIndex(byte[] buf, int off, int len) {
 		if (len <= 0) {
@@ -167,19 +211,30 @@ public final class FpGroupHotNgramBitIndex {
 		}
 		switch (len) {
 			case 1:
+				// 1 字节：直接取低 8 位
 				return buf[off] & 0xFF;
 			case 2:
+				// 2 字节：大端拼接
 				return ((buf[off] & 0xFF) << 8) | (buf[off + 1] & 0xFF);
 			case 3:
+				// 3 字节：大端拼接
 				return ((buf[off] & 0xFF) << 16) | ((buf[off + 1] & 0xFF) << 8) | (buf[off + 2] & 0xFF);
 			case 4:
+				// 4 字节：大端拼接
 				return ((buf[off] & 0xFF) << 24) | ((buf[off + 1] & 0xFF) << 16) | ((buf[off + 2] & 0xFF) << 8)
 						| (buf[off + 3] & 0xFF);
 			default:
+				// 5 字节及以上：使用 murmurhash3 哈希
 				return StringHelper.murmurhash3_x86_32(buf, off, len, 0);
 		}
 	}
 
+	/**
+	 * BytesRef 版本的 bucketIndex 计算便捷方法
+	 *
+	 * @param ref BytesRef 引用
+	 * @return bucket 索引值
+	 */
 	public static int bucketIndex(BytesRef ref) {
 		return bucketIndex(ref.bytes, ref.offset, ref.length);
 	}
@@ -191,48 +246,75 @@ public final class FpGroupHotNgramBitIndex {
 	 *   <li>hot：对每条 hot 载荷的所有 ngram 窗口打标（含重复窗口）</li>
 	 *   <li>common：对每条 common 载荷的去重 ngram 打标，且跳过已出现在 hot 的 slice</li>
 	 * </ul>
+	 *
+	 * @param targetLevel 目标层级
+	 * @param group       组数据重建对象，包含 hot/common term order 信息
+	 * @return 构建完成的全量内存索引实例
 	 */
 	public static FpGroupHotNgramBitIndex execute(int targetLevel, FpGroupDataRebuild group) {
+		// 获取热词和普通词的 term 数量
 		final int h = group.hotTermOrderSize();
 		final int c = group.commonTermOrderSize();
 
+		// 初始化 hot 和 common 两个 tier（非稀疏模式）
 		final TierIndex hotTier = new TierIndex(false);
 		final TierIndex commonTier = new TierIndex(false);
 
+		// 获取内部有序的 term→order 映射
 		final TreeMap<FpTermKey, Integer> hotOrder = group.hotTermOrderInternal();
 		final TreeMap<FpTermKey, Integer> commonOrder = group.commonTermOrderInternal();
 
+		// 构建热词 key 集合，用于 common 阶段去重（跳过已在 hot 中出现的 slice）
 		final HashSet<FpTermKey> hotKeySet = new HashSet<>(Math.max(16, h * 2));
 		for (FpTermKey hotKey : hotOrder.keySet()) {
 			hotKeySet.add(hotKey);
 		}
 
+		// 遍历所有热词，将其 ngram 切片标记到 hot tier
 		for (Entry<FpTermKey, Integer> e : hotOrder.entrySet()) {
 			markHotNgramsForPayload(hotTier, e.getKey().bytesRef(), e.getValue().intValue());
 		}
+		// 遍历所有普通词，将其去重后的 ngram 切片标记到 common tier（排除 hot 已有的）
 		for (Entry<FpTermKey, Integer> e : commonOrder.entrySet()) {
 			markCommonNgramsByUniqueSlices(hotKeySet, commonTier, e.getKey().bytesRef(), e.getValue().intValue());
 		}
 
+		// 完成构建：将 TreeMap 转为排序数组 + 压缩 order 列表
 		hotTier.finalizeRows();
 		commonTier.finalizeRows();
 		return new FpGroupHotNgramBitIndex(targetLevel, hotTier, commonTier, h, c, false);
 	}
 
-	/** 顺序写出 hot tier + common tier，返回 {@link FpBlockInfo}（含 fpBanksHot / fpBanksCommon 偏移）。 */
+	/**
+	 * 顺序写出 hot tier + common tier 到磁盘，返回 {@link FpBlockInfo}（含 fpBanksHot / fpBanksCommon 偏移）。
+	 *
+	 * @param out       输出流
+	 * @param from      调用阶段标识（用于日志）
+	 * @param fieldInfo 字段信息
+	 * @param docCount  文档数
+	 * @return 块信息对象，记录各段偏移和大小
+	 * @throws IOException IO 异常
+	 */
 	public FpBlockInfo flushto(IndexOutput out, String from, BytesRef fieldInfo, int docCount) throws IOException {
+		// 记录 hot tier 起始文件指针
 		final long fpBanksHot = out.getFilePointer();
+		// 写出 hot tier，返回 arena 字节数
 		final int hotArenaBytes = hot.writeTier(out);
+		// 记录 common tier 起始文件指针
 		final long fpBanksCommon = out.getFilePointer();
+		// 写出 common tier，返回 arena 字节数
 		final int commonArenaBytes = common.writeTier(out);
 
+		// 计算各 tier 序列化后的字节数
 		final int bytesPerHotSerialized = (int) (fpBanksCommon - fpBanksHot);
 		final int bytesPerCommonSerialized = (int) (out.getFilePointer() - fpBanksCommon);
 
+		// 构造块信息对象
 		final FpBlockInfo info = new FpBlockInfo(fpBanksHot, fpBanksCommon, bytesPerHotSerialized,
 				bytesPerCommonSerialized, hotArenaBytes, commonArenaBytes, hotCount, commonCount, this.targetlevel,
 				fieldInfo, docCount);
 
+		// 构建并输出 flush 日志
 		final StringBuilder sb = FpLog.kv();
 		FpLog.append(sb, "event", "flush");
 		FpLog.append(sb, "phase", from);
@@ -245,9 +327,22 @@ public final class FpGroupHotNgramBitIndex {
 		return info;
 	}
 
-	/** 全量读 hot + common 两个 tier（{@code load* = null} 的便捷入口）。 */
+	/**
+	 * 全量读 hot + common 两个 tier（{@code load* = null} 的便捷入口）。
+	 *
+	 * @param in      输入流
+	 * @param blkinfo 块信息
+	 * @return 全量内存索引实例
+	 * @throws IOException IO 异常
+	 */
 	public static FpGroupHotNgramBitIndex readfrom(IndexInput in, FpBlockInfo blkinfo) throws IOException {
-		return readfromBanksSelective(in, blkinfo, (long[]) null, (long[]) null);
+		in.seek(blkinfo.fpBanksHot);
+		final TierIndex hotTier = TierIndex.readTier(in, false);
+		in.seek(blkinfo.fpBanksCommon);
+		final TierIndex commonTier = TierIndex.readTier(in, false);
+		return new FpGroupHotNgramBitIndex(blkinfo.targetLevel, hotTier, commonTier, blkinfo.hotCount,
+				blkinfo.commonCount, false);
+	
 	}
 
 	/**
@@ -260,41 +355,49 @@ public final class FpGroupHotNgramBitIndex {
 	 * </ul>
 	 *
 	 * <p>不持有 {@link IndexInput}：IO 在本方法内完成，{@code fpBits} 返回后 Lucene 可安全关闭底层流。
+	 *
+	 * @param in             输入流
+	 * @param blkinfo        块信息
+	 * @param loadHotKeys    需要加载的热词 bucket key 数组，null 表示全量读取
+	 * @param loadCommonKeys 需要加载的普通词 bucket key 数组，null 表示全量读取
+	 * @return 索引实例（全量或稀疏）
+	 * @throws IOException IO 异常
 	 */
 	public static FpGroupHotNgramBitIndex readfromBanksSelective(IndexInput in, FpBlockInfo blkinfo,
 			long[] loadHotKeys, long[] loadCommonKeys) throws IOException {
+		// 两个 key 数组都为 null 时，走全量读取路径,在索引合并阶段FpGroupDataOriginal会用到
 		if (loadHotKeys == null && loadCommonKeys == null) {
-			in.seek(blkinfo.fpBanksHot);
-			final TierIndex hotTier = TierIndex.readTier(in, false);
-			in.seek(blkinfo.fpBanksCommon);
-			final TierIndex commonTier = TierIndex.readTier(in, false);
-			return new FpGroupHotNgramBitIndex(blkinfo.targetLevel, hotTier, commonTier, blkinfo.hotCount,
-					blkinfo.commonCount, false);
+			return readfrom(in, blkinfo);
 		}
+		// clone 输入流以避免影响外部流的指针位置
 		final IndexInput disk = in.clone();
 		try {
+			// 按需加载 hot tier：null 或空数组 → 空稀疏实例；否则 selective 读取
 			final TierIndex hotTier = loadHotKeys == null || loadHotKeys.length == 0 ? TierIndex.emptySparse()
 					: TierIndex.readSelective(disk, blkinfo.fpBanksHot, loadHotKeys);
+			// 按需加载 common tier
 			final TierIndex commonTier = loadCommonKeys == null || loadCommonKeys.length == 0 ? TierIndex.emptySparse()
 					: TierIndex.readSelective(disk, blkinfo.fpBanksCommon, loadCommonKeys);
+			// 返回稀疏模式实例
 			return new FpGroupHotNgramBitIndex(blkinfo.targetLevel, hotTier, commonTier, blkinfo.hotCount,
 					blkinfo.commonCount, true);
 		} finally {
+			// 确保 clone 的流被关闭
 			disk.close();
 		}
 	}
 
-	/**
-	 * 兼容旧 {@code boolean[][]} 签名：非 null 亦视为全量读（掩码已废弃）。
-	 */
-	public static FpGroupHotNgramBitIndex readfromBanksSelective(IndexInput in, FpBlockInfo blkinfo,
-			boolean[][] loadHot, boolean[][] loadCommon) throws IOException {
-		return readfrom(in, blkinfo);
-	}
 
-	/** 单个查询 slice → 一个 packed bucketKey。 */
+	/**
+	 * 将单个查询 slice 转换为一个 packed bucketKey。
+	 *
+	 * @param slice 查询切片
+	 * @return 包含单个 bucketKey 的数组，长度不合法时返回空数组
+	 */
 	public static long[] selectiveKeysForSlice(BytesRef slice) {
+		// lenIdx = ngram 长度 - 1
 		final int lenIdx = slice.length - 1;
+		// 长度超出合法范围则返回空数组
 		if (lenIdx < 0 || lenIdx >= Lucene80FPSearchConfig.NGRAM_MAX) {
 			return EMPTY_LONG;
 		}
@@ -304,6 +407,9 @@ public final class FpGroupHotNgramBitIndex {
 	/**
 	 * 多个查询 slice → 去重后的 bucketKey 数组（供 {@code Terms#fpBits(..., long[], long[])}）。
 	 * hot / common 通常传同一组 keys。
+	 *
+	 * @param slices 查询切片数组
+	 * @return 去重后的 bucketKey 数组
 	 */
 	public static long[] selectiveKeysForSlices(BytesRef[] slices) {
 		if (slices == null || slices.length == 0) {
@@ -312,11 +418,14 @@ public final class FpGroupHotNgramBitIndex {
 		final long[] buf = new long[slices.length];
 		int n = 0;
 		for (BytesRef slice : slices) {
+			// 跳过 null 或长度不在合法范围内的 slice
 			if (slice == null || slice.length < Lucene80FPSearchConfig.NGRAM_MIN
 					|| slice.length > Lucene80FPSearchConfig.NGRAM_MAX) {
 				continue;
 			}
+			// 计算当前 slice 的 packed bucketKey
 			final long key = packBucketKey(slice.length - 1, bucketIndex(slice));
+			// 线性去重检查（通常 slice 数量较少，线性扫描即可）
 			boolean dup = false;
 			for (int i = 0; i < n; i++) {
 				if (buf[i] == key) {
@@ -328,30 +437,66 @@ public final class FpGroupHotNgramBitIndex {
 				buf[n++] = key;
 			}
 		}
+		// 如果实际数量小于缓冲区大小，截取有效部分
 		return n == buf.length ? buf : Arrays.copyOf(buf, n);
 	}
 
+	/** 空 long 数组常量 */
 	private static final long[] EMPTY_LONG = new long[0];
 
-	/** 查询 slice 在 hot tier 中命中的 order 列表；selective 实例在 {@link #readfromBanksSelective} 时已预加载。 */
+	/**
+	 * 查询 slice 在 hot tier 中命中的 order 列表；
+	 * selective 实例在 {@link #readfromBanksSelective} 时已预加载。
+	 *
+	 * @param slice 查询切片
+	 * @return 命中的 order 数组，未命中返回空数组
+	 */
 	public int[] lookupHotOrders(BytesRef slice) {
 		return lookupOrders(hot, slice);
 	}
 
-	/** 查询 slice 在 common tier 中命中的 order 列表；selective 实例在 {@link #readfromBanksSelective} 时已预加载。 */
+	/**
+	 * 查询 slice 在 common tier 中命中的 order 列表；
+	 * selective 实例在 {@link #readfromBanksSelective} 时已预加载。
+	 *
+	 * @param slice 查询切片
+	 * @return 命中的 order 数组，未命中返回空数组
+	 */
 	public int[] lookupCommonOrders(BytesRef slice) {
 		return lookupOrders(common, slice);
 	}
 
-	public int[] lookupHotOrders(int lenIdx, int bucket) {
-		return hot.lookup(lenIdx, bucket);
-	}
+//	/**
+//	 * 通过 lenIdx 和 bucket 直接查找 hot tier 中的 order 列表
+//	 *
+//	 * @param lenIdx ngram 长度索引
+//	 * @param bucket bucket 哈希值
+//	 * @return order 数组
+//	 */
+//	public int[] lookupHotOrders(int lenIdx, int bucket) {
+//		return hot.lookup(lenIdx, bucket);
+//	}
 
-	public int[] lookupCommonOrders(int lenIdx, int bucket) {
-		return common.lookup(lenIdx, bucket);
-	}
+//	/**
+//	 * 通过 lenIdx 和 bucket 直接查找 common tier 中的 order 列表
+//	 *
+//	 * @param lenIdx ngram 长度索引
+//	 * @param bucket bucket 哈希值
+//	 * @return order 数组
+//	 */
+//	public int[] lookupCommonOrders(int lenIdx, int bucket) {
+//		return common.lookup(lenIdx, bucket);
+//	}
 
+	/**
+	 * 在指定 tier 中按 slice 查找 order 列表的内部实现
+	 *
+	 * @param tier  目标 tier
+	 * @param slice 查询切片
+	 * @return order 数组，非法输入或未命中返回空数组
+	 */
 	private static int[] lookupOrders(TierIndex tier, BytesRef slice) {
+		// 校验 slice 合法性
 		if (slice == null || slice.length < Lucene80FPSearchConfig.NGRAM_MIN
 				|| slice.length > Lucene80FPSearchConfig.NGRAM_MAX) {
 			return EMPTY_ORDERS;
@@ -359,6 +504,14 @@ public final class FpGroupHotNgramBitIndex {
 		return tier.lookup(slice.length - 1, bucketIndex(slice));
 	}
 
+	/**
+	 * 将一条热词 payload 的所有 ngram 窗口标记到指定 tier。
+	 * 对 payload 中每个起始位置、每种合法 ngram 长度，计算 bucketIndex 并添加 order。
+	 *
+	 * @param tier    目标 tier
+	 * @param payload 热词载荷字节
+	 * @param order   该 term 在组内的序号
+	 */
 	private static void markHotNgramsForPayload(TierIndex tier, BytesRef payload, int order) {
 		if (order < 1) {
 			return;
@@ -368,8 +521,10 @@ public final class FpGroupHotNgramBitIndex {
 			return;
 		}
 		final int base = payload.offset;
+		// 复用 BytesRef 作为滑动窗口，避免重复分配
 		final BytesRef sliceScratch = new BytesRef();
 		sliceScratch.bytes = payload.bytes;
+		// 双重循环：外层遍历起始位置，内层遍历 ngram 长度
 		for (int start = 0; start < payloadLen; start++) {
 			for (int n = Lucene80FPSearchConfig.NGRAM_MIN; n <= Lucene80FPSearchConfig.NGRAM_MAX
 					&& start + n <= payloadLen; n++) {
@@ -380,6 +535,14 @@ public final class FpGroupHotNgramBitIndex {
 		}
 	}
 
+	/**
+	 * 将一条普通词 payload 的去重 ngram 切片标记到指定 tier，同时跳过已在 hot 中出现的 slice。
+	 *
+	 * @param hotKeySet 热词 key 集合（用于排除）
+	 * @param tier      目标 common tier
+	 * @param payload   普通词载荷字节
+	 * @param order     该 term 在组内的序号
+	 */
 	private static void markCommonNgramsByUniqueSlices(HashSet<FpTermKey> hotKeySet, TierIndex tier, BytesRef payload,
 			int order) {
 		if (order < 1) {
@@ -392,20 +555,26 @@ public final class FpGroupHotNgramBitIndex {
 		final int base = payload.offset;
 		final BytesRef sliceScratch = new BytesRef();
 		sliceScratch.bytes = payload.bytes;
+		// 预估 unique slice 容量，避免频繁扩容
 		final int uniqueCap = Math.max(16, Math.min(payloadLen * 4, 4096));
+		// 用于 payload 内部 ngram 去重
 		final HashSet<FpTermKey> uniqueSlices = new HashSet<>(uniqueCap);
+		// 第一遍：收集所有去重后的 ngram slice
 		for (int start = 0; start < payloadLen; start++) {
 			for (int n = Lucene80FPSearchConfig.NGRAM_MIN; n <= Lucene80FPSearchConfig.NGRAM_MAX
 					&& start + n <= payloadLen; n++) {
 				sliceScratch.offset = base + start;
 				sliceScratch.length = n;
+				// 跳过本 payload 内已出现过的相同 slice
 				if (uniqueSlices.contains(FpTermKey.viewOf(sliceScratch))) {
 					continue;
 				}
 				uniqueSlices.add(FpTermKey.copyOf(sliceScratch));
 			}
 		}
+		// 第二遍：将不在 hot 中的 slice 添加到 common tier
 		for (FpTermKey key : uniqueSlices) {
+			// 跳过已在 hot tier 中存在的 slice
 			if (hotKeySet.contains(key)) {
 				continue;
 			}
@@ -414,6 +583,13 @@ public final class FpGroupHotNgramBitIndex {
 		}
 	}
 
+	/**
+	 * 格式化 flush 统计信息字符串，按 ngram 长度分别列出 hot/common 的 entry 数量
+	 *
+	 * @param hotTier    热词 tier
+	 * @param commonTier 普通词 tier
+	 * @return 格式化的统计字符串
+	 */
 	private static String formatFlushStats(TierIndex hotTier, TierIndex commonTier) {
 		final StringBuilder sb = new StringBuilder(256);
 		for (int li = 0; li < Lucene80FPSearchConfig.NGRAM_MAX; li++) {
@@ -423,42 +599,56 @@ public final class FpGroupHotNgramBitIndex {
 		return sb.toString();
 	}
 
-	public int getHotCount() {
-		return hotCount;
-	}
+//	/** 获取组内热词 term 数量 */
+//	public int getHotCount() {
+//		return hotCount;
+//	}
 
-	public int getCommonCount() {
-		return commonCount;
-	}
+//	/** 获取组内普通词 term 数量 */
+//	public int getCommonCount() {
+//		return commonCount;
+//	}
 
-	public int getHotNumBits() {
-		return hot.maxArenaBytes();
-	}
+//	/** 获取 hot tier 最大 arena 字节数 */
+//	public int getHotNumBits() {
+//		return hot.maxArenaBytes();
+//	}
+//
+//	/** 获取 common tier 最大 arena 字节数 */
+//	public int getCommonNumBits() {
+//		return common.maxArenaBytes();
+//	}
 
-	public int getCommonNumBits() {
-		return common.maxArenaBytes();
-	}
+//	/**
+//	 * 是否为稀疏模式。
+//	 * true 表示由 selective 读或 {@link #viewSelective} 构造，仅含部分 bucket。
+//	 */
+//	public boolean isSparse() {
+//		return sparse;
+//	}
 
-	/** true 表示由 selective 读或 {@link #viewSelective} 构造，仅含部分 bucket。 */
-	public boolean isSparse() {
-		return sparse;
-	}
+//	/** 当前 hot tier 已加载的 bucket 条数（sparse 实例可能远小于 {@link #getHotCount()}）。 */
+//	public int loadedHotBucketCount() {
+//		return hot.totalEntryCount();
+//	}
 
-	/** 当前 hot tier 已加载的 bucket 条数（sparse 实例可能远小于 {@link #getHotCount()}）。 */
-	public int loadedHotBucketCount() {
-		return hot.totalEntryCount();
-	}
+//	/** 当前 common tier 已加载的 bucket 条数。 */
+//	public int loadedCommonBucketCount() {
+//		return common.totalEntryCount();
+//	}
 
-	/** 当前 common tier 已加载的 bucket 条数。 */
-	public int loadedCommonBucketCount() {
-		return common.totalEntryCount();
-	}
-
-	/** 内存全量实例上截取 selective 视图（测试或上游仅内存缓存时可用）。 */
-	public FpGroupHotNgramBitIndex viewSelective(long[] hotKeys, long[] commonKeys) {
-		return new FpGroupHotNgramBitIndex(targetlevel, hot.viewSelective(hotKeys), common.viewSelective(commonKeys),
-				hotCount, commonCount, true);
-	}
+//	/**
+//	 * 在全量内存实例上截取 selective 视图（测试或上游仅内存缓存时可用）。
+//	 * 不会触发磁盘 IO，直接从内存中筛选指定 key 对应的 order。
+//	 *
+//	 * @param hotKeys    需要保留的热词 bucket key 数组
+//	 * @param commonKeys 需要保留的普通词 bucket key 数组
+//	 * @return 新的稀疏模式索引实例
+//	 */
+//	public FpGroupHotNgramBitIndex viewSelective(long[] hotKeys, long[] commonKeys) {
+//		return new FpGroupHotNgramBitIndex(targetlevel, hot.viewSelective(hotKeys), common.viewSelective(commonKeys),
+//				hotCount, commonCount, true);
+//	}
 
 	// -------------------------------------------------------------------------
 	// TierIndex — 一个 tier（hot 或 common）：6 行 LenRow，每行一种 ngram 长度
@@ -499,22 +689,37 @@ public final class FpGroupHotNgramBitIndex {
 	 * @see #readSelective                    按 bucketKey 预取 orderList，不持有 IndexInput
 	 */
 	static final class TierIndex {
+		/** 6 行 LenRow，下标 0..5 对应 ngram 长度 1..6 */
 		final LenRow[] rows = new LenRow[Lucene80FPSearchConfig.NGRAM_MAX];
 
+		/**
+		 * 构造函数
+		 *
+		 * @param sparse true 为稀疏模式（不初始化 buildMap），false 为全量构建模式
+		 */
 		TierIndex(boolean sparse) {
 			for (int i = 0; i < rows.length; i++) {
 				rows[i] = new LenRow(sparse);
 			}
 		}
 
+		/** 创建一个空的稀疏 TierIndex 实例 */
 		static TierIndex emptySparse() {
 			return new TierIndex(true);
 		}
 
+		/**
+		 * 向指定长度行的指定 bucket 添加一个 order
+		 *
+		 * @param lenIdx ngram 长度索引
+		 * @param bucket bucket 哈希值
+		 * @param order  term 序号
+		 */
 		void add(int lenIdx, int bucket, int order) {
 			rows[lenIdx].add(bucket, order);
 		}
 
+		/** 完成所有行的构建：将 TreeMap 转为排序数组 + 压缩结构 */
 		void finalizeRows() {
 			for (LenRow row : rows) {
 				try {
@@ -525,63 +730,103 @@ public final class FpGroupHotNgramBitIndex {
 			}
 		}
 
-		int maxArenaBytes() {
-			int max = 0;
-			for (LenRow row : rows) {
-				max = Math.max(max, row.orderArena == null ? 0 : row.orderArena.length);
-			}
-			return max;
-		}
+//		/** 返回所有行中最大的 orderArena 字节数 */
+//		int maxArenaBytes() {
+//			int max = 0;
+//			for (LenRow row : rows) {
+//				max = Math.max(max, row.orderArena == null ? 0 : row.orderArena.length);
+//			}
+//			return max;
+//		}
 
-		int totalEntryCount() {
-			int n = 0;
-			for (LenRow row : rows) {
-				n += row.entryCount();
-			}
-			return n;
-		}
+//		/** 返回所有行的 entry 总数 */
+//		int totalEntryCount() {
+//			int n = 0;
+//			for (LenRow row : rows) {
+//				n += row.entryCount();
+//			}
+//			return n;
+//		}
 
+		/**
+		 * 在指定长度行中查找 bucket 对应的 order 列表
+		 *
+		 * @param lenIdx ngram 长度索引
+		 * @param bucket bucket 哈希值
+		 * @return order 数组
+		 */
 		int[] lookup(int lenIdx, int bucket) {
 			return rows[lenIdx].lookup(bucket);
 		}
 
-		TierIndex viewSelective(long[] keys) {
-			if (keys == null || keys.length == 0) {
-				return emptySparse();
-			}
-			// 内存全量实例上的 selective 视图：不走磁盘 skip，直接 binarySearch sortedKeys
-			final TierIndex sparseTier = emptySparse();
-			for (long key : keys) {
-				final int lenIdx = unpackLenIdx(key);
-				final int bucket = unpackBucketIndex(key);
-				final int[] orders = lookup(lenIdx, bucket);
-				if (orders.length > 0) {
-					sparseTier.rows[lenIdx].putSparse(bucket, orders);
-				}
-			}
-			return sparseTier;
-		}
+//		/**
+//		 * 从全量内存实例中截取 selective 视图。
+//		 * 不走磁盘 skip，直接在 sortedKeys 上二分查找。
+//		 *
+//		 * @param keys 需要保留的 packed bucketKey 数组
+//		 * @return 新的稀疏 TierIndex
+//		 */
+//		TierIndex viewSelective(long[] keys) {
+//			if (keys == null || keys.length == 0) {
+//				return emptySparse();
+//			}
+//			// 内存全量实例上的 selective 视图：不走磁盘 skip，直接 binarySearch sortedKeys
+//			final TierIndex sparseTier = emptySparse();
+//			for (long key : keys) {
+//				final int lenIdx = unpackLenIdx(key);
+//				final int bucket = unpackBucketIndex(key);
+//				// 从全量实例中查找对应 order
+//				final int[] orders = lookup(lenIdx, bucket);
+//				if (orders.length > 0) {
+//					// 将找到的 order 放入稀疏实例
+//					sparseTier.rows[lenIdx].putSparse(bucket, orders);
+//				}
+//			}
+//			return sparseTier;
+//		}
 
-		/** 先写 RAM 缓冲（回填 lenRowOffset），再一次性写入 {@link DataOutput}。 */
+		/**
+		 * 将整个 tier 写入磁盘。
+		 * 先写入 RAM 缓冲（回填 lenRowOffset），再一次性写入 {@link DataOutput}。
+		 *
+		 * <p>写入内容（按照磁盘布局顺序）：
+		 * <ul>
+		 *   <li>magic: int ('FPTR')</li>
+		 *   <li>lenRowOffset[6]: long × 6</li>
+		 *   <li>LenRow(len=1..6) 各自的数据</li>
+		 * </ul>
+		 *
+		 * @param out 输出流
+		 * @return 所有行 orderArena 的总字节数
+		 * @throws IOException IO 异常
+		 */
 		int writeTier(DataOutput out) throws IOException {
+			// 使用 RAM 缓冲以便回填 lenRowOffset
 			final RAMOutputStream ram = new RAMOutputStream();
+			// 写入 tier 魔数
 			ram.writeInt(TIER_MAGIC);
+			// 预留 6 个 long 的位置用于存放各 LenRow 的偏移
 			final int lenTablePos = 4;
 			for (int i = 0; i < rows.length; i++) {
 				ram.writeLong(0L);
 			}
+			// 依次写出每个 LenRow，并记录其偏移
 			final long[] lenOffsets = new long[rows.length];
 			for (int i = 0; i < rows.length; i++) {
 				lenOffsets[i] = ram.getFilePointer();
 				rows[i].writeLenRow(ram);
 			}
+			// 将 RAM 缓冲内容拷贝到字节数组
 			final int len = Math.toIntExact(ram.getFilePointer());
 			final byte[] buf = new byte[len];
 			ram.writeTo(buf, 0);
+			// 回填各 LenRow 的偏移到字节数组头部
 			for (int i = 0; i < lenOffsets.length; i++) {
 				putLong(buf, lenTablePos + i * 8, lenOffsets[i]);
 			}
+			// 一次性写入目标输出流
 			out.writeBytes(buf, 0, len);
+			// 统计所有行 arena 总字节数
 			int totalArena = 0;
 			for (LenRow row : rows) {
 				totalArena += row.orderArena == null ? 0 : row.orderArena.length;
@@ -589,6 +834,13 @@ public final class FpGroupHotNgramBitIndex {
 			return totalArena;
 		}
 
+		/**
+		 * 手动将 long 值以大端序写入字节数组指定位置
+		 *
+		 * @param data 目标字节数组
+		 * @param pos  写入起始位置
+		 * @param v    要写入的 long 值
+		 */
 		private static void putLong(byte[] data, int pos, long v) {
 			data[pos] = (byte) (v >>> 56);
 			data[pos + 1] = (byte) (v >>> 48);
@@ -600,7 +852,17 @@ public final class FpGroupHotNgramBitIndex {
 			data[pos + 7] = (byte) v;
 		}
 
+		/**
+		 * 全量读取一个 tier。
+		 * 校验 magic 后顺序读取 6 个 LenRow（skip 表内容被跳过但 keys/meta/arena 全部载入内存）。
+		 *
+		 * @param in     输入流
+		 * @param sparse 是否以稀疏模式读取（通常全量读为 false）
+		 * @return 读取完成的 TierIndex
+		 * @throws IOException IO 异常或 magic 校验失败
+		 */
 		static TierIndex readTier(DataInput in, boolean sparse) throws IOException {
+			// 读取并校验 tier 魔数
 			final int magic = in.readInt();
 			if (magic != TIER_MAGIC) {
 				throw new IOException("unexpected tier magic: " + magic);
@@ -609,7 +871,9 @@ public final class FpGroupHotNgramBitIndex {
 			for (int i = 0; i < Lucene80FPSearchConfig.NGRAM_MAX; i++) {
 				in.readLong();
 			}
+			// 根据 sparse 参数创建对应模式的 TierIndex
 			final TierIndex tier = sparse ? emptySparse() : new TierIndex(false);
+			// 顺序读取每个 LenRow
 			for (int i = 0; i < tier.rows.length; i++) {
 				tier.rows[i] = LenRow.readLenRow(in, sparse);
 			}
@@ -636,39 +900,54 @@ public final class FpGroupHotNgramBitIndex {
 		 *   <li>seek {@code tierOffset}，校验 magic，读 6 个 lenRowOffset</li>
 		 *   <li>unpack key → lenIdx + bucketIndex</li>
 		 *   <li>seek {@code tierOffset + lenRowOffsets[lenIdx]} 到对应 LenRow 起点</li>
-	 *   <li>对每个涉及的 lenIdx 打开 {@link DiskLenRow}（skip 表 + min/max bucket，局部变量）</li>
-	 *   <li>对 {@code keys} 中每个 bucket 跳跃读 orderList，写入 {@link LenRow#sparseOrders}</li>
-	 * </ol>
-	 *
-	 * <p>调用方 {@link #readfromBanksSelective} 负责 clone/close {@link IndexInput}；本 tier 返回后 lookup 纯内存。
-	 */
+		 *   <li>对每个涉及的 lenIdx 打开 {@link DiskLenRow}（skip 表 + min/max bucket，局部变量）</li>
+		 *   <li>对 {@code keys} 中每个 bucket 跳跃读 orderList，写入 {@link LenRow#sparseOrders}</li>
+		 * </ol>
+		 *
+		 * <p>调用方 {@link #readfromBanksSelective} 负责 clone/close {@link IndexInput}；本 tier 返回后 lookup 纯内存。
+		 *
+		 * @param disk       已 clone 的磁盘输入流
+		 * @param tierOffset tier 在文件中的绝对偏移
+		 * @param keys       需要加载的 packed bucketKey 数组
+		 * @return 稀疏模式的 TierIndex
+		 * @throws IOException IO 异常
+		 */
 		static TierIndex readSelective(IndexInput disk, long tierOffset, long[] keys) throws IOException {
 			if (keys == null || keys.length == 0) {
 				return emptySparse();
 			}
+			// seek 到 tier 起始位置并校验魔数
 			disk.seek(tierOffset);
 			final int magic = disk.readInt();
 			if (magic != TIER_MAGIC) {
 				throw new IOException("unexpected tier magic: " + magic);
 			}
+			// 读取 6 个 LenRow 的偏移量
 			final long[] lenRowOffsets = new long[Lucene80FPSearchConfig.NGRAM_MAX];
 			for (int i = 0; i < lenRowOffsets.length; i++) {
 				lenRowOffsets[i] = disk.readLong();
 			}
+			// 创建空的稀疏 tier 用于填充结果
 			final TierIndex tier = emptySparse();
+			// 缓存已打开的 DiskLenRow，避免同一 lenIdx 重复打开
 			final DiskLenRow[] diskRows = new DiskLenRow[Lucene80FPSearchConfig.NGRAM_MAX];
+			// 逐个处理查询 key
 			for (long key : keys) {
 				final int lenIdx = unpackLenIdx(key);
+				// 跳过非法 lenIdx
 				if (lenIdx < 0 || lenIdx >= Lucene80FPSearchConfig.NGRAM_MAX) {
 					continue;
 				}
+				// 首次访问该 lenIdx 时，打开对应的 DiskLenRow
 				if (diskRows[lenIdx] == null) {
 					disk.seek(tierOffset + lenRowOffsets[lenIdx]);
 					diskRows[lenIdx] = DiskLenRow.open(disk);
 				}
+				// 解出 bucketIndex 并查找对应的 order 列表
 				final int bucket = unpackBucketIndex(key);
 				final int[] orders = diskRows[lenIdx].lookupOrders(bucket);
 				if (orders.length > 0) {
+					// 将查到的 order 存入稀疏 tier
 					tier.rows[lenIdx].putSparse(bucket, orders);
 				}
 			}
@@ -681,21 +960,36 @@ public final class FpGroupHotNgramBitIndex {
 	// -------------------------------------------------------------------------
 
 	/**
-	 * LenRow 的磁盘视图。open 时只读 entryCount、skip 表、min/max bucket、各区偏移；不读 keys/meta/arena 正文。
+	 * LenRow 的磁盘视图。open 时只读 entryCount、skip 表、min/max bucket、各区偏移；
+	 * 不读 keys/meta/arena 正文，后续通过 {@link #lookupOrders} 按需 seek 读取。
 	 */
 	static final class DiskLenRow {
+		/** 磁盘输入流引用 */
 		final IndexInput in;
+		/** LenRow 在文件中的起始偏移 */
 		final long lenRowStart;
+		/** 非空 bucket 总数 */
 		final int entryCount;
+		/** 最小 bucket 值（sortedKeys[0]） */
 		final int minBucket;
+		/** 最大 bucket 值（sortedKeys[N-1]） */
 		final int maxBucket;
+		/** skip 表条目数 = ceil(entryCount / SKIP_INTERVAL) */
 		final int skipCount;
+		/** skip 锚点数组：每段首个 bucket 值 */
 		final int[] skipAnchors;
+		/** skip 偏移数组：每段首个 key 相对 LenRow 起点的字节偏移 */
 		final long[] skipKeysPtrRel;
+		/** sortedKeys 数组相对 LenRow 起点的基准偏移 */
 		final long keysBaseRel;
+		/** entryMeta 数组相对 LenRow 起点的偏移 */
 		final long metaStartRel;
+		/** orderArena 数据区的绝对文件偏移 */
 		final long arenaDataStart;
 
+		/**
+		 * 私有构造函数，仅通过 {@link #open} 创建
+		 */
 		private DiskLenRow(IndexInput in, long lenRowStart, int entryCount, int minBucket, int maxBucket,
 				int skipCount, int[] skipAnchors, long[] skipKeysPtrRel, long keysBaseRel, long metaStartRel,
 				long arenaDataStart) {
@@ -712,14 +1006,27 @@ public final class FpGroupHotNgramBitIndex {
 			this.arenaDataStart = arenaDataStart;
 		}
 
+		/**
+		 * 从当前 IndexInput 位置打开一个 DiskLenRow。
+		 * 读取 entryCount、skip 表、min/max bucket 及各区偏移，但不读 keys/meta/arena 正文。
+		 *
+		 * @param in 输入流（指针应位于 LenRow 起点）
+		 * @return DiskLenRow 实例
+		 * @throws IOException IO 异常
+		 */
 		static DiskLenRow open(IndexInput in) throws IOException {
+			// 记录 LenRow 起始位置
 			final long lenRowStart = in.getFilePointer();
+			// 读取 entry 数量
 			final int entryCount = in.readInt();
+			// 空行直接返回零值实例
 			if (entryCount == 0) {
 				return new DiskLenRow(in, lenRowStart, 0, 0, 0, 0, EMPTY_INT, EMPTY_LONG, 0L, 0L, 0L);
 			}
+			// 计算 skip 表条目数
 			final int skipCount = (entryCount + SKIP_INTERVAL - 1) / SKIP_INTERVAL;
 			final long skipTableStart = in.getFilePointer();
+			// 读取 skip 表的锚点和偏移
 			final int[] skipAnchors = new int[skipCount];
 			final long[] skipKeysPtrRel = new long[skipCount];
 			for (int s = 0; s < skipCount; s++) {
@@ -727,13 +1034,18 @@ public final class FpGroupHotNgramBitIndex {
 				skipAnchors[s] = in.readInt();
 				skipKeysPtrRel[s] = in.readLong();
 			}
+			// sortedKeys 基准偏移 = 第一段 skip 指向的 keys 偏移
 			final long keysBaseRel = skipKeysPtrRel[0];
+			// entryMeta 紧跟在 sortedKeys 之后
 			final long metaStartRel = keysBaseRel + (long) entryCount * 4L;
+			// 读取最后一个 key 作为 maxBucket
 			in.seek(lenRowStart + keysBaseRel + (long) (entryCount - 1) * 4L);
 			final int maxBucket = in.readInt();
+			// 读取 arenaLen 并计算 arena 数据起始位置
 			in.seek(lenRowStart + metaStartRel + (long) entryCount * 4L);
 			final int arenaLen = in.readInt();
 			final long arenaDataStart = in.getFilePointer();
+			// 跳过 arena 数据区（不读入内存）
 			if (arenaLen > 0) {
 				in.seek(arenaDataStart + arenaLen);
 			}
@@ -741,10 +1053,24 @@ public final class FpGroupHotNgramBitIndex {
 					skipKeysPtrRel, keysBaseRel, metaStartRel, arenaDataStart);
 		}
 
+		/**
+		 * 通过 skip 表跳跃定位并读取指定 bucket 的 order 列表。
+		 * <ol>
+		 *   <li>二分查找 skip 表确定 bucket 所在段</li>
+		 *   <li>在段内顺序扫描最多 SKIP_INTERVAL 个 key</li>
+		 *   <li>找到后读取 entryMeta，解码 order（单条内联或从 arena 读取）</li>
+		 * </ol>
+		 *
+		 * @param bucket 目标 bucket 哈希值
+		 * @return order 数组，未找到返回空数组
+		 * @throws IOException IO 异常
+		 */
 		int[] lookupOrders(int bucket) throws IOException {
+			// 快速排除：空行或 bucket 超出范围
 			if (entryCount == 0 || bucket < minBucket || bucket > maxBucket) {
 				return EMPTY_ORDERS;
 			}
+			// 二分查找 skip 表，确定 bucket 落在哪个段
 			int segment = 0;
 			int lo = 0;
 			int hi = skipCount - 1;
@@ -757,12 +1083,16 @@ public final class FpGroupHotNgramBitIndex {
 					hi = mid - 1;
 				}
 			}
+			// 如果 bucket ≥ 下一段锚点，说明不存在
 			if (segment + 1 < skipCount && bucket >= skipAnchors[segment + 1]) {
 				return EMPTY_ORDERS;
 			}
+			// 计算段的起止索引
 			final int segStart = segment * SKIP_INTERVAL;
 			final int segEnd = Math.min(segStart + SKIP_INTERVAL, entryCount);
+			// 还原该段 keys 的基准偏移
 			final long segKeysBaseRel = skipKeysPtrRel[segment] - (long) segStart * 4L;
+			// 在段内顺序扫描查找目标 bucket
 			int found = -1;
 			for (int i = segStart; i < segEnd; i++) {
 				in.seek(lenRowStart + segKeysBaseRel + (long) i * 4L);
@@ -771,30 +1101,47 @@ public final class FpGroupHotNgramBitIndex {
 					found = i;
 					break;
 				}
+				// keys 升序，超过目标即可提前终止
 				if (key > bucket) {
 					break;
 				}
 			}
+			// 未找到
 			if (found < 0) {
 				return EMPTY_ORDERS;
 			}
+			// 读取对应的 entryMeta
 			in.seek(lenRowStart + metaStartRel + (long) found * 4L);
 			final int meta = in.readInt();
+			// 根据 tag 解码 order
 			if ((meta & 1) == ENTRY_TAG_SINGLE) {
+				// 单 order：直接从 meta 高 31 位提取
 				return new int[] { meta >>> 1 };
 			}
+			// 多 order：从 arena 中读取 vint 压缩列表
 			return readOrderListFromInput(in, arenaDataStart + (meta >>> 1));
 		}
 	}
 
+	/**
+	 * 从 IndexInput 的指定偏移处读取 vint 压缩的 order 列表。
+	 * 格式：vint(count) + vint(delta order) × count（增量编码，升序）。
+	 *
+	 * @param in     输入流
+	 * @param offset arena 内的字节偏移
+	 * @return 解码后的 order 数组
+	 * @throws IOException IO 异常
+	 */
 	static int[] readOrderListFromInput(IndexInput in, long offset) throws IOException {
 		in.seek(offset);
+		// 读取 order 数量
 		final int count = in.readVInt();
 		if (count <= 0) {
 			return EMPTY_ORDERS;
 		}
 		final int[] orders = new int[count];
 		int prev = 0;
+		// 逐个读取增量值并累加还原绝对 order
 		for (int i = 0; i < count; i++) {
 			prev += in.readVInt();
 			orders[i] = prev;
@@ -857,19 +1204,35 @@ public final class FpGroupHotNgramBitIndex {
 	 * selective 读在 {@link TierIndex#readSelective} 预取到 {@link #sparseOrders}；{@link #viewSelective} 从全量实例截取。
 	 */
 	static final class LenRow {
+		/** 构建期使用的 TreeMap（bucket → order 列表），finalize 后置 null */
 		private TreeMap<Integer, IntList> buildMap;
+		/** 稀疏模式下存储已加载的 bucket → order 映射 */
 		private HashMap<Integer, int[]> sparseOrders;
 
+		/** 排序后的 bucket 数组（全量模式） */
 		int[] sortedKeys;
+		/** 与 sortedKeys 对应的 entryMeta 数组（全量模式） */
 		int[] entryMeta;
+		/** 多 order 的 vint 增量压缩池（全量模式） */
 		byte[] orderArena;
 
+		/**
+		 * 构造函数
+		 *
+		 * @param sparse true 为稀疏模式（不初始化 buildMap），false 为全量构建模式
+		 */
 		LenRow(boolean sparse) {
 			if (!sparse) {
 				buildMap = new TreeMap<>();
 			}
 		}
 
+		/**
+		 * 构建期：向指定 bucket 添加一个 order
+		 *
+		 * @param bucket bucket 哈希值
+		 * @param order  term 序号
+		 */
 		void add(int bucket, int order) {
 			if (buildMap == null) {
 				return;
@@ -882,6 +1245,12 @@ public final class FpGroupHotNgramBitIndex {
 			list.add(order);
 		}
 
+		/**
+		 * 稀疏模式：直接放入已解析的 bucket → order 映射
+		 *
+		 * @param bucket bucket 哈希值
+		 * @param orders 该 bucket 对应的 order 数组
+		 */
 		void putSparse(int bucket, int[] orders) {
 			if (sparseOrders == null) {
 				sparseOrders = new HashMap<>();
@@ -889,6 +1258,10 @@ public final class FpGroupHotNgramBitIndex {
 			sparseOrders.put(bucket, orders);
 		}
 
+		/**
+		 * 返回当前行的 entry 数量。
+		 * 稀疏模式返回 sparseOrders 大小，全量模式返回 sortedKeys 长度。
+		 */
 		int entryCount() {
 			if (sparseOrders != null) {
 				return sparseOrders.size();
@@ -896,8 +1269,18 @@ public final class FpGroupHotNgramBitIndex {
 			return sortedKeys == null ? 0 : sortedKeys.length;
 		}
 
-		/** 构建结束：TreeMap → 排序数组 + 压缩 order 列表。 */
+		/**
+		 * 构建结束：将 TreeMap 转换为排序数组 + 压缩 order 列表。
+		 * <ul>
+		 *   <li>sortedKeys：bucket 升序数组</li>
+		 *   <li>entryMeta：单 order 内联 / 多 order 指向 arena 偏移</li>
+		 *   <li>orderArena：多 order 的 vint 增量压缩字节池</li>
+		 * </ul>
+		 *
+		 * @throws IOException RAMOutputStream 写入异常（理论上不应发生）
+		 */
 		void finalizeRow() throws IOException {
+			// 空行处理
 			if (buildMap == null || buildMap.isEmpty()) {
 				sortedKeys = EMPTY_INT;
 				entryMeta = EMPTY_INT;
@@ -907,30 +1290,45 @@ public final class FpGroupHotNgramBitIndex {
 			final int n = buildMap.size();
 			sortedKeys = new int[n];
 			entryMeta = new int[n];
+			// 使用 RAM 缓冲构建 arena
 			final RAMOutputStream arenaOut = new RAMOutputStream();
 			int i = 0;
 			for (Entry<Integer, IntList> e : buildMap.entrySet()) {
 				sortedKeys[i] = e.getKey().intValue();
+				// 将 order 列表转为排序去重数组
 				final int[] orders = e.getValue().toSortedArray();
 				if (orders.length == 1) {
+					// 单 order：内联到 entryMeta 高 31 位，低 1 位为 TAG_SINGLE
 					entryMeta[i] = (orders[0] << 1) | ENTRY_TAG_SINGLE;
 				} else {
+					// 多 order：写入 arena，entryMeta 存储偏移，低 1 位为 TAG_MULTI
 					final int arenaOffset = Math.toIntExact(arenaOut.getFilePointer());
 					writeOrderList(arenaOut, orders);
 					entryMeta[i] = (arenaOffset << 1) | ENTRY_TAG_MULTI;
 				}
 				i++;
 			}
+			// 将 arena 缓冲拷贝到字节数组
 			orderArena = new byte[Math.toIntExact(arenaOut.getFilePointer())];
 			arenaOut.writeTo(orderArena, 0);
+			// 释放构建期 Map
 			buildMap = null;
 		}
 
+		/**
+		 * 查找指定 bucket 对应的 order 列表。
+		 * 稀疏模式直接查 HashMap；全量模式二分查找 sortedKeys 后解码 entryMeta。
+		 *
+		 * @param bucket 目标 bucket 哈希值
+		 * @return order 数组，未找到返回空数组
+		 */
 		int[] lookup(int bucket) {
+			// 稀疏模式：HashMap 直接查找
 			if (sparseOrders != null) {
 				final int[] orders = sparseOrders.get(bucket);
 				return orders == null ? EMPTY_ORDERS : orders;
 			}
+			// 全量模式：二分查找
 			if (sortedKeys == null || sortedKeys.length == 0) {
 				return EMPTY_ORDERS;
 			}
@@ -941,25 +1339,44 @@ public final class FpGroupHotNgramBitIndex {
 			return decodeOrders(entryMeta[idx]);
 		}
 
+		/**
+		 * 根据 entryMeta 解码 order 列表。
+		 * 单 order 直接从 meta 提取；多 order 从 orderArena 读取 vint 列表。
+		 *
+		 * @param meta entryMeta 值
+		 * @return 解码后的 order 数组
+		 */
 		int[] decodeOrders(int meta) {
 			if ((meta & 1) == ENTRY_TAG_SINGLE) {
+				// 单 order：高 31 位即为 order 值
 				return new int[] { meta >>> 1 };
 			}
+			// 多 order：高 31 位为 arena 偏移
 			final int arenaOffset = meta >>> 1;
 			return readOrderList(orderArena, arenaOffset);
 		}
 
-		/** 写出 LenRow 到 {@link DataOutput}（flush 阶段，{@link TierIndex#writeTier} 调用）。 */
+		/**
+		 * 将 LenRow 写出到 {@link DataOutput}（flush 阶段，由 {@link TierIndex#writeTier} 调用）。
+		 * 按照磁盘布局依次写出：entryCount → skip 表 → sortedKeys → entryMeta → arenaLen → orderArena。
+		 *
+		 * @param out 输出流
+		 * @throws IOException IO 异常
+		 */
 		void writeLenRow(DataOutput out) throws IOException {
 			final int entryCount = sortedKeys == null ? 0 : sortedKeys.length;
+			// 记录 LenRow 起始位置（用于计算相对偏移）
 			final long lenRowStart = getOutputFilePointer(out);
+			// 写出 entry 数量
 			out.writeInt(entryCount);
 			if (entryCount == 0) {
 				return;
 			}
+			// 计算 skip 表条目数
 			final int skipCount = (entryCount + SKIP_INTERVAL - 1) / SKIP_INTERVAL;
-			// sortedKeys[0] 将在 skip 表之后写出；此处预计算其相对 LenRow 起点的偏移
+			// 预计算 sortedKeys[0] 相对 LenRow 起点的偏移（skip 表之后紧接 keys）
 			final long keysStartRel = getOutputFilePointer(out) + (long) skipCount * 12L - lenRowStart;
+			// 写出 skip 表：每条包含段首 bucket 值和对应 keys 偏移
 			for (int s = 0; s < skipCount; s++) {
 				final int entryIdx = s * SKIP_INTERVAL;
 				// 段锚点：该段第一个 bucket 的值（sortedKeys 升序，故为段内最小 key）
@@ -967,18 +1384,28 @@ public final class FpGroupHotNgramBitIndex {
 				// 段锚点在 sortedKeys 数组中的字节偏移（相对 lenRowStart，指向 keys[entryIdx] 而非 keys[0]）
 				out.writeLong(keysStartRel + (long) entryIdx * 4L);
 			}
+			// 写出所有 sortedKeys
 			for (int k = 0; k < entryCount; k++) {
 				out.writeInt(sortedKeys[k]);
 			}
+			// 写出所有 entryMeta
 			for (int k = 0; k < entryCount; k++) {
 				out.writeInt(entryMeta[k]);
 			}
+			// 写出 arena 长度和数据
 			out.writeInt(orderArena == null ? 0 : orderArena.length);
 			if (orderArena != null && orderArena.length > 0) {
 				out.writeBytes(orderArena, 0, orderArena.length);
 			}
 		}
 
+		/**
+		 * 获取 DataOutput 的当前文件指针位置。
+		 * 兼容 RAMOutputStream 和 IndexOutput 两种类型。
+		 *
+		 * @param out 输出流
+		 * @return 当前文件指针位置
+		 */
 		private static long getOutputFilePointer(DataOutput out) {
 			if (out instanceof RAMOutputStream) {
 				return ((RAMOutputStream) out).getFilePointer();
@@ -989,9 +1416,15 @@ public final class FpGroupHotNgramBitIndex {
 		/**
 		 * 全量读 LenRow（{@link TierIndex#readTier} 路径）。
 		 * skip 表内容读入后直接丢弃——全量路径本来就要读完整 keys/meta/arena。
+		 *
+		 * @param in     输入流
+		 * @param sparse 是否以稀疏模式读取
+		 * @return 读取完成的 LenRow
+		 * @throws IOException IO 异常
 		 */
 		static LenRow readLenRow(DataInput in, boolean sparse) throws IOException {
 			final LenRow row = new LenRow(sparse);
+			// 读取 entry 数量
 			final int entryCount = in.readInt();
 			if (entryCount == 0) {
 				row.sortedKeys = EMPTY_INT;
@@ -999,19 +1432,23 @@ public final class FpGroupHotNgramBitIndex {
 				row.orderArena = EMPTY_BYTES;
 				return row;
 			}
+			// 跳过 skip 表（全量读不需要）
 			final int skipCount = (entryCount + SKIP_INTERVAL - 1) / SKIP_INTERVAL;
 			for (int s = 0; s < skipCount; s++) {
 				in.readInt();
 				in.readLong();
 			}
+			// 读取 sortedKeys
 			row.sortedKeys = new int[entryCount];
 			for (int i = 0; i < entryCount; i++) {
 				row.sortedKeys[i] = in.readInt();
 			}
+			// 读取 entryMeta
 			row.entryMeta = new int[entryCount];
 			for (int i = 0; i < entryCount; i++) {
 				row.entryMeta[i] = in.readInt();
 			}
+			// 读取 arena 数据
 			final int arenaLen = in.readInt();
 			if (arenaLen <= 0) {
 				row.orderArena = EMPTY_BYTES;
@@ -1022,25 +1459,50 @@ public final class FpGroupHotNgramBitIndex {
 			return row;
 		}
 
-		/** selective 单 bucket 跳跃读（测试或独立调用）；生产由 {@link TierIndex#readSelective} 预取到 {@link #sparseOrders}。 */
+		/**
+		 * selective 单 bucket 跳跃读（测试或独立调用）；
+		 * 生产环境由 {@link TierIndex#readSelective} 预取到 {@link #sparseOrders}。
+		 *
+		 * @param in     输入流（指针应位于 LenRow 起点）
+		 * @param bucket 目标 bucket 哈希值
+		 * @return order 数组
+		 * @throws IOException IO 异常
+		 */
 		static int[] readOrdersForBucket(IndexInput in, int bucket) throws IOException {
 			return DiskLenRow.open(in).lookupOrders(bucket);
 		}
 	}
 
-	/** orderArena 内一条列表：vint(count) + 升序 order 的 vint 增量。 */
+	/**
+	 * 将 order 列表以 vint 增量压缩格式写入 DataOutput。
+	 * 格式：vint(count) + vint(order[i] - order[i-1]) × count
+	 *
+	 * @param out    输出流
+	 * @param orders 升序排列的 order 数组
+	 * @throws IOException IO 异常
+	 */
 	static void writeOrderList(DataOutput out, int[] orders) throws IOException {
 		out.writeVInt(orders.length);
 		int prev = 0;
 		for (int order : orders) {
+			// 写入增量值
 			out.writeVInt(order - prev);
 			prev = order;
 		}
 	}
 
+	/**
+	 * 从字节数组的指定偏移处读取 vint 增量压缩的 order 列表。
+	 * 通过 {@link #nextVIntPos} 传递每次 vint 读取后的位置。
+	 *
+	 * @param arena  orderArena 字节数组
+	 * @param offset 起始偏移
+	 * @return 解码后的 order 数组
+	 */
 	static int[] readOrderList(byte[] arena, int offset) {
 		try {
 			int pos = offset;
+			// 读取 order 数量
 			final int count = readVIntAt(arena, pos);
 			pos = nextVIntPos;
 			if (count <= 0) {
@@ -1048,6 +1510,7 @@ public final class FpGroupHotNgramBitIndex {
 			}
 			final int[] orders = new int[count];
 			int prev = 0;
+			// 逐个读取增量值并累加还原
 			for (int i = 0; i < count; i++) {
 				final int delta = readVIntAt(arena, pos);
 				pos = nextVIntPos;
@@ -1060,8 +1523,18 @@ public final class FpGroupHotNgramBitIndex {
 		}
 	}
 
+	/** 线程不安全：记录上一次 readVIntAt 读取结束后的位置 */
 	private static int nextVIntPos;
 
+	/**
+	 * 从字节数组指定偏移处读取一个 vint 值。
+	 * 读取完成后通过 {@link #nextVIntPos} 返回下一个可读位置。
+	 *
+	 * @param bytes  字节数组
+	 * @param offset 起始偏移
+	 * @return 解码后的 int 值
+	 * @throws IOException 越界或 vint 过长时抛出
+	 */
 	private static int readVIntAt(byte[] bytes, int offset) throws IOException {
 		int shift = 0;
 		int value = 0;
@@ -1071,22 +1544,36 @@ public final class FpGroupHotNgramBitIndex {
 				throw new IOException("vint past end");
 			}
 			final byte b = bytes[pos++];
+			// 取低 7 位累加到 value
 			value |= (b & 0x7F) << shift;
+			// 最高位为 0 表示最后一个字节
 			if ((b & 0x80) == 0) {
 				nextVIntPos = pos;
 				return value;
 			}
 			shift += 7;
+			// vint 最多 5 字节（35 bit），超过则报错
 			if (shift > 35) {
 				throw new IOException("vint too long");
 			}
 		}
 	}
 
+	/**
+	 * 构建期使用的可变 int 列表，支持自动扩容。
+	 * finalize 时转为排序去重数组。
+	 */
 	static final class IntList {
+		/** 内部存储数组 */
 		private int[] data = new int[4];
+		/** 当前元素数量 */
 		private int size;
 
+		/**
+		 * 追加一个元素，容量不足时自动扩容
+		 *
+		 * @param v 要追加的值
+		 */
 		void add(int v) {
 			if (size == data.length) {
 				data = ArrayUtil.grow(data);
@@ -1094,9 +1581,17 @@ public final class FpGroupHotNgramBitIndex {
 			data[size++] = v;
 		}
 
+		/**
+		 * 将内部数据转为排序且去重的数组副本
+		 *
+		 * @return 排序去重后的 int 数组
+		 */
 		int[] toSortedArray() {
+			// 拷贝有效部分
 			final int[] copy = Arrays.copyOf(data, size);
+			// 排序
 			Arrays.sort(copy);
+			// 原地去重
 			int w = 1;
 			for (int i = 1; i < copy.length; i++) {
 				if (copy[i] != copy[i - 1]) {
@@ -1107,6 +1602,8 @@ public final class FpGroupHotNgramBitIndex {
 		}
 	}
 
+	/** 空 int 数组常量 */
 	private static final int[] EMPTY_INT = new int[0];
+	/** 空 byte 数组常量 */
 	private static final byte[] EMPTY_BYTES = new byte[0];
 }
