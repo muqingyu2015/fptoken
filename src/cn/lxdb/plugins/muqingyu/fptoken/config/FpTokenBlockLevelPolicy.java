@@ -50,17 +50,17 @@ public final class FpTokenBlockLevelPolicy {
 
 		if(BLOCK_LEVEL_TOP==level)
 		{
-			return 32;
+			return 48;
 		}
 		if(BLOCK_LEVEL_HIGH==level)
 		{
-			return 16;
+			return 24;
 		}
 		if(BLOCK_LEVEL_MID==level)
 		{
-			return 8;
+			return 12;
 		}
-		return 4;
+		return 6;
 
 	
 	}
@@ -72,13 +72,13 @@ public final class FpTokenBlockLevelPolicy {
 		}
 		if(BLOCK_LEVEL_HIGH==level)
 		{
-			return 1.5;
+			return 1.4;
 		}
 		if(BLOCK_LEVEL_MID==level)
 		{
-			return 2;
+			return 1.5;
 		}
-		return 3;
+		return 2;
 
 	}
 	private FpTokenBlockLevelPolicy() {

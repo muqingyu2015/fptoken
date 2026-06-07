@@ -17,6 +17,7 @@ import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.StringHelper;
 import org.slf4j.Logger;
 
+import cn.lucene.proguard.keep.lxdb.common.CLMillisecondClock;
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
@@ -296,6 +297,7 @@ public final class FpGroupHotNgramBitIndex {
 	 * @throws IOException IO 异常
 	 */
 	public FpBlockInfo flushto(IndexOutput out, String from, BytesRef fieldInfo, int docCount) throws IOException {
+		final long tsBegin = CLMillisecondClock.CLOCK.now();
 		// 记录 hot tier 起始文件指针
 		final long fpBanksHot = out.getFilePointer();
 		// 写出 hot tier，返回 arena 字节数
@@ -323,7 +325,9 @@ public final class FpGroupHotNgramBitIndex {
 		FpLog.append(sb, "commonCount", commonCount);
 		FpLog.append(sb, "targetLevel", "L" + targetlevel);
 		FpLog.append(sb, "block", info);
-		FpLog.infoLine(LOG, FpLog.TAG_BITINDEX, sb);
+		final long flushMs = CLMillisecondClock.CLOCK.now() - tsBegin;
+		FpLog.append(sb, "ms", flushMs);
+		FpLog.infoLineSampled(LOG, FpLog.TAG_BITINDEX, sb, flushMs);
 		return info;
 	}
 

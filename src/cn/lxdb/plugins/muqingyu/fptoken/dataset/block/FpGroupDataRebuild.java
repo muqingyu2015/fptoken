@@ -179,7 +179,7 @@ public final class FpGroupDataRebuild {
 			FpLog.append(sbZero, "delHotTerms", stat_del_hotterm_cnt);
 			FpLog.append(sbZero, "distinctDocs", distinctDocUnion.cardinality());
 			FpLog.append(sbZero, "commonTerms", commonTermToDocs.size());
-			FpLog.infoLine(LOG, FpLog.TAG_REBUILD, sbZero);
+			FpLog.infoLineSampled(LOG, FpLog.TAG_REBUILD, sbZero, ts_end - ts_begin);
 
 		
 		}else {
@@ -296,7 +296,7 @@ public final class FpGroupDataRebuild {
 			FpLog.append(sbFlush, "commonTerms", commonTermToDocs.size());
 			FpLog.append(sbFlush, "ngramStat", ngramstat);
 			FpLog.append(sbFlush, "block", blkinfo);
-			FpLog.infoLine(LOG, FpLog.TAG_REBUILD, sbFlush);
+			FpLog.infoLineSampled(LOG, FpLog.TAG_REBUILD, sbFlush, ts_end - ts_begin);
 
 		}
 		

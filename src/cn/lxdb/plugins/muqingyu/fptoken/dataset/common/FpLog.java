@@ -1,7 +1,10 @@
 package cn.lxdb.plugins.muqingyu.fptoken.dataset.common;
 
+import java.util.concurrent.ThreadLocalRandom;
+
 import org.slf4j.Logger;
 
+import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 
 /**
@@ -9,7 +12,10 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
  *
  * <p>分级约定（灌数据 / 生产默认 log4j INFO）：
  * <ul>
- *   <li><b>INFO</b> — 写段/重建摘要：{@code fp_write}、{@code fp_original} flush、{@code fp_rebuild} flush、{@code fp_bitindex} flush</li>
+ *   <li><b>INFO</b> — 写段/重建摘要：{@code fp_write} 全量；
+ *       {@code fp_original} / {@code fp_rebuild} / {@code fp_bitindex} flush 按
+ *       {@link Lucene80FPSearchConfig#FLUSH_LOG_SAMPLE_RATE} 抽样，耗时 ≥
+ *       {@link Lucene80FPSearchConfig#FLUSH_LOG_SLOW_MS} 时必打</li>
  *   <li><b>DEBUG</b> — 查询 trace、逐 term、seek 明细；调用方先判断 {@code LOG_FP_SEARCH} / {@code PRINT_DEBUG} 再拼串，
  *       通过 {@link #searchTrace} / {@link #debugTrace} / {@link #debugLine} 输出（且 log4j 级别须 DEBUG）</li>
  *   <li><b>WARN</b> — 慢查询、term 乱序等异常</li>
@@ -63,6 +69,24 @@ public final class FpLog {
 	/** 写段/重建摘要，始终 INFO。 */
 	public static void infoLine(Logger log, String tag, StringBuilder fields) {
 		log.info(line(tag, fields));
+	}
+
+	/**
+	 * 写段 flush 摘要：耗时 ≥ {@link Lucene80FPSearchConfig#FLUSH_LOG_SLOW_MS} 必打；
+	 * 否则按 {@link Lucene80FPSearchConfig#FLUSH_LOG_SAMPLE_RATE} 抽样（默认 1/100）。
+	 */
+	public static void infoLineSampled(Logger log, String tag, StringBuilder fields, long elapsedMs) {
+		if (shouldLogFlushSummary(elapsedMs)) {
+			log.info(line(tag, fields));
+		}
+	}
+
+	static boolean shouldLogFlushSummary(long elapsedMs) {
+		if (elapsedMs >= Lucene80FPSearchConfig.FLUSH_LOG_SLOW_MS) {
+			return true;
+		}
+		final int rate = Lucene80FPSearchConfig.FLUSH_LOG_SAMPLE_RATE;
+		return rate <= 1 || ThreadLocalRandom.current().nextInt(rate) == 0;
 	}
 
 	/** DEBUG 级查询 trace；调用方须先 {@code if (Lucene80FPSearchConfig.LOG_FP_SEARCH)} 再拼字段。 */

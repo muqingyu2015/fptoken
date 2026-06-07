@@ -104,6 +104,12 @@ public final class Lucene80FPSearchConfig {
 	/** 写段时检测 writefp 是否仍按最终 term BytesRef 严格升序；乱序时打 WARN。 */
 	public static boolean CHECK_TERM_WRITE_ORDER = false;
 
+	/** 写段 flush INFO（{@code fp_rebuild}/{@code fp_original}/{@code fp_bitindex}）抽样率：每 N 次打 1 条；≤1 表示全量。 */
+	public static int FLUSH_LOG_SAMPLE_RATE = 100;
+
+	/** 写段 flush 耗时 ≥ 此毫秒数时必打 INFO，不受 {@link #FLUSH_LOG_SAMPLE_RATE} 影响。 */
+	public static int FLUSH_LOG_SLOW_MS = 500;
+
 //	/**
 //	 * 热词重建诊断：每组合并后打一行 {@code fp_ngram_diag}（便于 grep）；键表异常时另打 {@code fp_ngram_diag_KEY_SUSPECT}。
 //	 */
