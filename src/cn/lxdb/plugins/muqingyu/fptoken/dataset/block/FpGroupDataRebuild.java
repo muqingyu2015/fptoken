@@ -122,10 +122,12 @@ public final class FpGroupDataRebuild {
 	private static AtomicLong PRAL_MID_INDEX=new AtomicLong(0);
 
 	public void flushto(FpTokenBlockOrchestrator parentItem, byte[] groupkey,String debug_msg) throws IOException {
+		long ts=System.currentTimeMillis();
+
 		if(commonTermToDocs.size()>=FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP_CNT)
 		{
 			synchronized (PRAL_BIG[(int) (PRAL_BIG_INDEX.incrementAndGet()%PRAL_BIG.length)]) {
-				____flushto(parentItem, groupkey, debug_msg);
+				____flushto(ts,parentItem, groupkey, debug_msg);
 
 			}
 			
@@ -135,19 +137,19 @@ public final class FpGroupDataRebuild {
 		if(commonTermToDocs.size()>=FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH_CNT)
 		{
 			synchronized (PRAL_MID[(int) (PRAL_MID_INDEX.incrementAndGet()%PRAL_MID.length)]) {
-				____flushto(parentItem, groupkey, debug_msg);
+				____flushto(ts,parentItem, groupkey, debug_msg);
 
 			}
 			
 			return ;
 		}
 		
-		____flushto(parentItem, groupkey, debug_msg);
+		____flushto(ts,parentItem, groupkey, debug_msg);
 
 		
 	}
 
-	public void ____flushto(FpTokenBlockOrchestrator parentItem, byte[] groupkey,String debug_msg) throws IOException {
+	public void ____flushto(long ts,FpTokenBlockOrchestrator parentItem, byte[] groupkey,String debug_msg) throws IOException {
 		long ts_begin=CLMillisecondClock.CLOCK.now();
 
 		final BytesRef columnName = FpTokenTermLayout.readColumnName(new BytesRef(groupkey));
@@ -316,6 +318,7 @@ public final class FpGroupDataRebuild {
 			FpLog.append(sbFlush, "event", "flush");
 			FpLog.append(sbFlush, "phase", debug_msg);
 			FpLog.append(sbFlush, "groupId", group_id);
+			FpLog.append(sbFlush, "msLock", ts_begin - ts);
 			FpLog.append(sbFlush, "msTotal", ts_end - ts_begin);
 			FpLog.append(sbFlush, "msNgram", ts_ngram - ts_begin);
 			FpLog.append(sbFlush, "msBitset", ts_bitset - ts_ngram);

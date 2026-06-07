@@ -179,14 +179,14 @@ public final class FpTokenBlockOrchestrator {
 		boolean high_change_field=group_original != null && !FpTokenTermLayout.column_equals(term, group_original.key);
 		boolean common_change_field=group_common!=null&&!FpTokenTermLayout.column_equals(term, group_common.key);
 		if (high_change_field||common_change_field) {
-			flushHighGroup("changefield");
-			flushCommonGroup("changefield");
+			flushHighGroup("4");
+			flushCommonGroup("4");
 		}
 		
 		
 		//换组了要刷新high
 		if (group_original != null && !FpTokenTermLayout.column_index_group_equals(term, group_original.key)) {
-			flushHighGroup("changegroup");
+			flushHighGroup("3");
 		}
 		//换组了要根据情况看是否刷新common
 		if (group_common!=null&&!FpTokenTermLayout.column_index_group_equals(term, group_common.key)) {//如果换组了
@@ -253,7 +253,7 @@ public final class FpTokenBlockOrchestrator {
 		
 	
 		if (FpTokenBlockLevelPolicy.shouldCompleteBlock(FpTokenBlockLevelPolicy.getOverRate(FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP),FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP, distinctDocs, distinctTerms)) {
-			flushCommonGroup("top_over");
+			flushCommonGroup("2");
 			return true;
 		}
 		
@@ -306,15 +306,15 @@ public final class FpTokenBlockOrchestrator {
 		
 		Integer targetLevel= FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP;
 		if (FpTokenBlockLevelPolicy.shouldCompleteBlock(FpTokenBlockLevelPolicy.getOverRate(targetLevel),targetLevel, distinctDocs, distinctTerms)) {
-			flushCommonGroup("try_flush");
+			flushCommonGroup("1");
 			return true;
 		}
 		return false;
 	}
 
 	public void finish() throws IOException {
-		flushHighGroup("finish");
-		flushCommonGroup("finish");
+		flushHighGroup("0");
+		flushCommonGroup("0");
 		if (termWriteOrderViolationCount > 0) {
 			final StringBuilder sb = FpLog.kv();
 			FpLog.append(sb, "event", "finishWarn");
@@ -362,7 +362,7 @@ public final class FpTokenBlockOrchestrator {
 			{
 				// 本段新组号：写出倒排头 + fpblock_list + 本次 bit 区（与查询一致）
 				final int new_group_id = groupIndex.incrementAndGet();
-				group_original.val.flushto(this, bits, new_group_id,group_original.key,"flushHighGroup_"+debugmsg);
+				group_original.val.flushto(this, bits, new_group_id,group_original.key,"h"+debugmsg);
 
 				this.stat.flush_high_cnt_original++;
 				needCommonMerger=false;
@@ -421,7 +421,7 @@ public final class FpTokenBlockOrchestrator {
 			logCommonAccum("flush", debugmsg, -1, true);
 		}
 
-		group_common.val.flushto(this,group_common.key,"flushCommonGroup_"+debugmsg);
+		group_common.val.flushto(this,group_common.key,"c"+debugmsg);
 
 		this.stat.flush_common_cnt++;
 		group_common = null;
