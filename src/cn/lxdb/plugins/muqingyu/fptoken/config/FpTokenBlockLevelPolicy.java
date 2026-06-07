@@ -50,13 +50,13 @@ public final class FpTokenBlockLevelPolicy {
 		}
 		if(BLOCK_LEVEL_HIGH==level)
 		{
-			return 24;
+			return 16;
 		}
 		if(BLOCK_LEVEL_MID==level)
 		{
-			return 16;
+			return 8;
 		}
-		return 8;
+		return 4;
 	}
 
 	public static double getOverRate(int level) {
@@ -78,6 +78,7 @@ public final class FpTokenBlockLevelPolicy {
 	private FpTokenBlockLevelPolicy() {
 	}
 
+	private static int MAX_DOC_OVER_RAGE=5;
 	/**
 	 * 根据段规模与词项规模估计，决定本轮「可合并小词项」要凑齐的目标级别（1~3）。
 	 * <p>
@@ -89,7 +90,7 @@ public final class FpTokenBlockLevelPolicy {
 	 */
 	public static int resolveTargetBlockLevel(int maxDoc, long term_size) {
 		// 取文档与词项规模的较大者，使大段或大词表都倾向更高闭块阈值
-		long check_size = Math.max(maxDoc, term_size);
+		long check_size = Math.max(maxDoc/MAX_DOC_OVER_RAGE, term_size);
 		if (check_size >= BLOCK_LEVEL_TOP_CNT) {
 			return BLOCK_LEVEL_TOP;
 		}
@@ -111,6 +112,30 @@ public final class FpTokenBlockLevelPolicy {
 	private static int minDistinctDocsForLevel(int level) {
 		if(BLOCK_LEVEL_TOP==level)
 		{
+			return BLOCK_LEVEL_TOP_CNT*MAX_DOC_OVER_RAGE;
+		}
+		if(BLOCK_LEVEL_HIGH==level)
+		{
+			return BLOCK_LEVEL_HIGH_CNT*MAX_DOC_OVER_RAGE;
+		}
+		if(BLOCK_LEVEL_MID==level)
+		{
+			return BLOCK_LEVEL_MID_CNT*MAX_DOC_OVER_RAGE;
+		}
+		return BLOCK_LEVEL_LOW_CNT*MAX_DOC_OVER_RAGE;
+
+	}
+
+	/**
+	 * 某级别在统计意义上期望覆盖的「不同词项数」下限；当前实现与文档阈值相同，可独立调整。
+	 *
+	 * @param level 块级别 1~3
+	 * @return 词项数阈值
+	 */
+	private static int minDistinctTermsForLevel(int level) {
+
+		if(BLOCK_LEVEL_TOP==level)
+		{
 			return BLOCK_LEVEL_TOP_CNT;
 		}
 		if(BLOCK_LEVEL_HIGH==level)
@@ -123,16 +148,7 @@ public final class FpTokenBlockLevelPolicy {
 		}
 		return BLOCK_LEVEL_LOW_CNT;
 
-	}
-
-	/**
-	 * 某级别在统计意义上期望覆盖的「不同词项数」下限；当前实现与文档阈值相同，可独立调整。
-	 *
-	 * @param level 块级别 1~3
-	 * @return 词项数阈值
-	 */
-	private static int minDistinctTermsForLevel(int level) {
-		return minDistinctDocsForLevel(level);
+	
 	}
 
 	/**
