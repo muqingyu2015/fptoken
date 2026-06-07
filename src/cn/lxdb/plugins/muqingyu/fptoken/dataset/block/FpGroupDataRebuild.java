@@ -183,13 +183,15 @@ public final class FpGroupDataRebuild {
 
 		
 		}else {
-			FpStatNgram ngramstat=FpGroupHotNgramRebuild.execute(this, parentItem);
+			
+			int columnLevel=FpTokenBlockLevelPolicy.resolveTargetBlockLevel(this.commonTermToDocs.size(), distinctDocUnion.cardinality());
+
+			FpStatNgram ngramstat=FpGroupHotNgramRebuild.execute(columnLevel,this, parentItem);
 			long ts_ngram=CLMillisecondClock.CLOCK.now();
 
 			
 			this.rebuildHotTermOrderFromHotDocs();
 			this.rebuildCommonTermToOrderFromHotDocs();
-			int columnLevel=FpTokenBlockLevelPolicy.resolveTargetBlockLevel(this.commonTermToDocs.size(), distinctDocUnion.cardinality());
 
 			FpGroupHotNgramBitIndex bitinfo=FpGroupHotNgramBitIndex.execute(columnLevel,this);
 			long ts_bitset=CLMillisecondClock.CLOCK.now();

@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lucene.proguard.keep.lxdb.common.CLMillisecondClock;
 import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
+import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpStatNgram;
@@ -85,7 +86,7 @@ public final class FpGroupHotNgramRebuild {
 	 * @return ngram 统计信息
 	 * @throws IOException IO 异常
 	 */
-	public static FpStatNgram execute(FpGroupDataRebuild group, FpTokenBlockOrchestrator parentItem
+	public static FpStatNgram execute(int targetLevel,FpGroupDataRebuild group, FpTokenBlockOrchestrator parentItem
 			) throws IOException {
 		
 		// 初始化统计对象
@@ -115,13 +116,13 @@ public final class FpGroupHotNgramRebuild {
 		final HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm = new HashMap<>(mapCapacity);
 		t0 = CLMillisecondClock.CLOCK.now();
 		final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = buildHotTermsAndAnchorTierIndex(stat,
-				ngramOccurrenceCount, Lucene80FPSearchConfig.COMMON_TIER_TERM_COUNT_THRESHOLD, maxDoc, anchorTierIndexByHotTerm);
+				ngramOccurrenceCount, FpTokenBlockLevelPolicy.get_common_to_hot_threshold(targetLevel), maxDoc, anchorTierIndexByHotTerm);
 		stat.ms_build = CLMillisecondClock.CLOCK.now() - t0;
 		stat.hot_pending = hotTermsPendingDocMerge.size();
 
 		// === 阶段3：计算每个热词锚点的向下遍历预算 ===
 		t0 = CLMillisecondClock.CLOCK.now();
-		computeHotDownTierBudgets(stat,hotTermDownTierBudget, anchorTierIndexByHotTerm, Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD);
+		computeHotDownTierBudgets(stat,hotTermDownTierBudget, anchorTierIndexByHotTerm,FpTokenBlockLevelPolicy.get_hot_layer_threshold(targetLevel));
 		stat.ms_budget = CLMillisecondClock.CLOCK.now() - t0;
 		stat.budget_entries = hotTermDownTierBudget.size();
 

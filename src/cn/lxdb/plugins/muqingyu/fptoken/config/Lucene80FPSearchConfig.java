@@ -32,9 +32,7 @@ public final class Lucene80FPSearchConfig {
 
 	public static final int NGRAM_MAX = 6;
 
-	/** 热词频率挖掘阈值（{@link cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild}）及「按档计数」上限。 */
-	public static final int HOT_TIER_TERM_COUNT_THRESHOLD = 32;
-	public static final int COMMON_TIER_TERM_COUNT_THRESHOLD = 8;
+
 
 
 //	/** 2~{@link #NGRAM_MAX} 字节 ngram 的桶数（须为 2 的幂）。 */
