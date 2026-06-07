@@ -22,8 +22,11 @@ public final class FpTokenBlockLevelPolicy {
 	public final static int BLOCK_LEVEL_LOW_CNT=512; 
 	public static final int NO_INDEX_THRESHOLD = 128;
 	
-	public static final int OVER_WRITE_TOP_CNT=(int) (BLOCK_LEVEL_TOP_CNT*getOverRate(BLOCK_LEVEL_TOP));
+	public static final int OVER_WRITE_TOP_CNT=10240;
 	
+	public static void main(String[] args) {
+		System.out.println(OVER_WRITE_TOP_CNT);
+	}
 	
 	
 	public static  int get_hot_layer_threshold(int level)
@@ -68,17 +71,17 @@ public final class FpTokenBlockLevelPolicy {
 	public static double getOverRate(int level) {
 		if(BLOCK_LEVEL_TOP==level)
 		{
-			return 1.2;
+			return 1.1;
 		}
 		if(BLOCK_LEVEL_HIGH==level)
 		{
-			return 1.4;
+			return 1.2;
 		}
 		if(BLOCK_LEVEL_MID==level)
 		{
-			return 1.5;
+			return 1.3;
 		}
-		return 2;
+		return 1.5;
 
 	}
 	private FpTokenBlockLevelPolicy() {

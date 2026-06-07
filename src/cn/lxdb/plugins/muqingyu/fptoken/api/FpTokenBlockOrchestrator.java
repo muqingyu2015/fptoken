@@ -187,17 +187,6 @@ public final class FpTokenBlockOrchestrator {
 		if (group_common!=null&&!FpTokenTermLayout.column_index_group_equals(term, group_common.key)) {//如果换组了
 			tryFlushCommonIfComplete();
 		}
-		
-		int group_id=FpTokenTermLayout.read_group_id(term);
-		if(group_id==0)
-		{
-			try_flush_common_cnt++;
-			if(try_flush_common_cnt>FpTokenBlockLevelPolicy.OVER_WRITE_TOP_CNT)
-			{
-				tryFlushCommonIfComplete();
-			}
-		}
-		
 
 		final int termLevel = FpTokenTermLayout.readLevel(term);
 		final BytesRef  columName = FpTokenTermLayout.readColumnName(term);
@@ -218,15 +207,53 @@ public final class FpTokenBlockOrchestrator {
 			}
 			
 			group_common.val.ingestTermPostings(term, termsEnum, maxDoc);
+			tryFlushCommonIfCompletePeriodic();
 		}
 
 
 		
 	}
+
+	/**
+	 * 段合并时 term 常带 {@code group_id!=0}，旧逻辑只在换组 / finish 才闭块，会攒到 8 万+ common。
+	 * 每 {@link #try_flush_common_cnt} 次 ingest 后检查；达标用列级阈值，并强制 TOP 上限 {@link FpTokenBlockLevelPolicy#OVER_WRITE_TOP_CNT}。
+	 */
+	private void tryFlushCommonIfCompletePeriodic() throws IOException {
+		try_flush_common_cnt++;
+		if (try_flush_common_cnt <= 1024) {
+			return;
+		}
+		try_flush_common_cnt = 0;
+		if (group_common == null) {
+			return;
+		}
 	
+		tryFlushTopCapIfOver();
+	}
+
+	/** 列级闭块未触发时，仍按 L4 上限强制 flush，防止 common 超过 ~39321。 */
+	private boolean tryFlushTopCapIfOver() throws IOException {
+		if (group_common == null) {
+			return false;
+		}
+		
+		FpGroupDataRebuild state=group_common.val;
+		final int distinctDocs = state.distinctDocUnion.cardinality();
+		final int distinctTerms = state.termCount();
+		
 	
-	
+		if (FpTokenBlockLevelPolicy.shouldCompleteBlock(FpTokenBlockLevelPolicy.getOverRate(FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP),FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP, distinctDocs, distinctTerms)) {
+			flushCommonGroup("top_over");
+			return true;
+		}
+		
+		return false;
+	}
+
 	private boolean tryFlushCommonIfComplete() throws IOException {
+		if (group_common == null) {
+			return false;
+		}
 		FpGroupDataRebuild state=group_common.val;
 		final int distinctDocs = state.distinctDocUnion.cardinality();
 		final int distinctTerms = state.termCount();
