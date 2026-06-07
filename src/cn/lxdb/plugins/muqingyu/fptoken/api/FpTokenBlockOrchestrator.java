@@ -169,6 +169,7 @@ public final class FpTokenBlockOrchestrator {
 		return termsWriter.writefp(blockTreeWriter.state, pool, debugList, term, postings, norms);
 	}
 
+	public long try_flush_common_cnt=0;
 	public void acceptTerm(BytesRef term, TermsEnum termsEnum) throws IOException {
 		boolean high_change_field=group_original != null && !FpTokenTermLayout.column_equals(term, group_original.key);
 		boolean common_change_field=group_common!=null&&!FpTokenTermLayout.column_equals(term, group_common.key);
@@ -186,6 +187,17 @@ public final class FpTokenBlockOrchestrator {
 		if (group_common!=null&&!FpTokenTermLayout.column_index_group_equals(term, group_common.key)) {//如果换组了
 			tryFlushCommonIfComplete();
 		}
+		
+		int group_id=FpTokenTermLayout.read_group_id(term);
+		if(group_id==0)
+		{
+			try_flush_common_cnt++;
+			if(try_flush_common_cnt>FpTokenBlockLevelPolicy.OVER_WRITE_TOP_CNT)
+			{
+				tryFlushCommonIfComplete();
+			}
+		}
+		
 
 		final int termLevel = FpTokenTermLayout.readLevel(term);
 		final BytesRef  columName = FpTokenTermLayout.readColumnName(term);
@@ -315,6 +327,8 @@ public final class FpTokenBlockOrchestrator {
 
 
 	private void flushCommonGroup(String debugmsg) throws IOException {
+		
+		try_flush_common_cnt=0;
 		if (group_common == null ) {
 			group_common = null;
 			return;
