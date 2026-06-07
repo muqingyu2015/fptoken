@@ -115,13 +115,13 @@ public final class FpGroupHotNgramRebuild {
 		final HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm = new HashMap<>(mapCapacity);
 		t0 = CLMillisecondClock.CLOCK.now();
 		final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = buildHotTermsAndAnchorTierIndex(stat,
-				ngramOccurrenceCount, Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD, maxDoc, anchorTierIndexByHotTerm);
+				ngramOccurrenceCount, Lucene80FPSearchConfig.COMMON_TIER_TERM_COUNT_THRESHOLD, maxDoc, anchorTierIndexByHotTerm);
 		stat.ms_build = CLMillisecondClock.CLOCK.now() - t0;
 		stat.hot_pending = hotTermsPendingDocMerge.size();
 
 		// === 阶段3：计算每个热词锚点的向下遍历预算 ===
 		t0 = CLMillisecondClock.CLOCK.now();
-		computeHotDownTierBudgets(stat,hotTermDownTierBudget, anchorTierIndexByHotTerm, Lucene80FPSearchConfig.COMMON_TIER_TERM_COUNT_THRESHOLD);
+		computeHotDownTierBudgets(stat,hotTermDownTierBudget, anchorTierIndexByHotTerm, Lucene80FPSearchConfig.HOT_TIER_TERM_COUNT_THRESHOLD);
 		stat.ms_budget = CLMillisecondClock.CLOCK.now() - t0;
 		stat.budget_entries = hotTermDownTierBudget.size();
 

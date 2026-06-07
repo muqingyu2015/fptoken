@@ -10,18 +10,23 @@ import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
 public final class FpTokenBlockLevelPolicy {
 	
 	
-
+	public final static int BLOCK_LEVEL_TOP=4;
 	public final static int BLOCK_LEVEL_HIGH=3;
 	public final static int BLOCK_LEVEL_MID=2;
 	public final static int BLOCK_LEVEL_LOW=1;
 	public final static int BLOCK_LEVEL_NOGROUP=0;
 	
-	public final static int BLOCK_LEVEL_HIGH_CNT=10240;
+	public final static int BLOCK_LEVEL_TOP_CNT=32768;
+	public final static int BLOCK_LEVEL_HIGH_CNT=8192;
 	public final static int BLOCK_LEVEL_MID_CNT=2048;
 	public final static int BLOCK_LEVEL_LOW_CNT=512; 
 	public static final int NO_INDEX_THRESHOLD = 128;
 
 	public static double getOverRate(int level) {
+		if(BLOCK_LEVEL_TOP==level)
+		{
+			return 1.2;
+		}
 		if(BLOCK_LEVEL_HIGH==level)
 		{
 			return 1.5;
@@ -48,6 +53,9 @@ public final class FpTokenBlockLevelPolicy {
 	public static int resolveTargetBlockLevel(int maxDoc, long term_size) {
 		// 取文档与词项规模的较大者，使大段或大词表都倾向更高闭块阈值
 		long check_size = Math.max(maxDoc, term_size);
+		if (check_size >= BLOCK_LEVEL_TOP_CNT) {
+			return BLOCK_LEVEL_TOP;
+		}
 		if (check_size >= BLOCK_LEVEL_HIGH_CNT) {
 			return BLOCK_LEVEL_HIGH;
 		}
@@ -64,6 +72,10 @@ public final class FpTokenBlockLevelPolicy {
 	 * @return 文档数阈值；非法 level 返回 0
 	 */
 	private static int minDistinctDocsForLevel(int level) {
+		if(BLOCK_LEVEL_TOP==level)
+		{
+			return BLOCK_LEVEL_TOP_CNT;
+		}
 		if(BLOCK_LEVEL_HIGH==level)
 		{
 			return BLOCK_LEVEL_HIGH_CNT;

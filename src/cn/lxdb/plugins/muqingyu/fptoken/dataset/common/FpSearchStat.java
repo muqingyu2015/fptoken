@@ -8,25 +8,25 @@ public class FpSearchStat {
 	public long commonhit=0;
 	public long hothit=0;
 
-	public long[] blkCount=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH+1];
+	public long[] blkCount=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP+1];
 	
-	public long[] bitHitHot=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH+1];
-	public long[] blkHitHot=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH+1];
+	public long[] bitHitHot=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP+1];
+	public long[] blkHitHot=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP+1];
 	
-	public long[] bitHitCommon=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH+1];
-	public long[] blkHitCommon=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH+1];
+	public long[] bitHitCommon=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP+1];
+	public long[] blkHitCommon=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP+1];
 	
-	public long[] termHitHot=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH+1];
-	public long[] termHitCommon=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH+1];
+	public long[] termHitHot=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP+1];
+	public long[] termHitCommon=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP+1];
 
-	public long[] termMissHot1=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH+1];
-	public long[] termMissCommon1=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH+1];
+	public long[] termMissHot1=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP+1];
+	public long[] termMissCommon1=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP+1];
 	
-	public long[] termMissHot2=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH+1];
-	public long[] termMissCommon2=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH+1];
+	public long[] termMissHot2=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP+1];
+	public long[] termMissCommon2=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP+1];
 	
-	public long[] termMissHot3=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH+1];
-	public long[] termMissCommon3=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH+1];
+	public long[] termMissHot3=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP+1];
+	public long[] termMissCommon3=new long[FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP+1];
 	
 	public long termMiss0=0;
 	public long termHit0=0;
@@ -49,7 +49,7 @@ public class FpSearchStat {
 
 	private static void appendTierFunnel(StringBuilder sb, String tier, long[] blkCount, long[] bitHit,
 			long[] blkHit, long[] termHit, long[] seekMiss, long[] headerMiss, long[] payloadMiss) {
-		for (int lvl = 0; lvl <= FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH; lvl++) {
+		for (int lvl = 0; lvl <= FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP; lvl++) {
 			if (bitHit[lvl] == 0 && termHit[lvl] == 0 && payloadMiss[lvl] == 0 && blkCount[lvl] == 0) {
 				continue;
 			}
