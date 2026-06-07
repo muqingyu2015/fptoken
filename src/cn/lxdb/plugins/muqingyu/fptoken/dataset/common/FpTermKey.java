@@ -45,7 +45,9 @@ public final class FpTermKey implements Comparable<FpTermKey> {
 		return new FpTermKey(slice, slice.hashCode());
 	}
 	
-	
+	public static FpTermKey viewOf(BytesRef slice,int hash) {
+		return new FpTermKey(slice, hash);
+	}
 
 	/** 与 Lucene {@link BytesRef} 相同的字节视图（可能是拷贝也可能是切片）。 */
 	public BytesRef bytesRef() {

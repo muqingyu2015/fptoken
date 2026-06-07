@@ -19,6 +19,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpStatNgram;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
+import cn.lxdb.plugins.muqingyu.fptoken.ngram.Counter;
 
 /**
  * 从 {@link FpGroupDataRebuild#commonTermMapInternal()} 按 byte n-gram 挖掘热词，合并 doc，并计算
@@ -104,7 +105,7 @@ public final class FpGroupHotNgramRebuild {
 		// 预估 HashMap 容量，避免频繁扩容
 		final int mapCapacity = Math.max(commonTermToDocs.size() / 100, 32);
 		// ngram 出现次数计数器
-		final HashMap<FpTermKey, Integer> ngramOccurrenceCount = new HashMap<>(mapCapacity);
+		final HashMap<FpTermKey, Counter> ngramOccurrenceCount = new HashMap<>(mapCapacity);
 
 		// === 阶段1：统计 common 中各 ngram 出现次数 ===
 		long t0 = CLMillisecondClock.CLOCK.now();
@@ -199,7 +200,7 @@ public final class FpGroupHotNgramRebuild {
 	 * @param ngramOccurrenceCount  输出：ngram → 出现次数映射
 	 */
 	private static void countNgramOccurrencesInCommon(FpStatNgram stat, TreeMap<FpTermKey, FPDocList> commonTermToDocs,
-			HashMap<FpTermKey, Integer> ngramOccurrenceCount) {
+			HashMap<FpTermKey, Counter> ngramOccurrenceCount) {
 		// 复用的 BytesRef 滑动窗口，避免重复分配
 		final BytesRef sliceScratch = new BytesRef();
 
@@ -223,15 +224,29 @@ public final class FpGroupHotNgramRebuild {
 					sliceScratch.offset = base + start;
 					sliceScratch.length = ngramLen;
 					stat.token_cnt++;
+					FpTermKey view_key=FpTermKey.viewOf(sliceScratch);
 					// term 内去重：相同 ngram 在同一 common term 中只计一次
-					if (uniqueNgramsThisCommonTerm.contains(FpTermKey.viewOf(sliceScratch))) {
+					if (uniqueNgramsThisCommonTerm.contains(view_key)) {
 						continue;
 					}
+					Counter val=ngramOccurrenceCount.get(view_key);
+					if(val==null)
+					{
+						BytesRef sliceScratch_copy = new BytesRef();
+						sliceScratch_copy.bytes=sliceScratch.bytes;
+						sliceScratch_copy.offset = sliceScratch.offset;
+						sliceScratch_copy.length = sliceScratch.length;
+						FpTermKey key_soft_copy=FpTermKey.viewOf(sliceScratch_copy,view_key.hashCode());
+						val=new Counter(1,key_soft_copy);
+						ngramOccurrenceCount.put(key_soft_copy, val);
+					}else {
+						val.cnt++;
+					}
+					
 					// 拷贝 ngram 并加入去重集合
-					final FpTermKey ngramKey = FpTermKey.copyOf(sliceScratch);
-					uniqueNgramsThisCommonTerm.add(ngramKey);
+					uniqueNgramsThisCommonTerm.add(val.key);
 					// 全局计数累加
-					ngramOccurrenceCount.merge(ngramKey, 1, Integer::sum);
+//					ngramOccurrenceCount.merge(ngramKey, 1, Integer::sum);
 				}
 			}
 		}
@@ -249,7 +264,7 @@ public final class FpGroupHotNgramRebuild {
 	 * @return 待 merge 的热词→空 doclist 映射
 	 */
 	private static HashMap<FpTermKey, FPDocList> buildHotTermsAndAnchorTierIndex(FpStatNgram stat,
-			HashMap<FpTermKey, Integer> ngramOccurrenceCount, long hotFreqThreshold, int maxDoc,
+			HashMap<FpTermKey, Counter> ngramOccurrenceCount, long hotFreqThreshold, int maxDoc,
 			HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm) {
 		// 预估容量为 ngram 总数的 1/4
 		final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = new HashMap<>(
@@ -257,10 +272,10 @@ public final class FpGroupHotNgramRebuild {
 		// 单档 TreeSet 的最大容量上限，防止某个锚点的子串过多导致内存爆炸
 		final int tierSetSizeCap = (int) (hotFreqThreshold * 2);
 
-		for (Map.Entry<FpTermKey, Integer> entry : ngramOccurrenceCount.entrySet()) {
+		for (Map.Entry<FpTermKey, Counter> entry : ngramOccurrenceCount.entrySet()) {
 			FpTermKey key=entry.getKey();
 			// 长度 >1 且频率未达阈值的 ngram 跳过（长度为 1 的单字始终保留）
-			if (key.bytesRef().length>1&& entry.getValue()< hotFreqThreshold) {
+			if (key.bytesRef().length>1&& entry.getValue().cnt< hotFreqThreshold) {
 				stat.freqThreshold_skip++;
 				continue;
 			}
