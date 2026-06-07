@@ -389,6 +389,10 @@ public final class FpTokenBlockOrchestrator {
 			TreeMap<FpTermKey, FPDocList> from =group_original.val.commonTermMapInternal();
 			for(Entry<FpTermKey, FPDocList> e:from.entrySet())
 			{
+				if (group_common == null) {
+					group_common = new FpGroupKVRebuild(FpTokenTermLayout.column_index_group_copy(new BytesRef(group_original.key)),maxDoc);
+					commonAccum.reset();
+				}
 				group_common.val.ingestTermPostings(e.getKey(), e.getValue(), this.maxDoc);
 				tryFlushCommonIfCompletePeriodic();
 			}

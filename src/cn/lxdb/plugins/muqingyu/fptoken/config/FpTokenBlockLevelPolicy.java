@@ -29,7 +29,7 @@ public final class FpTokenBlockLevelPolicy {
 	{
 		if(BLOCK_LEVEL_TOP==level)
 		{
-			return 64;
+			return 48;
 		}
 		if(BLOCK_LEVEL_HIGH==level)
 		{
@@ -37,19 +37,16 @@ public final class FpTokenBlockLevelPolicy {
 		}
 		if(BLOCK_LEVEL_MID==level)
 		{
-			return 16;
+			return 24;
 		}
-		return 8;
-
-	
+		return 16;
 	}
 	
 	public static  int get_common_to_hot_threshold(int level)
 	{
-
 		if(BLOCK_LEVEL_TOP==level)
 		{
-			return 48;
+			return 32;
 		}
 		if(BLOCK_LEVEL_HIGH==level)
 		{
@@ -57,11 +54,9 @@ public final class FpTokenBlockLevelPolicy {
 		}
 		if(BLOCK_LEVEL_MID==level)
 		{
-			return 12;
+			return 16;
 		}
-		return 6;
-
-	
+		return 8;
 	}
 
 	public static double getOverRate(int level) {

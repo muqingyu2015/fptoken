@@ -122,7 +122,7 @@ public final class FpGroupDataRebuild {
 	private static AtomicLong PRAL_MID_INDEX=new AtomicLong(0);
 
 	public void flushto(FpTokenBlockOrchestrator parentItem, byte[] groupkey,String debug_msg) throws IOException {
-		if(commonTermToDocs.size()>10000)
+		if(commonTermToDocs.size()>=FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP_CNT)
 		{
 			synchronized (PRAL_BIG[(int) (PRAL_BIG_INDEX.incrementAndGet()%PRAL_BIG.length)]) {
 				____flushto(parentItem, groupkey, debug_msg);
@@ -132,7 +132,7 @@ public final class FpGroupDataRebuild {
 			return ;
 		}
 		
-		if(commonTermToDocs.size()>5000)
+		if(commonTermToDocs.size()>=FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH_CNT)
 		{
 			synchronized (PRAL_MID[(int) (PRAL_MID_INDEX.incrementAndGet()%PRAL_MID.length)]) {
 				____flushto(parentItem, groupkey, debug_msg);
