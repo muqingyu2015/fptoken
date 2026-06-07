@@ -350,9 +350,10 @@ public final class FpTokenBlockOrchestrator {
 		Integer targetLevel= this.getColumnLevel(columName);//这里如果影响性能，就考虑优化
 		
 		final boolean meets = FpTokenBlockLevelPolicy.shouldCompleteBlock(1, targetLevel, distinctDocs,distinctTerms);
+		final boolean meets2 = FpTokenBlockLevelPolicy.shouldCompleteBlock(3, FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP, distinctDocs,distinctTerms);
 
 		boolean needCommonMerger=true;
-		if (meets) {//没变化,每降级直接写入,无需重新计算
+		if (meets&&(!meets2)) {//没变化,每降级直接写入,无需重新计算
 			final short index_id = FpTokenTermLayout.read_index_id1(group_original.key);
 			// 合并前逻辑组：从当前索引读已有位图（与透传 posting 同源）
 			final int logical_group = FpTokenTermLayout.readGroupId(group_original.key);

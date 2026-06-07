@@ -111,7 +111,7 @@ public final class Lucene80FPSearchConfig {
 	public static int FLUSH_LOG_SLOW_MS = 500;
 
 	/** common 组内 term 数 ≥ 此值时打 {@code commonAccumWarn}（WARN，全量）。 */
-	public static int COMMON_ACCUM_WARN_THRESHOLD = 20000;
+	public static int COMMON_ACCUM_WARN_THRESHOLD = FpTokenBlockLevelPolicy.OVER_WRITE_TOP_CNT+2048;
 
 	/** common 超阈值后，每再增此 many term 重复打一次诊断（直至 flush）。 */
 	public static int COMMON_ACCUM_WARN_STEP = 10000;
