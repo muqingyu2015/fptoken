@@ -122,7 +122,7 @@ public final class FpGroupDataRebuild {
 	private static AtomicLong PRAL_MID_INDEX=new AtomicLong(0);
 
 	public void flushto(FpTokenBlockOrchestrator parentItem, byte[] groupkey,String debug_msg) throws IOException {
-		long ts=System.currentTimeMillis();
+		long ts=CLMillisecondClock.CLOCK.now();
 
 		if(commonTermToDocs.size()>=FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP_CNT)
 		{
