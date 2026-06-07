@@ -25,10 +25,6 @@ public final class FpTokenBlockLevelPolicy {
 	public static final int OVER_WRITE_TOP_CNT=(int) (BLOCK_LEVEL_TOP_CNT*getOverRate(BLOCK_LEVEL_TOP));
 	
 	
-	/** 热词频率挖掘阈值（{@link cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild}）及「按档计数」上限。 */
-	public static final int HOT_TIER_TERM_COUNT_THRESHOLD = 32;
-	public static final int COMMON_TIER_TERM_COUNT_THRESHOLD = 8;
-	
 	
 	public static  int get_hot_layer_threshold(int level)
 	{
