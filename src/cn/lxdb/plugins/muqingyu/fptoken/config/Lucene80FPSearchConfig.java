@@ -110,6 +110,15 @@ public final class Lucene80FPSearchConfig {
 	/** 写段 flush 耗时 ≥ 此毫秒数时必打 INFO，不受 {@link #FLUSH_LOG_SAMPLE_RATE} 影响。 */
 	public static int FLUSH_LOG_SLOW_MS = 500;
 
+	/** common 组内 term 数 ≥ 此值时打 {@code commonAccumWarn}（WARN，全量）。 */
+	public static int COMMON_ACCUM_WARN_THRESHOLD = 20000;
+
+	/** common 超阈值后，每再增此 many term 重复打一次诊断（直至 flush）。 */
+	public static int COMMON_ACCUM_WARN_STEP = 10000;
+
+	/** 是否启用 common 超量来源诊断（{@link cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpCommonAccumDiag}）。 */
+	public static boolean LOG_COMMON_ACCUM_WARN = true;
+
 //	/**
 //	 * 热词重建诊断：每组合并后打一行 {@code fp_ngram_diag}（便于 grep）；键表异常时另打 {@code fp_ngram_diag_KEY_SUSPECT}。
 //	 */

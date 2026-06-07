@@ -26,6 +26,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupDataRebuild;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpCommonAccumDiag;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpGroupKVOriginal;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpGroupKVRebuild;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
@@ -170,6 +171,9 @@ public final class FpTokenBlockOrchestrator {
 	}
 
 	public long try_flush_common_cnt=0;
+
+	private final FpCommonAccumDiag commonAccum = new FpCommonAccumDiag();
+
 	public void acceptTerm(BytesRef term, TermsEnum termsEnum) throws IOException {
 		boolean high_change_field=group_original != null && !FpTokenTermLayout.column_equals(term, group_original.key);
 		boolean common_change_field=group_common!=null&&!FpTokenTermLayout.column_equals(term, group_common.key);
@@ -204,9 +208,13 @@ public final class FpTokenBlockOrchestrator {
 		}else {
 			if (group_common == null) {
 				group_common = new FpGroupKVRebuild(FpTokenTermLayout.column_index_group_copy(term),maxDoc);
+				commonAccum.reset();
 			}
-			
+
+			final int sourceGroupId = FpTokenTermLayout.read_group_id(term);
 			group_common.val.ingestTermPostings(term, termsEnum, maxDoc);
+			commonAccum.recordIngest(sourceGroupId);
+			maybeLogCommonAccum("ingest", null, sourceGroupId);
 			tryFlushCommonIfCompletePeriodic();
 		}
 
@@ -229,6 +237,7 @@ public final class FpTokenBlockOrchestrator {
 		}
 	
 		tryFlushTopCapIfOver();
+		maybeLogCommonAccum("periodic", null, -1);
 	}
 
 	/** 列级闭块未触发时，仍按 L4 上限强制 flush，防止 common 超过 ~39321。 */
@@ -248,6 +257,41 @@ public final class FpTokenBlockOrchestrator {
 		}
 		
 		return false;
+	}
+
+	private void maybeLogCommonAccum(String trigger, String flushPhase, int lastSourceGroupId) {
+		logCommonAccum(trigger, flushPhase, lastSourceGroupId, false);
+	}
+
+	private void logCommonAccum(String trigger, String flushPhase, int lastSourceGroupId, boolean force) {
+		if (!Lucene80FPSearchConfig.LOG_COMMON_ACCUM_WARN || group_common == null) {
+			return;
+		}
+		final int commonTerms = group_common.val.termCount();
+		final int threshold = Lucene80FPSearchConfig.COMMON_ACCUM_WARN_THRESHOLD;
+		final int step = Lucene80FPSearchConfig.COMMON_ACCUM_WARN_STEP;
+		if (!force && !commonAccum.shouldLogNow(commonTerms, threshold, step)) {
+			return;
+		}
+		if (!force) {
+			commonAccum.markLogged(commonTerms);
+		}
+
+		final StringBuilder sb = FpLog.kv();
+		FpLog.append(sb, "event", "commonAccumWarn");
+		FpLog.append(sb, "trigger", trigger);
+		if (flushPhase != null) {
+			FpLog.append(sb, "flushPhase", flushPhase);
+		}
+		FpLog.append(sb, "commonTerms", commonTerms);
+		FpLog.append(sb, "distinctDocs", group_common.val.distinctDocUnion.cardinality());
+		FpLog.append(sb, "groupKey", Utils.BytesReftoString(new BytesRef(group_common.key)));
+		if (lastSourceGroupId >= 0) {
+			FpLog.append(sb, "lastSourceGroupId", lastSourceGroupId);
+			FpLog.append(sb, "lastSourceGroupZero", lastSourceGroupId == 0);
+		}
+		commonAccum.appendFields(sb);
+		LOG.warn(FpLog.line(FpLog.TAG_WRITE, sb));
 	}
 
 	private boolean tryFlushCommonIfComplete() throws IOException {
@@ -340,11 +384,17 @@ public final class FpTokenBlockOrchestrator {
 		if(needCommonMerger){
 			if (group_common == null) {
 				group_common = new FpGroupKVRebuild(FpTokenTermLayout.column_index_group_copy(new BytesRef(group_original.key)),maxDoc);
+				commonAccum.reset();
 			}
+			final int mergeSourceGroupId = FpTokenTermLayout.read_group_id(new BytesRef(group_original.key));
+			final int mergeHotTerms = group_original.val.hotTermMapInternal().size();
+			final int mergeCommonTerms = group_original.val.termCount();
+			commonAccum.recordMergeBatch(mergeSourceGroupId, mergeHotTerms, mergeCommonTerms);
 			group_original.val.mergeIntoRebuild(group_common.val);
 
 			this.stat.flush_high_cnt_rebuild++;
 
+			maybeLogCommonAccum("highMerge", null, mergeSourceGroupId);
 			tryFlushCommonIfComplete();
 		}
 		group_original = null;
@@ -360,11 +410,16 @@ public final class FpTokenBlockOrchestrator {
 			group_common = null;
 			return;
 		}
-		
+
+		if (group_common.val.termCount() >= Lucene80FPSearchConfig.COMMON_ACCUM_WARN_THRESHOLD) {
+			logCommonAccum("flush", debugmsg, -1, true);
+		}
+
 		group_common.val.flushto(this,group_common.key,"flushCommonGroup_"+debugmsg);
 
 		this.stat.flush_common_cnt++;
 		group_common = null;
+		commonAccum.reset();
 	}
 
 }

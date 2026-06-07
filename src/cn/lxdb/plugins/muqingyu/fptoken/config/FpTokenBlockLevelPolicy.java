@@ -81,7 +81,7 @@ public final class FpTokenBlockLevelPolicy {
 		{
 			return 1.3;
 		}
-		return 1.5;
+		return 1.4;
 
 	}
 	private FpTokenBlockLevelPolicy() {
