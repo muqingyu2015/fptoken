@@ -88,7 +88,7 @@ public final class FpTokenBlockLevelPolicy {
 	 * @param term_size 词项数估计（如 {@code Terms#guess_size()}）
 	 * @return 目标块级别 1、2 或 3
 	 */
-	public static int resolveTargetBlockLevel(int maxDoc, long term_size) {
+	public static int resolveTargetBlockLevel(long term_size,int maxDoc) {
 		// 取文档与词项规模的较大者，使大段或大词表都倾向更高闭块阈值
 		long check_size = Math.max(maxDoc/MAX_DOC_OVER_RAGE, term_size);
 		if (check_size >= BLOCK_LEVEL_TOP_CNT) {
