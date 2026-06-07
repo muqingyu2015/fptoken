@@ -269,29 +269,29 @@ public final class FpGroupDataOriginal {
 
 	}
 
-	/** 将本组 doc/term 累加到 target（降级时并入可合并组）。 */
-	public void mergeIntoRebuild(FpGroupDataRebuild target) throws IOException {
-		for (int d = distinctDocUnion.nextSetBit(0); d >= 0 && d < maxDoc; d = FPDocList.nextSetBitInSparse(distinctDocUnion,
-				maxDoc, d)) {
-			target.distinctDocUnion.set(d);
-		}
-		mergeTermBucketInto(hotTermToDocs, target.hotTermToDocs, target);
-		mergeTermBucketInto(commonTermToDocs, target.commonTermToDocs, target);
-		this.resetAfterFlush();
-	}
+//	/** 将本组 doc/term 累加到 target（降级时并入可合并组）。 */
+//	public void mergeIntoRebuild(FpGroupDataRebuild target) throws IOException {
+//		for (int d = distinctDocUnion.nextSetBit(0); d >= 0 && d < maxDoc; d = FPDocList.nextSetBitInSparse(distinctDocUnion,
+//				maxDoc, d)) {
+//			target.distinctDocUnion.set(d);
+//		}
+//		mergeTermBucketInto(hotTermToDocs, target.hotTermToDocs, target);
+//		mergeTermBucketInto(commonTermToDocs, target.commonTermToDocs, target);
+//		this.resetAfterFlush();
+//	}
 
-	private static void mergeTermBucketInto(TreeMap<FpTermKey, FPDocList> from, TreeMap<FpTermKey, FPDocList> into,
-			FpGroupDataRebuild target) throws IOException {
-		for (Map.Entry<FpTermKey, FPDocList> e : from.entrySet()) {
-			FPDocList tgt = into.get(e.getKey());
-			if (tgt == null) {
-				tgt = new FPDocList(target.maxDoc);
-				BytesRef key=FpTokenTermLayout.removeColumnAndHeaderBytes(e.getKey().bytesRef());
-				into.put(FpTermKey.viewOf(key), tgt);
-			}
-			tgt.addAllDocsFrom(e.getValue());
-		}
-	}
+//	private static void mergeTermBucketInto(TreeMap<FpTermKey, FPDocList> from, TreeMap<FpTermKey, FPDocList> into,
+//			FpGroupDataRebuild target) throws IOException {
+//		for (Map.Entry<FpTermKey, FPDocList> e : from.entrySet()) {
+//			FPDocList tgt = into.get(e.getKey());
+//			if (tgt == null) {
+//				tgt = new FPDocList(target.maxDoc);
+//				BytesRef key=FpTokenTermLayout.removeColumnAndHeaderBytes(e.getKey().bytesRef());
+//				into.put(FpTermKey.viewOf(key), tgt);
+//			}
+//			tgt.addAllDocsFrom(e.getValue());
+//		}
+//	}
 
 	public void resetAfterFlush() {
 		hotTermToDocs.clear();

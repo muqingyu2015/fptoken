@@ -20,6 +20,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpDocListEach;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpStatNgram;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
@@ -334,6 +335,40 @@ public final class FpGroupDataRebuild {
 		}
 		
 		docsEnum_reuse.set(pe);
+	}
+	
+	
+	public void ingestTermPostings(FpTermKey term_withheader, FPDocList termsEnum, int maxDocExclusive) throws IOException {
+		if(FpTokenTermLayout.isHotTerm(term_withheader.bytesRef()))
+		{
+			return ;
+		}
+		
+		BytesRef term_noheader=FpTokenTermLayout.removeColumnAndHeaderBytes(term_withheader.bytesRef());
+		final TreeMap<FpTermKey, FPDocList> bucket = commonTermToDocs;
+		final FpTermKey probe = FpTermKey.viewOf(term_noheader);
+		 FPDocList acc = bucket.get(probe);
+		if (acc == null) {
+			acc = new FPDocList(maxDocExclusive);
+			bucket.put(FpTermKey.copyOf(term_noheader), acc);
+		}
+		final FPDocList acc_final=acc;
+		termsEnum.foreach(new FpDocListEach() {
+			
+			@Override
+			public void each_doc(int doc) throws IOException {
+
+				if (doc >= 0 && doc < maxDocExclusive) {
+					distinctDocUnion.set(doc);
+					acc_final.addDoc(doc);
+				}
+			
+				
+			}
+		});
+	
+		
+		
 	}
 
 

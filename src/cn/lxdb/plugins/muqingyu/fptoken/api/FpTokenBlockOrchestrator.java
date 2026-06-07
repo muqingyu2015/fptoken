@@ -31,6 +31,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpGroupKVOriginal;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpGroupKVRebuild;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpStat;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.Utils;
 
@@ -303,16 +304,9 @@ public final class FpTokenBlockOrchestrator {
 		final int distinctTerms = state.termCount();
 		
 		
-		final BytesRef  columName = FpTokenTermLayout.readColumnName(new BytesRef(group_common.key));
-		Integer targetLevel= this.field_targetlevel.get(columName);//这里如果影响性能，就考虑优化
-		String debug_msg="";
-		if(targetLevel==null)
-		{
-			debug_msg="nocolum";
-			targetLevel=FpTokenBlockLevelPolicy.BLOCK_LEVEL_LOW;
-		}
+		Integer targetLevel= FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP;
 		if (FpTokenBlockLevelPolicy.shouldCompleteBlock(FpTokenBlockLevelPolicy.getOverRate(targetLevel),targetLevel, distinctDocs, distinctTerms)) {
-			flushCommonGroup(debug_msg);
+			flushCommonGroup("try_flush");
 			return true;
 		}
 		return false;
@@ -390,7 +384,14 @@ public final class FpTokenBlockOrchestrator {
 			final int mergeHotTerms = group_original.val.hotTermMapInternal().size();
 			final int mergeCommonTerms = group_original.val.termCount();
 			commonAccum.recordMergeBatch(mergeSourceGroupId, mergeHotTerms, mergeCommonTerms);
-			group_original.val.mergeIntoRebuild(group_common.val);
+			
+			TreeMap<FpTermKey, FPDocList> from =group_original.val.commonTermMapInternal();
+			for(Entry<FpTermKey, FPDocList> e:from.entrySet())
+			{
+				group_common.val.ingestTermPostings(e.getKey(), e.getValue(), this.maxDoc);
+				tryFlushCommonIfCompletePeriodic();
+			}
+
 
 			this.stat.flush_high_cnt_rebuild++;
 

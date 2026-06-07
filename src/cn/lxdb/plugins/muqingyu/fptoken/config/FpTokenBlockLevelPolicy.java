@@ -22,12 +22,8 @@ public final class FpTokenBlockLevelPolicy {
 	public final static int BLOCK_LEVEL_LOW_CNT=512; 
 	public static final int NO_INDEX_THRESHOLD = 128;
 	
-	public static final int OVER_WRITE_TOP_CNT=10240;
-	
-	public static void main(String[] args) {
-		System.out.println(OVER_WRITE_TOP_CNT);
-	}
-	
+	public static final int OVER_WRITE_TOP_CNT = (int) (BLOCK_LEVEL_TOP_CNT * getOverRate(BLOCK_LEVEL_TOP));
+
 	
 	public static  int get_hot_layer_threshold(int level)
 	{
