@@ -569,11 +569,18 @@ public final class FpGroupHotNgramBitIndex {
 					&& start + n <= payloadLen; n++) {
 				sliceScratch.offset = base + start;
 				sliceScratch.length = n;
+				FpTermKey key=FpTermKey.viewOf(sliceScratch);
 				// 跳过本 payload 内已出现过的相同 slice
-				if (uniqueSlices.contains(FpTermKey.viewOf(sliceScratch))) {
+				if (uniqueSlices.contains(key)) {
 					continue;
 				}
-				uniqueSlices.add(FpTermKey.copyOf(sliceScratch));
+				
+				final BytesRef sliceScratch_copy = new BytesRef();
+				sliceScratch_copy.bytes=sliceScratch.bytes;
+				sliceScratch_copy.offset=sliceScratch.offset;
+				sliceScratch_copy.length=sliceScratch.length;
+
+				uniqueSlices.add(FpTermKey.viewOf(sliceScratch_copy,key.hashCode()));
 			}
 		}
 		// 第二遍：将不在 hot 中的 slice 添加到 common tier

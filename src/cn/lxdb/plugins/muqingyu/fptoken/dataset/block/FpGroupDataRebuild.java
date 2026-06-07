@@ -381,7 +381,7 @@ public final class FpGroupDataRebuild {
 		 FPDocList acc = bucket.get(probe);
 		if (acc == null) {
 			acc = new FPDocList(maxDocExclusive);
-			bucket.put(FpTermKey.copyOf(term_noheader), acc);
+			bucket.put(probe, acc);
 		}
 		final FPDocList acc_final=acc;
 		termsEnum.foreach(new FpDocListEach() {

@@ -246,14 +246,14 @@ public final class FpGroupDataOriginal {
 	private final AtomicReference<PostingsEnum> docsEnum_reuse = new AtomicReference<PostingsEnum>(null);
 
 	public void ingestTermPostings(BytesRef term_withheader, TermsEnum termsEnum, int maxDocExclusive) throws IOException {
-		BytesRef term_noheader=FpTokenTermLayout.clearAndCopyGroupBytes(term_withheader);
+		BytesRef term_hasheader=FpTokenTermLayout.clearAndCopyGroupBytes(term_withheader);
 		final PostingsEnum pe = termsEnum.postings(docsEnum_reuse.get(), PostingsEnum.NONE);
 		final TreeMap<FpTermKey, FPDocList> bucket = FpTokenTermLayout.isHotTerm(term_withheader) ? hotTermToDocs : commonTermToDocs;
-		final FpTermKey probe = FpTermKey.viewOf(term_noheader);
+		final FpTermKey probe = FpTermKey.viewOf(term_hasheader);
 		FPDocList acc = bucket.get(probe);
 		if (acc == null) {//没意义 大部分都是新的
 			acc = new FPDocList(maxDocExclusive);
-			bucket.put(FpTermKey.viewOf(term_noheader), acc);
+			bucket.put(probe, acc);
 		}
 		if (pe == null) {
 			return;
