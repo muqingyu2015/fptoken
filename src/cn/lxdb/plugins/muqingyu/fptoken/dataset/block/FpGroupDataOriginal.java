@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.lucene.index.PostingsEnum;
@@ -16,6 +17,7 @@ import org.slf4j.Logger;
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lucene.proguard.keep.lxdb.common.CLMillisecondClock;
 import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
+import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
@@ -68,12 +70,74 @@ public final class FpGroupDataOriginal {
 
 
 	
+	private static Object[] PRAL_BIG=new Object[] {new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object()};
+	private static Object[] PRAL_MID=new Object[] {new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object()};
 
+	private static AtomicLong PRAL_BIG_INDEX=new AtomicLong(0);
+	private static AtomicLong PRAL_MID_INDEX=new AtomicLong(0);
+	
+	private static AtomicLong PRAL_BIG_CNT=new AtomicLong(0);
+	private static AtomicLong PRAL_MID_CNT=new AtomicLong(0);
+	private static AtomicLong PRAL_COMMON_CNT=new AtomicLong(0);
+
+	public void flushto(FpTokenBlockOrchestrator parentItem, FpGroupHotNgramBitIndex bitinfo, int newGroupId,byte[] groupkey,String debug_msg)
+			throws IOException {
+
+		long ts=CLMillisecondClock.CLOCK.now();
+
+		if(commonTermToDocs.size()>=FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP_CNT)
+		{
+			synchronized (PRAL_BIG[(int) (PRAL_BIG_INDEX.incrementAndGet()%PRAL_BIG.length)]) {
+				try {
+					PRAL_BIG_CNT.incrementAndGet();
+					____flushto(ts,parentItem, bitinfo,newGroupId,groupkey, debug_msg);
+				}finally {
+					PRAL_BIG_CNT.decrementAndGet();
+
+				}
+
+			}
+			
+			return ;
+		}
+		
+		if(commonTermToDocs.size()>=FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH_CNT)
+		{
+			synchronized (PRAL_MID[(int) (PRAL_MID_INDEX.incrementAndGet()%PRAL_MID.length)]) {
+
+				try {
+					PRAL_MID_CNT.incrementAndGet();
+					____flushto(ts,parentItem, bitinfo,newGroupId,groupkey, debug_msg);
+				}finally {
+					PRAL_MID_CNT.decrementAndGet();
+
+				}
+
+			
+
+			}
+			
+			return ;
+		}
+		
+
+
+		try {
+			PRAL_COMMON_CNT.incrementAndGet();
+			____flushto(ts,parentItem, bitinfo,newGroupId,groupkey, debug_msg);
+		}finally {
+			PRAL_COMMON_CNT.decrementAndGet();
+
+		}
+
+	
+	
+	}
 	/**
 	 * 透传写出：位图由调用方按<strong>合并前逻辑组</strong>读出；{@code newGroupId} 为本段新分配的落盘组号
 	 * （倒排头、{@link cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo}、查询 {@code fpBits} 均用此 id）。
 	 */
-	public void flushto(FpTokenBlockOrchestrator parentItem, FpGroupHotNgramBitIndex bitinfo, int newGroupId,byte[] groupkey,String debug_msg)
+	public void ____flushto(long ts,FpTokenBlockOrchestrator parentItem, FpGroupHotNgramBitIndex bitinfo, int newGroupId,byte[] groupkey,String debug_msg)
 			throws IOException {
 		final BytesRef columnName = FpTokenTermLayout.readColumnName(new BytesRef(groupkey));
 		int columnLevel=parentItem.getColumnLevel(columnName);
@@ -228,7 +292,11 @@ public final class FpGroupDataOriginal {
 		FpLog.append(sbFlush, "event", "flush");
 		FpLog.append(sbFlush, "phase", debug_msg);
 		FpLog.append(sbFlush, "groupId", group_id);
+		FpLog.append(sbFlush, "msLock", ts_begin-ts );
+
 		FpLog.append(sbFlush, "ms", ts_end - ts_begin);
+		FpLog.append(sbFlush, "pral", PRAL_BIG_CNT.get()+":"+PRAL_MID_CNT.get()+":"+PRAL_COMMON_CNT.get() );
+
 		FpLog.append(sbFlush, "targetLevel", "L" + columnLevel);
 		FpLog.append(sbFlush, "doclistHot", stat_hot_doc_cnt);
 		FpLog.append(sbFlush, "doclistCommon", stat_common_doc_cnt);
