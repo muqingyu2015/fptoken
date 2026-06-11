@@ -305,7 +305,7 @@ public final class FpGroupDataOriginal {
 		FpLog.append(sbFlush, "hotTerms", hotTermToDocs.size());
 		FpLog.append(sbFlush, "commonTerms", commonTermToDocs.size());
 		FpLog.append(sbFlush, "bitindex", "staged");
-		FpLog.infoLineSampled(LOG, FpLog.TAG_ORIGINAL, sbFlush, ts_end - ts_begin);
+		FpLog.infoLine(LOG, FpLog.TAG_ORIGINAL, sbFlush);
 
 	
 		this.resetAfterFlush();
