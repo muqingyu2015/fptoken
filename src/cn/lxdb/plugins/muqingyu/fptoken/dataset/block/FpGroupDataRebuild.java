@@ -134,9 +134,18 @@ public final class FpGroupDataRebuild {
 		return maxDoc;
 	}
 
-	private static Object[] PRAL_BIG=new Object[] {new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object()};
-	private static Object[] PRAL_MID=new Object[] {new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object()};
+	private static Object[] PRAL_BIG=makePralLock(24);
+	private static Object[] PRAL_MID=makePralLock(32);
 
+	private static Object[] makePralLock(int cnt)
+	{
+		Object[] objs=new Object[cnt];
+		for(int i=0;i<cnt;i++)
+		{
+			objs[i]=new Object();
+		}
+		return objs;
+	}
 	private static AtomicLong PRAL_BIG_INDEX=new AtomicLong(0);
 	private static AtomicLong PRAL_MID_INDEX=new AtomicLong(0);
 	
