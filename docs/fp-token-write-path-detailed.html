@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>FPToken 写段调用总流程图（详细）</title>
+  <style>
+    body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 1.5rem; background: #fafafa; color: #222; }
+    h1 { font-size: 1.35rem; }
+    p { max-width: 52rem; line-height: 1.6; }
+    .img-wrap { overflow: auto; border: 1px solid #ccc; background: #fff; padding: 8px; }
+    img { display: block; max-width: none; height: auto; }
+    code { background: #eee; padding: 0.1em 0.35em; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>FPToken 写段调用总流程图（详细版）</h1>
+  <p>
+    入口：<code>FPBlockTreeTermsWriter.writeTerms</code>。自上而下为完整调用链（索引 → 写段 → 热词重建 → 位图 → 落盘 → 检索）。
+    源文件可编辑：<code>docs/fp-token-write-path-detailed.mmd</code>。
+    重新出图：<code>.\scripts\render-fp-write-path-diagram.ps1</code>。
+  </p>
+  <div class="img-wrap">
+    <img src="fp-token-write-path-detailed.png" alt="FPToken 写段详细调用流程图" width="4324" height="16694" />
+  </div>
+</body>
+</html>

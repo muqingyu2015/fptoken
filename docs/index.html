@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fptoken 文档导航（2026-06）</title>
+  <style>
+    body { margin: 0; background: #f6f8fb; color: #111827; font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif; line-height: 1.7; }
+    .wrap { max-width: 980px; margin: 24px auto; padding: 0 14px 24px; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 18px 20px; margin-bottom: 12px; }
+    h1, h2 { margin: 0 0 10px; }
+    h1 { color: #1d4ed8; }
+    ul { margin: 0 0 0 20px; }
+    li { margin: 8px 0; }
+    a { color: #1e40af; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .desc { color: #4b5563; font-size: 14px; }
+    .tip { border-left: 4px solid #1d4ed8; background: #eff6ff; border-radius: 8px; padding: 8px 10px; margin-top: 10px; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .md { color: #047857; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card">
+      <h1>fptoken 文档导航</h1>
+      <p class="desc">每个 HTML 均有同名 <strong>.md</strong>，便于 Git/IDE 阅读；本站为浏览器排版版。</p>
+      <p class="meta">文档版本：2026-06 · v3 bucket 索引 + selective 查询</p>
+      <div class="tip">
+        Markdown 总索引：<a href="./index.md">index.md</a> · <a href="./README.md">docs/README.md</a><br>
+        验证：<code>scripts/run-fptoken-tests.ps1 -HtmlReport -ExcludePerfTag</code>（48 tests）
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>当前模块（优先）</h2>
+      <ul>
+        <li><a href="./fp-token-design_20260517.html">FP Token 技术设计 v3</a> <span class="md">· <a href="./fp-token-design_20260517.md">md</a></span><div class="desc">bucket 倒排、skip 读、落盘格式、查询路径。</div></li>
+        <li><a href="./fp-token-write-path-detailed.html">写段调用总流程</a> <span class="md">· <a href="./fp-token-write-path-detailed.md">md</a></span></li>
+        <li><a href="./fp-token-write-search-alignment-report.html">写段与查询对齐审查</a> <span class="md">· <a href="./fp-token-write-search-alignment-report.md">md</a></span></li>
+        <li><a href="./fp-token-review-and-test-report_20260517.html">代码审查与测试报告</a> <span class="md">· <a href="./fp-token-review-and-test-report_20260517.md">md</a></span></li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>建议阅读顺序</h2>
+      <ul>
+        <li><a href="./fptoken-usage-manual.html">0) 使用手册</a> <span class="md">· <a href="./fptoken-usage-manual.md">md</a></span></li>
+        <li><a href="./fptoken-project-documentation.html">1) 项目文档总览</a> <span class="md">· <a href="./fptoken-project-documentation.md">md</a></span></li>
+        <li><a href="./fptoken-usage-and-architecture.html">2) 设计原理与使用指南</a> <span class="md">· <a href="./fptoken-usage-and-architecture.md">md</a></span></li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>LXDB 接入</h2>
+      <ul>
+        <li><a href="./lxdb-integration-derived-data-and-selection-result.html">DerivedData 与 selectionResult</a> <span class="md">· <a href="./lxdb-integration-derived-data-and-selection-result.md">md</a></span></li>
+        <li><a href="./lxdb-marking-design-and-usage.html">LXDB 打标功能</a> <span class="md">· <a href="./lxdb-marking-design-and-usage.md">md</a></span></li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>专题 / 演示</h2>
+      <ul>
+        <li><a href="./fptoken-binary-search-ppt.html">二进制检索演示</a> <span class="md">· <a href="./fptoken-binary-search-ppt.md">md</a></span></li>
+        <li><a href="./binary-search-lucene-design.html">Lucene 二进制检索方案</a> <span class="md">· <a href="./binary-search-lucene-design.md">md</a></span></li>
+        <li><a href="./fptoken-boss-customer-presentation.html">老板/客户版介绍</a> <span class="md">· <a href="./fptoken-boss-customer-presentation.md">md</a></span></li>
+        <li><a href="./test.html">测试报告页</a> <span class="md">· <a href="./test.md">md</a></span></li>
+      </ul>
+      <p class="desc">历史能力（互斥项集 / Pre-merge hint）见 <a href="./README.md">docs/README.md</a>「历史能力」表。</p>
+    </section>
+  </div>
+</body>
+</html>

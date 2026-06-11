@@ -1,0 +1,97 @@
+package cn.lxdb.plugins.muqingyu.fptoken.dataset.common;
+
+import java.util.Comparator;
+
+import org.apache.lucene.util.BytesRef;
+
+/**
+ * 作为 {@code java.util.TreeMap} / {@code java.util.HashMap} 键使用的词字节：内部持有一个
+ * {@link BytesRef}，在构造时<strong>一次性</strong>计算并缓存 {@link #hashCode()}，避免在 Map 操作中反复扫描字节。
+ * <p>
+ * 哈希算法为 {@link FpTermKeyHash}（{@code 31*h+byte} 滚动哈希）；同一字节序列无论全量扫描还是分段递推，结果一致。
+ * <p>
+ * {@link #copyOf(BytesRef)}：拷贝字节，适合长期存放在 Map 中。<br>
+ * {@link #viewOf(BytesRef)} / {@link #viewOf(BytesRef, int)}：仅持有切片引用；后者可传入
+ * {@link FpTermKeyHash} 递推得到的哈希。仅适用于底层缓冲区不变的短生命周期查找键。
+ */
+public final class FpTermKey implements Comparable<FpTermKey> {
+
+	/**
+	 * 热词 {@link java.util.TreeMap} 键序：先 {@link #bytesRef() 字节长度} 升序，再 {@link #compareTo} 升序。
+	 */
+	public static final Comparator<FpTermKey> ORDER_BY_LENGTH_THEN_BYTES = Comparator
+			.comparingInt((FpTermKey k) -> k.bytesRef().length)
+			.thenComparing(Comparator.naturalOrder());
+
+	private final BytesRef ref;
+	private final int hash;
+
+	private FpTermKey(BytesRef ref, int hash) {
+		this.ref = ref;
+		this.hash = hash;
+	}
+
+	/**
+	 * 深拷贝字节为独立 {@link BytesRef}，并缓存哈希；用于 {@link TreeMap#put} 等持久键。
+	 */
+	public static FpTermKey copyOf(BytesRef src) {
+		final BytesRef owned = BytesRef.deepCopyOf(src);
+		return new FpTermKey(owned, FpTermKeyHash.hashOf(owned));
+	}
+
+	/**
+	 * 不拷贝底层数组，仅包装当前切片；哈希在构造时按切片内容计算一次。
+	 * <p>调用方须保证在用作查找键期间，{@code slice} 指向的缓冲区不被改写。</p>
+	 */
+	public static FpTermKey viewOf(BytesRef slice) {
+		return new FpTermKey(slice, FpTermKeyHash.hashOf(slice));
+	}
+	
+	public static FpTermKey viewOf(BytesRef slice,int hash) {
+		return new FpTermKey(slice, hash);
+	}
+
+	/** 与 Lucene {@link BytesRef} 相同的字节视图（可能是拷贝也可能是切片）。 */
+	public BytesRef bytesRef() {
+		return ref;
+	}
+
+	/**
+	 * 与 {@link #copyOf(BytesRef)} 相同语义，从已有键再拷贝一份（合并写入新 Map 时使用）。
+	 */
+	public static FpTermKey copyOf(FpTermKey other) {
+		return copyOf(other.ref);
+	}
+
+	@Override
+	public int hashCode() {
+		return hash;
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		}
+		if (!(obj instanceof FpTermKey)) {
+			return false;
+		}
+		final FpTermKey o = (FpTermKey) obj;
+		if (hash != o.hash || ref.length != o.ref.length) {
+			return false;
+		}
+		return ref.equals(o.ref);
+	}
+
+	@Override
+	public int compareTo(FpTermKey o) {
+		return this.ref.compareTo(o.ref);
+	}
+
+	@Override
+	public String toString() {
+		return "FpTermKey{" + ref + ",hash=" + hash + "}";
+	}
+
+	
+}

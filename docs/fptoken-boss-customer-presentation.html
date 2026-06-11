@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FPToken 项目介绍（老板/客户版）</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: #111936;
+      --card2: #0f1730;
+      --line: #2d3a62;
+      --text: #e7efff;
+      --sub: #adbcdf;
+      --pri: #84a9ff;
+      --ok: #4ade80;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 20% 0%, #1b2d63 0%, var(--bg) 45%, #070b18 100%);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      line-height: 1.7;
+    }
+    .deck {
+      width: min(1200px, 92vw);
+      margin: 20px auto 32px;
+      display: grid;
+      gap: 14px;
+    }
+    .slide {
+      min-height: 75vh;
+      background: linear-gradient(160deg, var(--card), var(--card2));
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 22px 24px;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    h1, h2, h3 { margin: 0 0 10px; line-height: 1.35; }
+    h1 { font-size: clamp(34px, 5vw, 52px); color: #d4e2ff; }
+    h2 { font-size: clamp(26px, 3.4vw, 36px); color: #c5d8ff; }
+    h3 { font-size: 20px; color: #bfd1ff; margin-top: 8px; }
+    p { margin: 8px 0; color: var(--sub); font-size: clamp(16px, 2vw, 19px); }
+    ul { margin: 8px 0 0 22px; padding: 0; }
+    li { margin: 8px 0; color: #d8e4ff; font-size: clamp(16px, 1.9vw, 19px); }
+    .k { color: var(--pri); font-weight: 700; }
+    .ok { color: var(--ok); font-weight: 700; }
+    .warn { color: var(--warn); font-weight: 700; }
+    .grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 10px;
+    }
+    .panel {
+      border: 1px solid #34477f;
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .tag {
+      display: inline-block;
+      margin: 4px 8px 0 0;
+      padding: 3px 10px;
+      border: 1px solid #4d66ac;
+      border-radius: 999px;
+      background: #1a2752;
+      color: #d8e4ff;
+      font-size: 13px;
+    }
+    .flow {
+      border: 1px dashed #4f66a1;
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-top: 10px;
+      color: #d6e2ff;
+      font-size: clamp(15px, 1.8vw, 18px);
+    }
+    .foot {
+      margin-top: auto;
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+      color: #8ea3d8;
+      font-size: 13px;
+    }
+    @media (max-width: 900px) {
+      .slide { min-height: auto; }
+      .grid2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck">
+    <section class="slide">
+      <h1>FPToken 项目介绍</h1>
+      <p>面向二进制检索的高效规则挖掘与索引优化引擎</p>
+      <div>
+        <span class="tag">更快检索</span>
+        <span class="tag">更低成本</span>
+        <span class="tag">可解释可治理</span>
+        <span class="tag">平滑落地</span>
+      </div>
+      <div class="foot">适用对象：管理层、业务方、客户技术团队</div>
+    </section>
+
+    <section class="slide">
+      <h2>1. 我们在解决什么问题</h2>
+      <ul>
+        <li>二进制检索数据规模持续增长，传统方案在延迟和资源上压力越来越大。</li>
+        <li>大量检索特征存在重复共现关系，但历史上没有被系统化利用。</li>
+        <li>业务希望既要性能提升，也要结果可解释、可回滚、可持续优化。</li>
+      </ul>
+      <div class="foot">一句话：把“原本分散的特征”变成“高价值结构化模式”。</div>
+    </section>
+
+    <section class="slide">
+      <h2>2. FPToken 的核心思路</h2>
+      <div class="flow">
+        海量特征输入<br />
+        → 自动挖掘高频共现模式<br />
+        → 筛选互斥且收益更高的组合<br />
+        → 形成更精简、更有效的检索索引结构
+      </div>
+      <ul>
+        <li><span class="k">不是替换业务逻辑</span>，而是在检索层做“增益增强”。</li>
+        <li><span class="k">支持增量合并场景</span>，可复用历史经验（提示机制）。</li>
+      </ul>
+      <div class="foot">兼顾效果提升与工程可控，适合生产环境逐步推广。</div>
+    </section>
+
+    <section class="slide">
+      <h2>3. 给客户带来的直接价值</h2>
+      <div class="grid2">
+        <div class="panel">
+          <h3>性能价值</h3>
+          <ul>
+            <li>减少候选扩散，降低检索链路计算量</li>
+            <li>提升高峰期稳定性，控制尾延迟</li>
+            <li>降低离线构建与合并成本</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>业务价值</h3>
+          <ul>
+            <li>结果可解释，方便专家复核</li>
+            <li>规则可追踪，利于审计和合规</li>
+            <li>支持按业务线分层优化参数</li>
+          </ul>
+        </div>
+      </div>
+      <div class="foot">目标不是“实验室最优”，而是“线上长期稳定收益”。</div>
+    </section>
+
+    <section class="slide">
+      <h2>4. 预期效果（按区间评估）</h2>
+      <ul>
+        <li>候选集合规模：预期可下降 <span class="k">10% ~ 40%</span>（与数据分布相关）。</li>
+        <li>P95 检索延迟：预期可改善 <span class="k">5% ~ 25%</span>（灰度验证后收敛）。</li>
+        <li>规则分析效率：显著提升（从“海量特征”聚焦到“关键组合”）。</li>
+      </ul>
+      <p class="warn">我们采用“区间承诺 + 灰度验证”，避免单点数字误导决策。</p>
+      <div class="foot">最终效果以客户真实业务数据 A/B 结果为准。</div>
+    </section>
+
+    <section class="slide">
+      <h2>5. 风险与应对机制</h2>
+      <div class="grid2">
+        <div class="panel">
+          <h3>潜在风险</h3>
+          <ul>
+            <li>历史提示在新数据中失效，出现负优化</li>
+            <li>参数耦合不当导致效果波动</li>
+            <li>局部指标变好但整体收益不达预期</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>我们的控制手段</h3>
+          <ul>
+            <li>全量回算校验，保证结果正确性</li>
+            <li>提示质量评分与冲突消解</li>
+            <li>健康评估输出 + 明确调参/降级建议</li>
+          </ul>
+        </div>
+      </div>
+      <div class="foot">做到“可观测、可判断、可回退”，避免黑盒风险。</div>
+    </section>
+
+    <section class="slide">
+      <h2>6. 交付方式与实施计划</h2>
+      <div class="grid2">
+        <div class="panel">
+          <h3>第 1 阶段（2~4 周）</h3>
+          <ul>
+            <li>接入试点业务线并跑 baseline</li>
+            <li>开启灰度对比与指标看板</li>
+            <li>固化回滚策略与阈值</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>第 2 阶段（4~8 周）</h3>
+          <ul>
+            <li>扩展到更多业务线</li>
+            <li>按数据类型沉淀参数模板</li>
+            <li>纳入发布门禁与持续优化流程</li>
+          </ul>
+        </div>
+      </div>
+      <div class="foot">交付目标：可上线、可运营、可持续优化。</div>
+    </section>
+
+    <section class="slide">
+      <h2>7. 结语</h2>
+      <ul>
+        <li>FPToken 适合作为二进制检索平台的“效能增强层”。</li>
+        <li>它的优势在于：<span class="ok">性能收益 + 可解释 + 可治理</span> 同时成立。</li>
+        <li>建议采用“先小规模验证，再分阶段放量”的合作方式。</li>
+      </ul>
+      <p>如果需要，我方可以提供：试点方案、指标模板、灰度评估报告模板。</p>
+      <div class="foot">谢谢，各位可以直接基于本页进行客户演示。</div>
+    </section>
+  </main>
+</body>
+</html>

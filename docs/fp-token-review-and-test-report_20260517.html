@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FP Token 代码审查与测试报告（2026-05-17）</title>
+  <style>
+    :root { --bg:#0f1419; --card:#1a2332; --border:#2d3a4f; --text:#e6edf3; --muted:#8b9cb3; --accent:#58a6ff; --ok:#3fb950; --warn:#d29922; --bad:#f85149; }
+    body { margin:0; font-family:"Segoe UI","PingFang SC",sans-serif; background:var(--bg); color:var(--text); line-height:1.65; font-size:15px; }
+    .wrap { max-width:980px; margin:0 auto; padding:2rem 1.5rem 4rem; }
+    h1 { font-size:1.6rem; margin:0 0 .5rem; }
+    h2 { font-size:1.2rem; color:var(--accent); margin:2rem 0 .75rem; border-left:4px solid var(--accent); padding-left:.6rem; }
+    h3 { font-size:1rem; color:#7ee787; margin:1.2rem 0 .5rem; }
+    .meta { color:var(--muted); font-size:.9rem; margin-bottom:1.5rem; }
+    table { width:100%; border-collapse:collapse; font-size:.88rem; margin:1rem 0; }
+    th,td { border:1px solid var(--border); padding:.45rem .6rem; text-align:left; vertical-align:top; }
+    th { background:var(--card); color:var(--muted); }
+    .p0 { color:var(--bad); font-weight:600; }
+    .p1 { color:var(--warn); font-weight:600; }
+    .p2 { color:var(--muted); }
+    .box { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:1rem; margin:1rem 0; }
+    .ok { color:var(--ok); }
+    code { background:#0d1117; padding:.1em .35em; border-radius:4px; font-size:.88em; }
+    ul { padding-left:1.25rem; }
+    li { margin:.35rem 0; }
+    a { color:var(--accent); }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>FP Token 代码审查与测试报告</h1>
+  <p class="meta">
+    对照设计：<a href="fp-token-design_20260517.html">fp-token-design_20260517.html</a><br>
+    生成日期：2026-05-17（复审：依赖 <code>lib/</code> 全量 JAR，与 Eclipse <code>.classpath</code> 对齐）<br>
+    说明：<strong>未修改生产源码</strong>；仅测试、脚本与本文档。
+  </p>
+
+  <h2>1. 依赖与编译</h2>
+  <div class="box">
+    <ul>
+      <li><strong><code>lib/</code></strong>：约 <strong>203</strong> 个 JAR（LXDB、补丁 Lucene 8.9、slf4j/log4j、Tika/POI、JUnit 等），与 <code>.classpath</code> 中 <code>lib/*.jar</code> 条目一致。</li>
+      <li>校验脚本：<code>.\scripts\sync-lib-from-classpath.ps1</code>（对比缺失/多余 JAR）。</li>
+      <li><strong>全量 <code>src/cn</code> 编译</strong>：在完整 <code>lib/*.jar</code> classpath 下 <span class="ok">成功</span>（含 <code>FPBlockTreeTermsWriter</code>、<code>FpFilteredTermsEnum</code> 等）。</li>
+      <li>运行期警告：classpath 上存在多个 SLF4J binding（log4j / logback 等并存），不影响当前单测结论。</li>
+    </ul>
+  </div>
+
+  <h2>2. 测试执行摘要</h2>
+  <div class="box">
+    <p><strong>命令：</strong></p>
+    <pre style="background:#0d1117;padding:.75rem;border-radius:6px;overflow:auto"><code>.\scripts\run-fptoken-tests.ps1 -HtmlReport -ExcludePerfTag -IncludeLxdbRuntimeTag</code></pre>
+    <p><strong>classpath 顺序：</strong><code>bin</code> → <code>bin-test</code> → <code>lib/*.jar</code>（工程类优先于依赖 JAR）。</p>
+    <p><strong>结果（含 <code>@Tag("lxdb-runtime")</code>，排除 <code>performance</code>）：</strong></p>
+    <ul>
+      <li><strong>21</strong> tests · <strong>21</strong> passed · <strong>0</strong> failed</li>
+      <li>HTML：<code>build/test-results/junit-html/index.html</code></li>
+    </ul>
+  </div>
+
+  <table>
+    <thead><tr><th>测试类</th><th>结果</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>BinarySlidingWindowApiTest</code></td><td class="ok">通过</td><td>64/32 滑窗</td></tr>
+      <tr><td><code>ByteRefTest</code></td><td class="ok">通过</td><td>零拷贝区间</td></tr>
+      <tr><td><code>Lucene80FPSearchConfigTest</code></td><td class="ok">通过</td><td><code>_bfp</code> / <code>_sfp</code></td></tr>
+      <tr><td><code>FpBlockInfoOffsetTest</code></td><td class="ok">通过</td><td>bit 区偏移</td></tr>
+      <tr><td><code>FpTokenBlockLevelPolicyTest</code></td><td class="ok">通过</td><td>调用生产类 <code>FpTokenBlockLevelPolicy</code></td></tr>
+      <tr><td><code>FpGroupHotNgramRebuildStaticReviewTest</code></td><td class="ok">通过</td><td>源码含空 <code>FPDocList</code> 模式守卫</td></tr>
+      <tr><td><code>FpGroupHotNgramRebuildIntegrationTest</code></td><td class="ok">通过</td><td>高阈值无 common：保留热词键，doc 仅由 common 合并回填（非 BUG）</td></tr>
+      <tr><td><code>FPDocListTest</code> / <code>FpTermKeyTest</code></td><td class="ok">通过</td><td>需 LXDB/Lucene 运行时</td></tr>
+      <tr><td><code>FpTokenTermLayoutTest</code></td><td class="ok">通过</td><td>FP 头 round-trip、group_id 产品范围内一致</td></tr>
+    </tbody>
+  </table>
+
+  <h2>3. 潜在缺陷（按优先级）</h2>
+
+  <p class="box"><span class="ok">当前无开放 P0。</span> 原 P0 项均已按产品约定撤回（见 §4）。</p>
+
+  <p class="box"><span class="ok">当前无开放 P1。</span> BUG-101～103 均已按产品/设计约定撤回（见 §4）。</p>
+
+  <h3><span class="p2">P2 — 设计缺口 / 维护性（可选跟进）</span></h3>
+  <ul>
+    <li><strong>BUG-201</strong> <code>FpTokenBlockLevelPolicy</code> 仅返回级别 1 或 3，注释中的「级别 2」未出现。</li>
+    <li><strong>BUG-202</strong> <code>FpGroupDataRebuild#rebuildCommonTermToOrderFromHotDocs</code> Javadoc 仍写 hotTermToOrder。</li>
+    <li><strong>BUG-203</strong> 设计文档 <code>FPBlockTreeTermsWriter</code> 与源码大小写混用，集成检索需注意。</li>
+    <li><strong>BUG-204</strong> 仍缺 <code>FpGroupHotNgramBitIndex</code> round-trip、<code>FpTokenBlockOrchestrator</code> 双路径集成测试（可在 LXDB 写段环境补）。</li>
+  </ul>
+
+  <h2>4. 已关闭 / 不再适用项</h2>
+  <table>
+    <thead><tr><th>原 ID</th><th>结论</th></tr></thead>
+    <tbody>
+      <tr><td>BUG-003</td><td><code>FpFilteredTermsEnum</code> 已使用 <code>TermsEnum$SeekStatus</code>；全量编译通过。</td></tr>
+      <tr><td>BUG-004</td><td>「仅单 jar 无法编译」— 在 <code>lib/</code> 全量依赖下已解决。</td></tr>
+      <tr><td>BUG-104</td><td><code>lxdb-runtime</code> 用例在完整 <code>lib/</code> + <code>-IncludeLxdbRuntimeTag</code> 下可运行。</td></tr>
+      <tr><td>BUG-001（撤回）</td><td>热词重建两阶段（占位 + common 合并），非「丢弃 posting」。</td></tr>
+      <tr><td>BUG-002（撤回）</td><td><code>group_id ≤ 32767</code>，与 <code>read_group_id</code> 返回 <code>short</code> 一致。</td></tr>
+      <tr><td>BUG-005（撤回）</td><td><code>index_id</code> 写段时为 0 占位、合并时替换；<code>read_index_id(byte[])</code> 读缓冲区起始与补丁 <code>NumericUtils</code> 用法匹配。</td></tr>
+      <tr><td>BUG-101（撤回）</td><td><code>FpFilteredTermsEnum#next</code> 原地写 index 前缀为设计行为（多子索引合并可区分）。</td></tr>
+      <tr><td>BUG-102（撤回）</td><td><code>FpTermKey.viewOf</code> 在热词挖掘/ingest 等路径上的用法与缓冲区生命周期约定一致；<code>FpTermKey</code> 类 Javadoc 已说明 <code>viewOf</code> vs <code>copyOf</code>。</td></tr>
+      <tr><td>BUG-103（撤回）</td><td><code>FpGroupDataRebuild#flushto</code>：<code>del_term_docid</code> 用于占位删除项 <code>addDoc</code>；<code>reuse_bytes</code>/写路径与当前 LXDB 段写一致。</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5. 与设计文档的一致性</h2>
+  <ul>
+    <li><strong>一致：</strong>12 字节 FP 头、组级 hot/common、1~8 byte n-gram 桶、8×256 双矩阵、<code>FpBlockInfo</code> 偏移（部分单测覆盖）。</li>
+    <li><strong>已验证（本仓库）：</strong>全量生产类编译；热词重建与 term 布局单测与产品约定一致。</li>
+    <li><strong>待 LXDB 集成验证：</strong><code>iterator_fp</code> 写段、<code>FpGroupDataOriginal</code> 透传 <code>fpBits</code>、查询侧 <code>readfromBanksSelective</code>。</li>
+  </ul>
+
+  <h2>6. 建议后续（供开发参考）</h2>
+  <ol>
+    <li>在 LXDB 写段环境补充 orchestrator / bit 文件 round-trip 集成测试（BUG-204，可选）。</li>
+    <li>P2 文档/命名/块级别策略项按需整理，非阻塞发布。</li>
+  </ol>
+</div>
+</body>
+</html>

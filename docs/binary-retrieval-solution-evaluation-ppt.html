@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>二进制检索方案评估（专家评审版）</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: #111936;
+      --card2: #0f1730;
+      --line: #2b3861;
+      --text: #e6eeff;
+      --sub: #adbbdf;
+      --pri: #82a7ff;
+      --ok: #4ade80;
+      --warn: #fbbf24;
+      --risk: #fb7185;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 20% 0%, #1a2b5f 0%, var(--bg) 45%, #070b18 100%);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      line-height: 1.7;
+    }
+    .deck { width: min(1200px, 92vw); margin: 20px auto 32px; display: grid; gap: 14px; }
+    .slide {
+      min-height: 76vh;
+      background: linear-gradient(160deg, var(--card) 0%, var(--card2) 100%);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 22px 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+    }
+    h1, h2, h3 { margin: 0 0 10px; line-height: 1.35; }
+    h1 { font-size: clamp(34px, 5vw, 52px); color: #d3e1ff; }
+    h2 { font-size: clamp(26px, 3.4vw, 36px); color: #c6d8ff; }
+    h3 { font-size: 20px; color: #bfd1ff; margin-top: 8px; }
+    p { margin: 8px 0; color: var(--sub); font-size: clamp(16px, 2vw, 19px); }
+    ul { margin: 8px 0 0 22px; padding: 0; }
+    li { margin: 8px 0; color: #d8e3ff; font-size: clamp(16px, 1.9vw, 19px); }
+    .k { color: var(--pri); font-weight: 700; }
+    .ok { color: var(--ok); font-weight: 700; }
+    .warn { color: var(--warn); font-weight: 700; }
+    .risk { color: var(--risk); font-weight: 700; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px; }
+    .panel {
+      border: 1px solid #34457c;
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .flow {
+      border: 1px dashed #4d649f;
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-top: 10px;
+      color: #d6e1ff;
+      font-size: clamp(15px, 1.8vw, 18px);
+    }
+    .tag {
+      display: inline-block;
+      margin: 4px 8px 0 0;
+      padding: 3px 10px;
+      border: 1px solid #4a63a9;
+      border-radius: 999px;
+      background: #1a2752;
+      color: #d8e4ff;
+      font-size: 13px;
+    }
+    .foot {
+      margin-top: auto;
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+      color: #8ea3d8;
+      font-size: 13px;
+    }
+    @media (max-width: 900px) { .slide { min-height: auto; } .grid2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main class="deck">
+    <section class="slide">
+      <h1>二进制检索方案评估</h1>
+      <p>面向 FPToken（频繁模式挖掘 + 互斥筛选 + 预合并提示）在二进制检索场景的专家评审</p>
+      <div>
+        <span class="tag">Binary Retrieval</span>
+        <span class="tag">Lucene Merge Friendly</span>
+        <span class="tag">Pre-merge Hints</span>
+        <span class="tag">Sampling + Full Recompute</span>
+      </div>
+      <div class="foot">评估视角：系统架构、检索效率、工程风险、上线可控性</div>
+    </section>
+
+    <section class="slide">
+      <h2>1. 方案简述（评审对象）</h2>
+      <div class="flow">
+        输入二进制特征/词项（byte[]）<br />
+        → 构建 term-tidset 索引（支持度边界过滤）<br />
+        → 候选挖掘（可选采样）<br />
+        → 全量回算校验（保证正确性）<br />
+        → 互斥筛选输出高价值组合 + 单词层 + 残差层
+      </div>
+      <ul>
+        <li><span class="k">适配场景</span>：恶意样本检索、二进制相似家族聚类、规则压缩与倒排加速。</li>
+        <li><span class="k">核心价值</span>：把“海量 token”压缩成少量高收益组合，降低检索和存储成本。</li>
+      </ul>
+      <div class="foot">该方案不依赖文本语义，天然适合字节级/特征级检索。</div>
+    </section>
+
+    <section class="slide">
+      <h2>2. 主要优势（为什么值得用）</h2>
+      <ul>
+        <li><span class="ok">高可解释性</span>：输出的是可审计的共现 token 组，不是黑盒向量分数。</li>
+        <li><span class="ok">查询加速潜力高</span>：互斥高频组可减少候选扩散，降低倒排交并开销。</li>
+        <li><span class="ok">增量友好</span>：预合并提示可复用历史段信息，减少 merge 时冷启动成本。</li>
+        <li><span class="ok">工程可控</span>：采样只是“提速手段”，最终全量回算兜底正确性。</li>
+        <li><span class="ok">回滚简单</span>：可按开关降级到 baseline，风险隔离边界清晰。</li>
+      </ul>
+      <div class="foot">尤其适合“规则驱动 + 高吞吐 + 低延迟”的检索平台。</div>
+    </section>
+
+    <section class="slide">
+      <h2>3. 预期效果（建议按区间管理）</h2>
+      <div class="grid2">
+        <div class="panel">
+          <h3>在线检索侧</h3>
+          <ul>
+            <li>候选集合规模：<span class="k">10% ~ 40%</span> 下降（依赖数据分布）</li>
+            <li>P95 查询延迟：<span class="k">5% ~ 25%</span> 改善（索引命中结构更集中）</li>
+            <li>规则解释成本：显著下降（组合可直接用于分析）</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>离线构建/合并侧</h3>
+          <ul>
+            <li>merge 端到端：通常有收益，但不是单调增益</li>
+            <li>提示有效时：可出现明显加速（历史观测可达高双位数）</li>
+            <li>提示失配时：可能回退，需要质量评分与阈值治理</li>
+          </ul>
+        </div>
+      </div>
+      <p class="warn">建议管理层使用“效果区间 + 置信区间”沟通，不做单点承诺。</p>
+      <div class="foot">收益强依赖样本分布稳定性、段间漂移程度、提示质量。</div>
+    </section>
+
+    <section class="slide">
+      <h2>4. 潜在问题与根因</h2>
+      <ul>
+        <li><span class="risk">提示词失效风险</span>：历史高频模式在新段漂移后可能变成噪声候选。</li>
+        <li><span class="risk">负优化风险</span>：候选池扩大但单位收益下降，导致计算增量大于收益。</li>
+        <li><span class="risk">参数耦合风险</span>：minSupport、samplingScale、hintBoost 联动不当易抖动。</li>
+        <li><span class="risk">长尾覆盖风险</span>：采样机制可能漏掉低频但高价值的边缘模式。</li>
+        <li><span class="risk">指标错觉风险</span>：组数量变多不代表收益更高，必须看估计节省与低质占比。</li>
+      </ul>
+      <div class="foot">核心挑战不是“能否跑”，而是“持续稳定地产生正收益”。</div>
+    </section>
+
+    <section class="slide">
+      <h2>5. 现有设计中的风险对冲能力</h2>
+      <div class="grid2">
+        <div class="panel">
+          <h3>已具备能力</h3>
+          <ul>
+            <li>hint 质量评分与冲突消解</li>
+            <li>single-only hints 自适应限流</li>
+            <li>全量回算兜底正确性</li>
+            <li>线程安全、无锁共享缓存</li>
+            <li>可观测统计（hint 输入/映射/合并耗时占比）</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>仍建议补齐</h3>
+          <ul>
+            <li>CI 性能门限自动守护（关键场景基线）</li>
+            <li>提示契约统一发布页（对外一致口径）</li>
+            <li>负优化自动熔断策略（按窗口触发降级）</li>
+            <li>按数据集分层参数模板（避免一刀切）</li>
+          </ul>
+        </div>
+      </div>
+      <div class="foot">当前基础扎实，下一步重点在“自动化治理与持续收敛”。</div>
+    </section>
+
+    <section class="slide">
+      <h2>6. 落地路线（90 天）</h2>
+      <div class="grid2">
+        <div class="panel">
+          <h3>Phase 1（0~30 天）</h3>
+          <ul>
+            <li>建立 baseline 与 hinted 的统一报告面板</li>
+            <li>分业务线采样 3 组真实数据做 A/B</li>
+            <li>定义负优化告警阈值与自动回滚策略</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Phase 2（31~90 天）</h3>
+          <ul>
+            <li>按数据族群收敛参数（minSupport/hintBoost）</li>
+            <li>将性能门限接入 CI 与发布门禁</li>
+            <li>固化“提示构建成本 vs 检索收益”月度评审</li>
+          </ul>
+        </div>
+      </div>
+      <p class="ok">目标：把“可用”升级为“可持续、可预测、可治理”。</p>
+      <div class="foot">建议由检索平台、离线计算、业务算法三方共担指标。</div>
+    </section>
+
+    <section class="slide">
+      <h2>7. 结论（专家意见）</h2>
+      <ul>
+        <li>该方案用于二进制检索的方向 <span class="ok">成立且有明显工程价值</span>。</li>
+        <li>在“高重复模式 + 稳定分布”数据上，收益通常更可观。</li>
+        <li>最大风险来自提示漂移与参数耦合，需持续观测与自动降级。</li>
+        <li>建议采用“灰度 + 指标门禁 + 分层参数模板”推进全面上线。</li>
+      </ul>
+      <p class="warn">建议管理口径：把它定义为“可治理的增益系统”，而非“固定倍率加速器”。</p>
+      <div class="foot">附注：本评估基于当前代码能力与已有测试/观测体系，最终效果以业务数据 A/B 为准。</div>
+    </section>
+
+    <section class="slide">
+      <h2>8. 已采纳并落地的意见（本轮）</h2>
+      <ul>
+        <li><span class="ok">已落地</span>：在运行输出新增 <span class="k">hintEffectAssessment</span>（HEALTHY / NEED_TUNING / DEGRADE_RISK）。</li>
+        <li><span class="ok">已落地</span>：新增 <span class="k">hintMappedRatioPercent</span>，用于识别“提示输入多、有效映射少”的失配情况。</li>
+        <li><span class="ok">已落地</span>：新增 <span class="k">hintSuggestedAction</span>，给出可执行调参建议（降 boost、关 single hints、清理过时 hints）。</li>
+      </ul>
+      <div class="grid2">
+        <div class="panel">
+          <h3>采纳标准</h3>
+          <ul>
+            <li>对线上行为无侵入</li>
+            <li>低风险、可立即启用</li>
+            <li>能直接提升运维可判读性</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>下一批建议（待实施）</h3>
+          <ul>
+            <li>CI 性能门限自动守护</li>
+            <li>负优化窗口熔断自动降级</li>
+            <li>按数据类型分层参数模板</li>
+          </ul>
+        </div>
+      </div>
+      <div class="foot">说明：本页用于向评审会同步“已执行动作”，避免建议停留在纸面。</div>
+    </section>
+  </main>
+</body>
+</html>
