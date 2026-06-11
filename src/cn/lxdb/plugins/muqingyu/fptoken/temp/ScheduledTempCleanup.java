@@ -25,7 +25,7 @@ public class ScheduledTempCleanup {
 	private static final String DIR_MARK_NAME = "hourhash";
 	private static final long CLEANUP_INTERVAL_MS = 300_000L;
 	private static final int HISTORY_HOURS_TO_KEEP = 15;
-	private static final long TWO_HOURS_MS = 2L * 60L * 60L * 1000L;
+	private static final long DAY2_HOURS_MS = 48L * 60L * 60L * 1000L;
 	private static final long TEN_MINUTES_MS = 10L * 60L * 1000L;
 
 	private final ExecutorService executorService = Executors.newCachedThreadPool();
@@ -92,7 +92,7 @@ public class ScheduledTempCleanup {
 			final long ts = MillisecondClock.CLOCK.now();
 			for (int i = 1; i < HISTORY_HOURS_TO_KEEP; i++) {
 				final String yyyyMMddHHmm = TimeFormatter.get_yyyyMMddHHmm()
-						.format(new Date(ts - TWO_HOURS_MS - TEN_MINUTES_MS * i));
+						.format(new Date(ts - DAY2_HOURS_MS - TEN_MINUTES_MS * i));
 				final String yyyyMMddHHm = yyyyMMddHHmm.substring(0, yyyyMMddHHmm.length() - 1);
 				final File target = new File(baseDirectoryPath + "/" + DIR_MARK_NAME + "/" + yyyyMMddHHm);
 				RecursiveFileDeleter.deleteRecursively(logger, target);

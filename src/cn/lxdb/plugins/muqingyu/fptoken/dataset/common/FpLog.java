@@ -23,12 +23,12 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
  */
 public final class FpLog {
 
-	public static final String TAG_SEARCH = "fp_search";
-	public static final String TAG_WRITE = "fp_write";
-	public static final String TAG_REBUILD = "fp_rebuild";
-	public static final String TAG_ORIGINAL = "fp_original";
-	public static final String TAG_BITINDEX = "fp_bitindex";
-	public static final String TAG_TOKEN = "fp_token";
+	public static final String TAG_SEARCH = "search";
+	public static final String TAG_WRITE = "write";
+	public static final String TAG_REBUILD = "rebuild";
+	public static final String TAG_ORIGINAL = "original";
+	public static final String TAG_BITINDEX = "bitindex";
+	public static final String TAG_TOKEN = "token";
 
 	private FpLog() {
 	}

@@ -334,7 +334,7 @@ public final class FpGroupDataRebuild {
 			FpLog.append(sbFlush, "event", "flush");
 			FpLog.append(sbFlush, "phase", debug_msg);
 			FpLog.append(sbFlush, "groupId", group_id);
-			FpLog.append(sbFlush, "msLock", ts_begin - ts);
+			FpLog.append(sbFlush, "msLock", ts-ts_begin );
 			FpLog.append(sbFlush, "msTotal", ts_end - ts_begin);
 			FpLog.append(sbFlush, "msNgram", ts_ngram - ts_begin);
 			FpLog.append(sbFlush, "msBitset", ts_bitset - ts_ngram);
