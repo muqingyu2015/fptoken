@@ -138,7 +138,6 @@ public final class FpGroupHotNgramRebuild {
 //		final FpHashMapPoolLease<FpTermKey, FPDocList> hotTermsPendingDocMergeLease = FpHashMapPoolHub.borrow(
 //				FpHashMapPoolIds.hotTermsPendingDocMerge, FpTermKey.class, FPDocList.class,
 //				FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
-		final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = hotTermToDocs;
 		final FpHashMapPoolLease<FpTermKey, HotMergeSlot> hotMergeTableLease = FpHashMapPoolHub.borrow(
 				FpHashMapPoolIds.hotMergeTable, FpTermKey.class, HotMergeSlot.class,
 				FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
@@ -150,16 +149,17 @@ public final class FpGroupHotNgramRebuild {
 		// === 阶段1：统计 common 中各 ngram 出现次数 ===
 		long t0 = CLMillisecondClock.CLOCK.now();
 		//----TODO:主要瓶颈一
-		countNgramOccurrencesInCommon(stat, commonTermToDocs, ngramOccurrenceCount);
+		int hot_thresold=FpTokenBlockLevelPolicy.get_common_to_hot_threshold(targetLevel);
+		countNgramOccurrencesInCommon(hot_thresold, stat, commonTermToDocs, ngramOccurrenceCount);
 		stat.ms_count = CLMillisecondClock.CLOCK.now() - t0;
 		stat.distinct_ngram = ngramOccurrenceCount.size();
 
 		// === 阶段2：构建热词表和锚点分档索引 ===
 		t0 = CLMillisecondClock.CLOCK.now();
-		buildHotTermsAndAnchorTierIndex(hotTermsPendingDocMerge,stat,ngramOccurrenceCount, FpTokenBlockLevelPolicy.get_common_to_hot_threshold(targetLevel), maxDoc, anchorTierIndexByHotTerm);
+		buildHotTermsAndAnchorTierIndex(hotTermToDocs,stat,ngramOccurrenceCount, hot_thresold, maxDoc, anchorTierIndexByHotTerm);
 		
 		stat.ms_build = CLMillisecondClock.CLOCK.now() - t0;
-		stat.hot_pending = hotTermsPendingDocMerge.size();
+		stat.hot_pending = hotTermToDocs.size();
 		
 		
 
@@ -174,9 +174,9 @@ public final class FpGroupHotNgramRebuild {
 //		final HashMap<FpTermKey, Integer> hotTermDownTierBudgetFast = new HashMap<>(hotTermDownTierBudget);
 		
 		// 将所有热词 doclist 切换为稀疏模式以优化批量 merge 性能
-		ensureAllHotDocListsSparse(hotTermsPendingDocMerge);
+		ensureAllHotDocListsSparse(hotTermToDocs);
 		// 构建 hotMergeTable：key → (docList, ordinal) 的快速查找表
-		buildHotMergeTable(hotMergeTable,hotTermsPendingDocMerge);
+		buildHotMergeTable(hotMergeTable,hotTermToDocs);
 		
 		// 按锚点长度分区 budget，便于 merge 时按长度快速定位
 //		final HashMap<FpTermKey, Integer>[] budgetByLen = partitionBudgetByAnchorLength1(hotTermDownTierBudget);
@@ -189,7 +189,7 @@ public final class FpGroupHotNgramRebuild {
 		final ArrayList<CommonTermSortEntry> commonFlushOrder = mergeCommonDocsIntoHotTerms(stat, commonTermToDocs, hotMergeTable,hotTermDownTierBudget);
 		group.setCommonTermFlushOrder(commonFlushOrder);
 		stat.ms_merge = CLMillisecondClock.CLOCK.now() - t0;
-		stat.hot_doclist_sparse = countSparseHotDocLists(hotTermsPendingDocMerge);
+		stat.hot_doclist_sparse = countSparseHotDocLists(hotTermToDocs);
 		// 释放锚点分档索引内存
 		anchorTierIndexByHotTerm.clear();
 
@@ -247,13 +247,17 @@ public final class FpGroupHotNgramRebuild {
 	/**
 	 * 在每个 common 词项载荷内滑窗切 ngram，累加出现次数。
 	 * 同一 common term 内的相同 ngram 只计一次（去重），跨 common term 则累加。
+	 * <p>
+	 * 每个起始位置按长度从长到短扫描：已达 {@code hotThreshold} 的 ngram 不再累加；同起点较长者已热则更短者视为已热并
+	 * {@code break}。主循环结束后对已达阈值的 ngram 补全更短前缀条目。
 	 *
+	 * @param hotThreshold          common→hot 频率阈值
 	 * @param stat                  统计对象
 	 * @param commonTermToDocs      common term → doclist 映射
 	 * @param ngramOccurrenceCount  输出：ngram → 出现次数映射
 	 */
-	private static void countNgramOccurrencesInCommon(FpStatNgram stat, HashMap<FpTermKey, FPDocList> commonTermToDocs,
-			HashMap<FpTermKey, Counter> ngramOccurrenceCount) {
+	private static void countNgramOccurrencesInCommon(int hotThreshold, FpStatNgram stat,
+			HashMap<FpTermKey, FPDocList> commonTermToDocs, HashMap<FpTermKey, Counter> ngramOccurrenceCount) {
 		final int uniqueCap = Lucene80FPSearchConfig.BITSET_WINDOW_SIZE * Lucene80FPSearchConfig.NGRAM_MAX
 				* Lucene80FPSearchConfig.NGRAM_MAX;
 		final FpHashMapPoolLease<FpTermKey, Boolean> uniqueNgramsLease = FpHashMapPoolHub.borrow(
@@ -274,35 +278,81 @@ public final class FpGroupHotNgramRebuild {
 				sliceScratch.bytes = bytes;
 
 				for (int start = 0; start < payloadLen; start++) {
-					int h = 0;
 					final int maxNgramLen = Math.min(Lucene80FPSearchConfig.NGRAM_MAX, payloadLen - start);
-					for (int ngramLen = Lucene80FPSearchConfig.NGRAM_MIN; ngramLen <= maxNgramLen; ngramLen++) {
-						h = FpTermKeyHash.rollAppend(h, bytes[base + start + ngramLen - 1]);
+					for (int ngramLen = maxNgramLen; ngramLen >= Lucene80FPSearchConfig.NGRAM_MIN; ngramLen--) {
 						sliceScratch.offset = base + start;
 						sliceScratch.length = ngramLen;
 						stat.token_cnt++;
+						final int h = FpTermKeyHash.hashOf(bytes, base + start, ngramLen);
 						final FpTermKey view_key = FpTermKey.viewOf(sliceScratch, h);
 						if (uniqueNgramsThisCommonTerm.containsKey(view_key)) {
 							continue;
 						}
 						Counter val = ngramOccurrenceCount.get(view_key);
+						if (val != null && val.cnt > hotThreshold) {
+							uniqueNgramsThisCommonTerm.put(val.key, UNIQUE_NGRAM_MARKER);
+							break;
+						}
 						if (val == null) {
-							BytesRef sliceScratch_copy = new BytesRef();
+							final BytesRef sliceScratch_copy = new BytesRef();
 							sliceScratch_copy.bytes = sliceScratch.bytes;
 							sliceScratch_copy.offset = sliceScratch.offset;
 							sliceScratch_copy.length = sliceScratch.length;
-							FpTermKey key_soft_copy = FpTermKey.viewOf(sliceScratch_copy, view_key.hashCode());
+							final FpTermKey key_soft_copy = FpTermKey.viewOf(sliceScratch_copy, view_key.hashCode());
 							val = new Counter(1, key_soft_copy);
 							ngramOccurrenceCount.put(key_soft_copy, val);
 						} else {
 							val.cnt++;
 						}
 						uniqueNgramsThisCommonTerm.put(val.key, UNIQUE_NGRAM_MARKER);
+						if (val.cnt >= hotThreshold) {
+							break;
+						}
 					}
 				}
 			}
+			expandHotPrefixNgrams(ngramOccurrenceCount, hotThreshold);
 		} finally {
 			FpHashMapPoolHub.release(uniqueNgramsLease);
+		}
+	}
+
+	/**
+	 * 对已达阈值的 ngram，将其从 {@link Lucene80FPSearchConfig#NGRAM_MIN} 到全长-1 的前缀补入计数表（cnt 取父项值）。
+	 */
+	private static void expandHotPrefixNgrams(HashMap<FpTermKey, Counter> ngramOccurrenceCount, int hotThreshold) {
+		final ArrayList<Counter> hotCounters = new ArrayList<>();
+		for (Counter counter : ngramOccurrenceCount.values()) {
+			if (counter.cnt >= hotThreshold) {
+				hotCounters.add(counter);
+			}
+		}
+		final BytesRef prefixScratch = new BytesRef();
+		for (Counter parent : hotCounters) {
+			final BytesRef full = parent.key.bytesRef();
+			final byte[] bytes = full.bytes;
+			final int base = full.offset;
+			final int fullLen = full.length;
+			if (fullLen <= Lucene80FPSearchConfig.NGRAM_MIN) {
+				continue;
+			}
+			prefixScratch.bytes = bytes;
+			for (int prefixLen = Lucene80FPSearchConfig.NGRAM_MIN; prefixLen < fullLen; prefixLen++) {
+				prefixScratch.offset = base;
+				prefixScratch.length = prefixLen;
+				final int h = FpTermKeyHash.hashOf(bytes, base, prefixLen);
+				final FpTermKey probe = FpTermKey.viewOf(prefixScratch, h);
+				final Counter existing = ngramOccurrenceCount.get(probe);
+				if (existing != null) {
+					if (existing.cnt < parent.cnt) {
+						existing.cnt = parent.cnt;
+					}
+					continue;
+				}
+				final BytesRef copy = new BytesRef(bytes, base, prefixLen);
+				final FpTermKey keyCopy = FpTermKey.viewOf(copy, h);
+				ngramOccurrenceCount.put(keyCopy, new Counter(parent.cnt, keyCopy));
+			}
 		}
 	}
 
@@ -325,9 +375,8 @@ public final class FpGroupHotNgramRebuild {
 		final int tierSetSizeCap = (int) (hotFreqThreshold * 2);
 
 		for (Map.Entry<FpTermKey, Counter> entry : ngramOccurrenceCount.entrySet()) {
-			FpTermKey key=entry.getKey();
-			// 长度 >1 且频率未达阈值的 ngram 跳过（长度为 1 的单字始终保留）
-			if (key.bytesRef().length>1&& entry.getValue().cnt< hotFreqThreshold) {
+//			FpTermKey key=entry.getKey();
+			if (entry.getValue().cnt< hotFreqThreshold) {
 				stat.freqThreshold_skip++;
 				continue;
 			}
