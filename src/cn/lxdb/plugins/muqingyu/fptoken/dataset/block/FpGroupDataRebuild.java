@@ -3,6 +3,7 @@ package cn.lxdb.plugins.muqingyu.fptoken.dataset.block;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -191,12 +192,12 @@ public final class FpGroupDataRebuild {
 			
 			int order = 1;
 
-			for (CommonTermSortEntry entry : this.commonTermFlushOrder1)
-			{
-				FpTermKey key=entry.key;
+			for (Entry<FpTermKey, FPDocList> entry : this.commonTermToDocs1.entrySet())
+			{//这里排序不重要
+				FpTermKey key=entry.getKey();
 			    final Integer index=Integer.valueOf(order++);
 
-				FPDocList val=entry.sourceDocList;
+				FPDocList val=entry.getValue();
 				boolean isDelTerm=val.docsize()<=0;
 				if(isDelTerm)
 				{
@@ -441,7 +442,7 @@ public final class FpGroupDataRebuild {
 
 	public void resetAfterFlush() {
 		distinctDocUnion.clear(0, maxDoc);
-		FpHashMapPoolHub.release(FpHashMapPoolIds.anchorTierIndexByHotTerm, hotTermDownTierBudget1);
+		FpHashMapPoolHub.release(FpHashMapPoolIds.hotTermDownTierBudget, hotTermDownTierBudget1);
 		FpHashMapPoolHub.release(FpHashMapPoolIds.hotTermToDocs, hotTermToDocs1);
 		FpHashMapPoolHub.release(FpHashMapPoolIds.commonTermToDocs, commonTermToDocs1);
 
