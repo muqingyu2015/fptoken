@@ -370,11 +370,15 @@ public final class FpGroupHotNgramBitIndex {
 		for (int lenIdx = 0; lenIdx < Lucene80FPSearchConfig.NGRAM_MAX; lenIdx++) {
 			final String skipName = FpBitIndexSegmentStaging.fileName(tierName, "skipkeys", lenIdx);
 			final String arenaName = FpBitIndexSegmentStaging.fileName(tierName, "arena", lenIdx);
+			final String bloomName = FpBitIndexSegmentStaging.fileName(tierName, "bloom", lenIdx);
 			try (IndexOutput skipOut = dir.createOutput(skipName, IOContext.DEFAULT)) {
 				tier.rows[lenIdx].writeLenRowHeaderOnly(skipOut);
 			}
 			try (IndexOutput arenaOut = dir.createOutput(arenaName, IOContext.DEFAULT)) {
 				tier.rows[lenIdx].writeLenRowArenaOnly(arenaOut);
+			}
+			try (IndexOutput bloomOut = dir.createOutput(bloomName, IOContext.DEFAULT)) {
+				tier.rows[lenIdx].writeLenRowBloomOnly(bloomOut);
 			}
 		}
 	}
@@ -411,7 +415,7 @@ public final class FpGroupHotNgramBitIndex {
 		in.seek(blkinfo.fpBanksHot);
 		final int hotMagic = in.readInt();
 		if (hotMagic == FpBitIndexSegmentStaging.TIER_DIR_MAGIC_HOT) {
-			return readfromV4(in, blkinfo, hotMagic);
+			return readfromTierDirectory(in, blkinfo, hotMagic);
 		}
 		in.seek(blkinfo.fpBanksHot);
 		final TierIndex hotTier = TierIndex.readTier(in, false);
@@ -421,7 +425,7 @@ public final class FpGroupHotNgramBitIndex {
 				blkinfo.commonCount, false);
 	}
 
-	private static FpGroupHotNgramBitIndex readfromV4(IndexInput in, FpBlockInfo blkinfo, int hotMagic)
+	private static FpGroupHotNgramBitIndex readfromTierDirectory(IndexInput in, FpBlockInfo blkinfo, int hotMagic)
 			throws IOException {
 		final TierIndex hotTier = TierIndex.readTierDirectory(in, blkinfo.fpBanksHot, hotMagic, false);
 		in.seek(blkinfo.fpBanksCommon);
@@ -462,12 +466,13 @@ public final class FpGroupHotNgramBitIndex {
 			final int hotMagic = disk.readInt();
 			if (hotMagic == FpBitIndexSegmentStaging.TIER_DIR_MAGIC_HOT) {
 				final TierIndex hotTier = loadHotKeys == null || loadHotKeys.length == 0 ? TierIndex.emptySparse()
-						: TierIndex.readSelectiveV4(disk, blkinfo.fpBanksHot, hotMagic, loadHotKeys);
+						: TierIndex.readSelectiveTierDirectory(disk, blkinfo.fpBanksHot, hotMagic, loadHotKeys);
 				disk.seek(blkinfo.fpBanksCommon);
 				final int commonMagic = disk.readInt();
 				final TierIndex commonTier = loadCommonKeys == null || loadCommonKeys.length == 0
 						? TierIndex.emptySparse()
-						: TierIndex.readSelectiveV4(disk, blkinfo.fpBanksCommon, commonMagic, loadCommonKeys);
+						: TierIndex.readSelectiveTierDirectory(disk, blkinfo.fpBanksCommon, commonMagic,
+								loadCommonKeys);
 				return new FpGroupHotNgramBitIndex(blkinfo.targetLevel, hotTier, commonTier, blkinfo.hotCount,
 						blkinfo.commonCount, true);
 			}
@@ -1057,45 +1062,27 @@ public final class FpGroupHotNgramBitIndex {
 		}
 
 		/**
-		 * v4：从 tier 目录（{@link FpBitIndexSegmentStaging#TIER_DIR_MAGIC_HOT} 等）全量读入 6 行 LenRow。
+		 * v4：从 tier 目录全量读入 6 行 LenRow（Bloom 池仅 selective 使用，全量读忽略）。
 		 */
 		static TierIndex readTierDirectory(IndexInput disk, long tierDirOffset, int magic, boolean sparse)
 				throws IOException {
-			disk.seek(tierDirOffset);
-			if (disk.readInt() != magic) {
-				throw new IOException("unexpected tier directory magic: " + magic);
-			}
-			final long[] skipOff = new long[Lucene80FPSearchConfig.NGRAM_MAX];
-			final long[] arenaOff = new long[Lucene80FPSearchConfig.NGRAM_MAX];
-			for (int i = 0; i < Lucene80FPSearchConfig.NGRAM_MAX; i++) {
-				skipOff[i] = disk.readLong();
-				arenaOff[i] = disk.readLong();
-			}
+			final TierOffsets offsets = readTierOffsets(disk, tierDirOffset, magic);
 			final TierIndex tier = sparse ? emptySparse() : new TierIndex(false);
 			for (int i = 0; i < tier.rows.length; i++) {
-				tier.rows[i] = LenRow.readLenRowSplit(disk, skipOff[i], arenaOff[i], sparse);
+				tier.rows[i] = LenRow.readLenRowSplit(disk, offsets.skipOff[i], offsets.arenaOff[i], sparse);
 			}
 			return tier;
 		}
 
 		/**
-		 * v4 selective：tier 目录 + 分池 skip/arena 文件布局。
+		 * v4 selective：tier 目录 + 分池 skip/arena/bloom 文件布局。
 		 */
-		static TierIndex readSelectiveV4(IndexInput disk, long tierDirOffset, int magic, long[] keys)
+		static TierIndex readSelectiveTierDirectory(IndexInput disk, long tierDirOffset, int magic, long[] keys)
 				throws IOException {
 			if (keys == null || keys.length == 0) {
 				return emptySparse();
 			}
-			disk.seek(tierDirOffset);
-			if (disk.readInt() != magic) {
-				throw new IOException("unexpected tier directory magic: " + magic);
-			}
-			final long[] skipOff = new long[Lucene80FPSearchConfig.NGRAM_MAX];
-			final long[] arenaOff = new long[Lucene80FPSearchConfig.NGRAM_MAX];
-			for (int i = 0; i < Lucene80FPSearchConfig.NGRAM_MAX; i++) {
-				skipOff[i] = disk.readLong();
-				arenaOff[i] = disk.readLong();
-			}
+			final TierOffsets offsets = readTierOffsets(disk, tierDirOffset, magic);
 			final TierIndex tier = emptySparse();
 			final DiskLenRow[] diskRows = new DiskLenRow[Lucene80FPSearchConfig.NGRAM_MAX];
 			for (long key : keys) {
@@ -1104,7 +1091,8 @@ public final class FpGroupHotNgramBitIndex {
 					continue;
 				}
 				if (diskRows[lenIdx] == null) {
-					diskRows[lenIdx] = DiskLenRow.openAt(disk, skipOff[lenIdx], arenaOff[lenIdx]);
+					diskRows[lenIdx] = DiskLenRow.openAt(disk, offsets.skipOff[lenIdx], offsets.arenaOff[lenIdx],
+							offsets.bloomOff[lenIdx]);
 				}
 				final int bucket = unpackBucketIndex(key);
 				final int[] orders = diskRows[lenIdx].lookupOrders(bucket);
@@ -1114,6 +1102,35 @@ public final class FpGroupHotNgramBitIndex {
 			}
 			return tier;
 		}
+
+		private static TierOffsets readTierOffsets(IndexInput disk, long tierDirOffset, int magic) throws IOException {
+			disk.seek(tierDirOffset);
+			if (disk.readInt() != magic) {
+				throw new IOException("unexpected tier directory magic: " + magic);
+			}
+			final long[] skipOff = new long[Lucene80FPSearchConfig.NGRAM_MAX];
+			final long[] arenaOff = new long[Lucene80FPSearchConfig.NGRAM_MAX];
+			final long[] bloomOff = new long[Lucene80FPSearchConfig.NGRAM_MAX];
+			for (int i = 0; i < Lucene80FPSearchConfig.NGRAM_MAX; i++) {
+				skipOff[i] = disk.readLong();
+				arenaOff[i] = disk.readLong();
+				bloomOff[i] = disk.readLong();
+			}
+			return new TierOffsets(skipOff, arenaOff, bloomOff);
+		}
+
+		private static final class TierOffsets {
+			final long[] skipOff;
+			final long[] arenaOff;
+			final long[] bloomOff;
+
+			TierOffsets(long[] skipOff, long[] arenaOff, long[] bloomOff) {
+				this.skipOff = skipOff;
+				this.arenaOff = arenaOff;
+				this.bloomOff = bloomOff;
+			}
+		}
+
 	}
 
 	// -------------------------------------------------------------------------
@@ -1147,13 +1164,15 @@ public final class FpGroupHotNgramBitIndex {
 		final long metaStartRel;
 		/** orderArena 数据区的绝对文件偏移 */
 		final long arenaDataStart;
+		/** LenRow bucket Bloom（open 时从 bloom 池读入内存） */
+		final FpLenRowBloom bloom;
 
 		/**
 		 * 私有构造函数，仅通过 {@link #open} 创建
 		 */
 		private DiskLenRow(IndexInput in, long lenRowStart, int entryCount, int minBucket, int maxBucket,
 				int skipCount, int[] skipAnchors, long[] skipKeysPtrRel, long keysBaseRel, long metaStartRel,
-				long arenaDataStart) {
+				long arenaDataStart, FpLenRowBloom bloom) {
 			this.in = in;
 			this.lenRowStart = lenRowStart;
 			this.entryCount = entryCount;
@@ -1165,6 +1184,7 @@ public final class FpGroupHotNgramBitIndex {
 			this.keysBaseRel = keysBaseRel;
 			this.metaStartRel = metaStartRel;
 			this.arenaDataStart = arenaDataStart;
+			this.bloom = bloom == null ? FpLenRowBloom.passthrough() : bloom;
 		}
 
 		/**
@@ -1182,7 +1202,8 @@ public final class FpGroupHotNgramBitIndex {
 			final int entryCount = in.readInt();
 			// 空行直接返回零值实例
 			if (entryCount == 0) {
-				return new DiskLenRow(in, lenRowStart, 0, 0, 0, 0, EMPTY_INT, EMPTY_LONG, 0L, 0L, 0L);
+				return new DiskLenRow(in, lenRowStart, 0, 0, 0, 0, EMPTY_INT, EMPTY_LONG, 0L, 0L, 0L,
+						FpLenRowBloom.passthrough());
 			}
 			// 计算 skip 表条目数
 			final int skipCount = (entryCount + SKIP_INTERVAL - 1) / SKIP_INTERVAL;
@@ -1211,18 +1232,20 @@ public final class FpGroupHotNgramBitIndex {
 				in.seek(arenaDataStart + arenaLen);
 			}
 			return new DiskLenRow(in, lenRowStart, entryCount, skipAnchors[0], maxBucket, skipCount, skipAnchors,
-					skipKeysPtrRel, keysBaseRel, metaStartRel, arenaDataStart);
+					skipKeysPtrRel, keysBaseRel, metaStartRel, arenaDataStart, FpLenRowBloom.passthrough());
 		}
 
 		/**
-		 * v4：skip+keys+meta 与 arena 分池存储；{@code skipAbs} 为 header 绝对偏移，{@code arenaAbs} 为 arena 池绝对偏移。
+		 * v4：skip+keys+meta 与 arena/bloom 分池存储；{@code skipAbs} 为 header 绝对偏移，
+		 * {@code arenaAbs} 为 arena 池绝对偏移，{@code bloomAbs} 为 bloom 池绝对偏移。
 		 */
-		static DiskLenRow openAt(IndexInput in, long skipAbs, long arenaAbs) throws IOException {
+		static DiskLenRow openAt(IndexInput in, long skipAbs, long arenaAbs, long bloomAbs) throws IOException {
 			in.seek(skipAbs);
 			final long lenRowStart = skipAbs;
 			final int entryCount = in.readInt();
 			if (entryCount == 0) {
-				return new DiskLenRow(in, lenRowStart, 0, 0, 0, 0, EMPTY_INT, EMPTY_LONG, 0L, 0L, arenaAbs);
+				return new DiskLenRow(in, lenRowStart, 0, 0, 0, 0, EMPTY_INT, EMPTY_LONG, 0L, 0L, arenaAbs,
+						FpLenRowBloom.passthrough());
 			}
 			final int skipCount = (entryCount + SKIP_INTERVAL - 1) / SKIP_INTERVAL;
 			final long skipTableStart = in.getFilePointer();
@@ -1239,8 +1262,9 @@ public final class FpGroupHotNgramBitIndex {
 			final int maxBucket = in.readInt();
 			in.seek(lenRowStart + metaStartRel + (long) entryCount * 4L);
 			in.readInt(); // arenaLen（arena 在独立池，此处仅跳过）
+			final FpLenRowBloom bloom = FpLenRowBloom.readFrom(in, bloomAbs);
 			return new DiskLenRow(in, lenRowStart, entryCount, skipAnchors[0], maxBucket, skipCount, skipAnchors,
-					skipKeysPtrRel, keysBaseRel, metaStartRel, arenaAbs);
+					skipKeysPtrRel, keysBaseRel, metaStartRel, arenaAbs, bloom);
 		}
 
 		/**
@@ -1256,8 +1280,16 @@ public final class FpGroupHotNgramBitIndex {
 		 * @throws IOException IO 异常
 		 */
 		int[] lookupOrders(int bucket) throws IOException {
-			// 快速排除：空行或 bucket 超出范围
-			if (entryCount == 0 || bucket < minBucket || bucket > maxBucket) {
+			// 快速排除：空行
+			if (entryCount == 0) {
+				return EMPTY_ORDERS;
+			}
+			// Bloom 负向过滤（selective：零 IO 排除绝大多数 miss）
+			if (!bloom.mightContain(bucket)) {
+				return EMPTY_ORDERS;
+			}
+			// min/max 范围过滤
+			if (bucket < minBucket || bucket > maxBucket) {
 				return EMPTY_ORDERS;
 			}
 			// 二分查找 skip 表，确定 bucket 落在哪个段
@@ -1656,6 +1688,15 @@ public final class FpGroupHotNgramBitIndex {
 			if (orderArena != null && orderArena.length > 0) {
 				out.writeBytes(orderArena, 0, orderArena.length);
 			}
+		}
+
+		/** v4 暂存：写出 sortedKeys 的 Bloom 过滤器（独立 bloom 池文件）。 */
+		void writeLenRowBloomOnly(DataOutput out) throws IOException {
+			if (sortedKeys == null || sortedKeys.length == 0) {
+				FpLenRowBloom.writeEmpty(out);
+				return;
+			}
+			FpLenRowBloom.build(sortedKeys).writeTo(out);
 		}
 
 		/** v4 全量读：header 与 arena 分池。 */

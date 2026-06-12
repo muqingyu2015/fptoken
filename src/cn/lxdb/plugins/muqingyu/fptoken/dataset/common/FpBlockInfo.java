@@ -11,7 +11,7 @@ import org.apache.lucene.util.BytesRef;
  */
 public class FpBlockInfo {
 
-	/** 与 {@link #writeto} / {@link #readfrom} 格式一致；v4 为段内 lenIdx 分池布局 */
+	/** 与 {@link #writeto} / {@link #readfrom} 格式一致；v4 为段内 lenIdx 分池布局（含 Bloom 池） */
 	public static final int FORMAT_VERSION = 4;
 
 	/**
@@ -98,7 +98,8 @@ public class FpBlockInfo {
 	public void readfrom(IndexInput in) throws IOException {
 		final int ver = in.readInt();
 		if (ver != FORMAT_VERSION && ver != 3) {
-			throw new IOException("FpBlockInfo unsupported format version: " + ver + " (expected " + FORMAT_VERSION + " or 3)");
+			throw new IOException("FpBlockInfo unsupported format version: " + ver + " (expected " + FORMAT_VERSION
+					+ " or 3)");
 		}
 		fpBanksHot = in.readLong();
 		fpBanksCommon = in.readLong();

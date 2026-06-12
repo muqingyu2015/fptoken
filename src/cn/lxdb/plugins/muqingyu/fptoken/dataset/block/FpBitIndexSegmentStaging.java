@@ -24,11 +24,13 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
  *
  * <p>v4 段布局（写入 {@code bitOut}）：
  * <pre>
- * segmentHeader (magic + version + groupCount + poolBase[6][4])
+ * segmentHeader (magic + version + groupCount + poolBase[6][6])
  * hot/skipkeys/len0..5  各组同 lenIdx 连续拼接
  * hot/arena/len0..5
+ * hot/bloom/len0..5
  * common/skipkeys/len0..5
  * common/arena/len0..5
+ * common/bloom/len0..5
  * 每组 hot tierDirectory + common tierDirectory（绝对偏移指向上面各池）
  * </pre>
  */
@@ -45,6 +47,7 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 	private static final String COMMON = "common";
 	private static final String SKIP = "skipkeys";
 	private static final String ARENA = "arena";
+	private static final String BLOOM = "bloom";
 
 	private final FpBitIndexTempDirectory.Session session;
 	private final List<StagedGroup> groups = new ArrayList<>();
@@ -76,12 +79,16 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 		final int maxLen = Lucene80FPSearchConfig.NGRAM_MAX;
 		final long[][] hotSkipOff = new long[n][maxLen];
 		final long[][] hotArenaOff = new long[n][maxLen];
+		final long[][] hotBloomOff = new long[n][maxLen];
 		final long[][] commonSkipOff = new long[n][maxLen];
 		final long[][] commonArenaOff = new long[n][maxLen];
+		final long[][] commonBloomOff = new long[n][maxLen];
 		final long[] hotSkipBase = new long[maxLen];
 		final long[] hotArenaBase = new long[maxLen];
+		final long[] hotBloomBase = new long[maxLen];
 		final long[] commonSkipBase = new long[maxLen];
 		final long[] commonArenaBase = new long[maxLen];
+		final long[] commonBloomBase = new long[maxLen];
 
 		bitOut.writeInt(SEGMENT_MAGIC);
 		bitOut.writeInt(FpBlockInfo.FORMAT_VERSION);
@@ -92,24 +99,31 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 			appendLenIdxPool(bitOut, hotSkipOff, lenIdx, HOT, SKIP);
 			hotArenaBase[lenIdx] = bitOut.getFilePointer();
 			appendLenIdxPool(bitOut, hotArenaOff, lenIdx, HOT, ARENA);
+			hotBloomBase[lenIdx] = bitOut.getFilePointer();
+			appendLenIdxPool(bitOut, hotBloomOff, lenIdx, HOT, BLOOM);
 			commonSkipBase[lenIdx] = bitOut.getFilePointer();
 			appendLenIdxPool(bitOut, commonSkipOff, lenIdx, COMMON, SKIP);
 			commonArenaBase[lenIdx] = bitOut.getFilePointer();
 			appendLenIdxPool(bitOut, commonArenaOff, lenIdx, COMMON, ARENA);
+			commonBloomBase[lenIdx] = bitOut.getFilePointer();
+			appendLenIdxPool(bitOut, commonBloomOff, lenIdx, COMMON, BLOOM);
 		}
 		for (int lenIdx = 0; lenIdx < maxLen; lenIdx++) {
 			bitOut.writeLong(hotSkipBase[lenIdx]);
 			bitOut.writeLong(hotArenaBase[lenIdx]);
+			bitOut.writeLong(hotBloomBase[lenIdx]);
 			bitOut.writeLong(commonSkipBase[lenIdx]);
 			bitOut.writeLong(commonArenaBase[lenIdx]);
+			bitOut.writeLong(commonBloomBase[lenIdx]);
 		}
 
 		for (int gi = 0; gi < n; gi++) {
 			final StagedGroup group = groups.get(gi);
 			final long hotDirOff = bitOut.getFilePointer();
-			writeTierDirectory(bitOut, TIER_DIR_MAGIC_HOT, hotSkipOff[gi], hotArenaOff[gi]);
+			writeTierDirectory(bitOut, TIER_DIR_MAGIC_HOT, hotSkipOff[gi], hotArenaOff[gi], hotBloomOff[gi]);
 			final long commonDirOff = bitOut.getFilePointer();
-			writeTierDirectory(bitOut, TIER_DIR_MAGIC_COMMON, commonSkipOff[gi], commonArenaOff[gi]);
+			writeTierDirectory(bitOut, TIER_DIR_MAGIC_COMMON, commonSkipOff[gi], commonArenaOff[gi],
+					commonBloomOff[gi]);
 
 			final FpBlockInfo info = new FpBlockInfo(hotDirOff, commonDirOff,
 					(int) (commonDirOff - hotDirOff),
@@ -147,12 +161,13 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 		}
 	}
 
-	private static void writeTierDirectory(IndexOutput bitOut, int magic, long[] skipOff, long[] arenaOff)
-			throws IOException {
+	private static void writeTierDirectory(IndexOutput bitOut, int magic, long[] skipOff, long[] arenaOff,
+			long[] bloomOff) throws IOException {
 		bitOut.writeInt(magic);
 		for (int lenIdx = 0; lenIdx < Lucene80FPSearchConfig.NGRAM_MAX; lenIdx++) {
 			bitOut.writeLong(skipOff[lenIdx]);
 			bitOut.writeLong(arenaOff[lenIdx]);
+			bitOut.writeLong(bloomOff[lenIdx]);
 		}
 	}
 

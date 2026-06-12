@@ -27,6 +27,7 @@ class FpBitIndexSegmentStagingStaticTest {
 				int.class);
 		fileName.setAccessible(true);
 		assertEquals("hot_skipkeys_3.dat", fileName.invoke(null, "hot", "skipkeys", 3));
+		assertEquals("common_bloom_2.dat", fileName.invoke(null, "common", "bloom", 2));
 
 		Method partPath = FpBitIndexSegmentStaging.class.getDeclaredMethod("partPath", Path.class, String.class,
 				String.class, int.class);
