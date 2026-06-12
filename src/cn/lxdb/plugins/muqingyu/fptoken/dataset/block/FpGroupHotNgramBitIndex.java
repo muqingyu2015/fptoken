@@ -23,6 +23,8 @@ import org.slf4j.Logger;
 import cn.lucene.proguard.keep.lxdb.common.CLMillisecondClock;
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.CommonTermSortEntry;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
@@ -256,43 +258,38 @@ public final class FpGroupHotNgramBitIndex {
 	 * @param group       组数据重建对象，包含 hot/common term order 信息
 	 * @return 构建完成的全量内存索引实例
 	 */
-	public static FpGroupHotNgramBitIndex execute(int targetLevel, FpGroupDataRebuild group) {
+	public static FpGroupHotNgramBitIndex execute1(int targetLevel, FpGroupDataRebuild group,HashMap<FpTermKey, FPDocList> hotTermToDocs1,
+			final ArrayList<java.util.Map.Entry<FpTermKey, FPDocList>> hot_ordered,ArrayList<CommonTermSortEntry> commonTermFlushOrder1) {
 		// 获取热词和普通词的 term 数量
-		final int h = group.hotTermOrderSize();
-		final int c = group.commonTermOrderSize();
+		final int h = hot_ordered.size();
+		final int c = commonTermFlushOrder1.size();
 
 		// 初始化 hot 和 common 两个 tier（非稀疏模式）
 		final TierIndex hotTier = new TierIndex(false);
 		final TierIndex commonTier = new TierIndex(false);
 
-		// 获取内部有序的 term→order 映射
-		final TreeMap<FpTermKey, Integer> hotOrder = group.hotTermOrderInternal();
-		final TreeMap<FpTermKey, Integer> commonOrder = group.commonTermOrderInternal();
-
+	
 		// 构建热词 key 集合，用于 common 阶段去重（跳过已在 hot 中出现的 slice）
-		final HashSet<FpTermKey> hotKeySet = new HashSet<>(Math.max(16, h * 2));
-		for (FpTermKey hotKey : hotOrder.keySet()) {
-			hotKeySet.add(hotKey);
-		}
+	
+		int order = 1;
 
 		// 遍历所有热词，将其 ngram 切片标记到 hot tier
-		for (Entry<FpTermKey, Integer> e : hotOrder.entrySet()) {
-			markHotNgramsForPayload(hotTier, e.getKey().bytesRef(), e.getValue().intValue());
+		for (final java.util.Map.Entry<FpTermKey, FPDocList> e : hot_ordered) {
+			
+			 final FpTermKey key = e.getKey();
+			    final FPDocList val = e.getValue();
+			    final Integer index=Integer.valueOf(order++);
+			markHotNgramsForPayload(hotTier, e.getKey().bytesRef(),index);
 		}
 		// 遍历所有普通词，将其去重后的 ngram 切片标记到 common tier（排除 hot 已有的）
-		final ArrayList<FpTermKey> commonFlushOrder = group.commonTermFlushOrderInternal();
-		if (commonFlushOrder != null) {
-			for (FpTermKey key : commonFlushOrder) {
-				final Integer ord = commonOrder.get(key);
-				if (ord != null) {
-					markCommonNgramsByUniqueSlices(hotKeySet, commonTier, key.bytesRef(), ord.intValue());
-				}
-			}
-		} else {
-			for (Entry<FpTermKey, Integer> e : commonOrder.entrySet()) {
-				markCommonNgramsByUniqueSlices(hotKeySet, commonTier, e.getKey().bytesRef(), e.getValue().intValue());
-			}
+
+		order = 1;
+		for (CommonTermSortEntry entry : commonTermFlushOrder1) {
+		    final Integer ord=Integer.valueOf(order++);
+			markCommonNgramsByUniqueSlices(hotTermToDocs1, commonTier, entry.key.bytesRef(), ord);
+
 		}
+	
 
 		// 完成构建：将 TreeMap 转为排序数组 + 压缩 order 列表
 		hotTier.finalizeRows();
@@ -625,7 +622,7 @@ public final class FpGroupHotNgramBitIndex {
 	 * @param payload   普通词载荷字节
 	 * @param order     该 term 在组内的序号
 	 */
-	private static void markCommonNgramsByUniqueSlices(HashSet<FpTermKey> hotKeySet, TierIndex tier, BytesRef payload,
+	private static void markCommonNgramsByUniqueSlices(HashMap<FpTermKey, FPDocList> hotTermToDocs, TierIndex tier, BytesRef payload,
 			int order) {
 		if (order < 1) {
 			return;
@@ -665,7 +662,7 @@ public final class FpGroupHotNgramBitIndex {
 		// 第二遍：将不在 hot 中的 slice 添加到 common tier
 		for (FpTermKey key : uniqueSlices) {
 			// 跳过已在 hot tier 中存在的 slice
-			if (hotKeySet.contains(key)) {
+			if (hotTermToDocs.containsKey(key)) {
 				continue;
 			}
 			final BytesRef br = key.bytesRef();

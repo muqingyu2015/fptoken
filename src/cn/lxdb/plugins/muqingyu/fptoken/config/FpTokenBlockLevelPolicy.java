@@ -7,7 +7,6 @@ package cn.lxdb.plugins.muqingyu.fptoken.config;
  */
 public final class FpTokenBlockLevelPolicy {
 	
-	
 	public final static int BLOCK_LEVEL_TOP=4;
 	public final static int BLOCK_LEVEL_HIGH=3;
 	public final static int BLOCK_LEVEL_MID=2;
@@ -22,7 +21,8 @@ public final class FpTokenBlockLevelPolicy {
 	
 	public static final int OVER_WRITE_TOP_CNT = (int) (BLOCK_LEVEL_TOP_CNT * getOverRate(BLOCK_LEVEL_TOP));
 
-	
+	public final static int HASH_MAP_DEFAULT_SIZE=FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP_CNT*Lucene80FPSearchConfig.BITSET_WINDOW_SIZE*Lucene80FPSearchConfig.BITSET_WINDOW_SIZE;
+
 	public static  int get_hot_layer_threshold(int level)
 	{
 		if(BLOCK_LEVEL_TOP==level)

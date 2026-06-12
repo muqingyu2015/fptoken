@@ -2,7 +2,7 @@ package cn.lxdb.plugins.muqingyu.fptoken.dataset.block;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Map.Entry;
+import java.util.HashMap;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -20,13 +20,15 @@ import cn.lucene.proguard.keep.lxdb.common.CLMillisecondClock;
 import cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator;
 import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.CommonTermSortEntry;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
-import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpDocListEach;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpStatNgram;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
+import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolHub;
+import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolIds;
 
 /**
  * 单组内：组级 doc 并集用 {@link SparseFixedBitSet}；每个 term 对应 {@link FPDocList}，
@@ -41,19 +43,24 @@ public final class FpGroupDataRebuild {
 	/** 组内去重 doc 并集（闭块判定） */
 	public final SparseFixedBitSet distinctDocUnion;
 	/** 热词表，键序见 {@link FpTermKey#ORDER_BY_LENGTH_THEN_BYTES}。 */
-	public final TreeMap<FpTermKey, FPDocList> hotTermToDocs = new TreeMap<>(FpTermKey.ORDER_BY_LENGTH_THEN_BYTES);
+//	public final HashMap<FpTermKey, FPDocList> hotTermToDocs1 = new HashMap<>();
 	/**
 	 * 热词锚点「向下扩展档」预算（≥1，含锚点档），由 {@link FpGroupHotNgramRebuild} 写入词项头 offset 12。
 	 * 与 {@link FpTokenTermLayout#maxHotPayloadLen(int, int)}、检索热词长度截断一致。
 	 */
-	public final TreeMap<FpTermKey, Integer> hotTermDownTierBudget = new TreeMap<>(FpTermKey.ORDER_BY_LENGTH_THEN_BYTES);
-	public final TreeMap<FpTermKey, Integer> hotTermToOrder = new TreeMap<>(FpTermKey.ORDER_BY_LENGTH_THEN_BYTES);
+	public  final HashMap<FpTermKey, FPDocList> hotTermToDocs1 = FpHashMapPoolHub.borrow(  FpHashMapPoolIds.hotTermToDocs,  FpTermKey.class,   FPDocList.class,  FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+
+	
+	public  final HashMap<FpTermKey, Integer> hotTermDownTierBudget1 = FpHashMapPoolHub.borrow(  FpHashMapPoolIds.hotTermDownTierBudget,  FpTermKey.class,   Integer.class,  FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+
+//	public final HashMap<FpTermKey, Integer> hotTermToOrder1 = FpHashMapPoolHub.borrow(6, FpTermKey.class, Integer.class,
+//			FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
 
 	/** 普通词表 */
-	public final TreeMap<FpTermKey, FPDocList> commonTermToDocs = new TreeMap<>();
-	public final TreeMap<FpTermKey, Integer> commonTermToOrder = new TreeMap<>();
-	/** merge 后按 hot 命中数升序的 common 写序（0 命中最后）；由 {@link FpGroupHotNgramRebuild} 写入。 */
-	private ArrayList<FpTermKey> commonTermFlushOrder;
+	public  final HashMap<FpTermKey, FPDocList> commonTermToDocs1 = FpHashMapPoolHub.borrow(  FpHashMapPoolIds.commonTermToDocs,  FpTermKey.class,   FPDocList.class,  FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+
+
+	private ArrayList<CommonTermSortEntry> commonTermFlushOrder1=null;
 
 	public FpGroupDataRebuild(int maxDoc) {
 		this.maxDoc = maxDoc;
@@ -61,74 +68,33 @@ public final class FpGroupDataRebuild {
 	}
 
 	public int termCount() {
-		return commonTermToDocs.size();
+		return commonTermToDocs1.size();
 	}
 
 	/** 供 {@link FpGroupHotNgramRebuild} 使用。 */
-	public TreeMap<FpTermKey, FPDocList> hotTermMapInternal() {
-		return hotTermToDocs;
+	public HashMap<FpTermKey, FPDocList> hotTermMapInternal() {
+		return hotTermToDocs1;
 	}
 
-	public TreeMap<FpTermKey, FPDocList> commonTermMapInternal() {
-		return commonTermToDocs;
+	public HashMap<FpTermKey, FPDocList> commonTermMapInternal() {
+		return commonTermToDocs1;
 	}
 
-	/** 供 {@link FpGroupHotNgramBitIndex} 使用：热词编号表。 */
-	public TreeMap<FpTermKey, Integer> hotTermOrderInternal() {
-		return hotTermToOrder;
-	}
 
-	public TreeMap<FpTermKey, Integer> hotTermDownTierBudgetInternal() {
-		return hotTermDownTierBudget;
+
+	public HashMap<FpTermKey, Integer> hotTermDownTierBudgetInternal() {
+		return hotTermDownTierBudget1;
 	}
 	
-	public TreeMap<FpTermKey, Integer> commonTermOrderInternal() {
-		return commonTermToOrder;
+
+
+	public void setCommonTermFlushOrder(ArrayList<CommonTermSortEntry> order) {
+		this.commonTermFlushOrder1 = order;
 	}
 
-	public void setCommonTermFlushOrder(ArrayList<FpTermKey> order) {
-		this.commonTermFlushOrder = order;
-	}
 
-	/** 供 {@link FpGroupHotNgramBitIndex} 与 flush 使用：按 hot 命中数排序后的 common 写序。 */
-	public ArrayList<FpTermKey> commonTermFlushOrderInternal() {
-		return commonTermFlushOrder;
-	}
 
-	private Iterable<FpTermKey> commonTermKeysInFlushOrder() {
-		if (commonTermFlushOrder != null) {
-			return commonTermFlushOrder;
-		}
-		return commonTermToDocs.keySet();
-	}
 
-	/** 清空 {@link #hotTermToOrder}，再按 {@link #hotTermToDocs} 键序（{@link FpTermKey#ORDER_BY_LENGTH_THEN_BYTES}）从 1 起连续编号。 */
-	public void rebuildHotTermOrderFromHotDocs() {
-		hotTermToOrder.clear();
-		int order = 1;
-		for (FpTermKey key : hotTermToDocs.keySet()) {
-			hotTermToOrder.put(key, order++);
-		}
-	}
-
-	/** 清空 {@link #commonTermToOrder}，再按 hot 命中写序（无则 {@link #commonTermToDocs} 键序）从 1 起连续编号。 */
-	public void rebuildCommonTermToOrderFromHotDocs() {
-		commonTermToOrder.clear();
-		int n = 1;
-		for (FpTermKey k : commonTermKeysInFlushOrder()) {
-			if (commonTermToDocs.containsKey(k)) {
-				commonTermToOrder.put(k, Integer.valueOf(n++));
-			}
-		}
-	}
-
-	public int hotTermOrderSize() {
-		return hotTermToOrder.size();
-	}
-
-	public int commonTermOrderSize() {
-		return commonTermToOrder.size();
-	}
 
 	public int maxDocInternal() {
 		return maxDoc;
@@ -156,7 +122,7 @@ public final class FpGroupDataRebuild {
 	public void flushto(FpTokenBlockOrchestrator parentItem, byte[] groupkey,String debug_msg) throws IOException {
 		long ts=CLMillisecondClock.CLOCK.now();
 
-		if(commonTermToDocs.size()>=FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP_CNT)
+		if(commonTermToDocs1.size()>=FpTokenBlockLevelPolicy.BLOCK_LEVEL_TOP_CNT)
 		{
 			synchronized (PRAL_BIG[(int) (PRAL_BIG_INDEX.incrementAndGet()%PRAL_BIG.length)]) {
 				try {
@@ -172,7 +138,7 @@ public final class FpGroupDataRebuild {
 			return ;
 		}
 		
-		if(commonTermToDocs.size()>=FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH_CNT)
+		if(commonTermToDocs1.size()>=FpTokenBlockLevelPolicy.BLOCK_LEVEL_HIGH_CNT)
 		{
 			synchronized (PRAL_MID[(int) (PRAL_MID_INDEX.incrementAndGet()%PRAL_MID.length)]) {
 
@@ -212,10 +178,9 @@ public final class FpGroupDataRebuild {
 
 		final BytesRef columnName = FpTokenTermLayout.readColumnName(new BytesRef(groupkey));
 		
-		if(commonTermToDocs.size()<=FpTokenBlockLevelPolicy.NO_INDEX_THRESHOLD)
+		if(commonTermToDocs1.size()<=FpTokenBlockLevelPolicy.NO_INDEX_THRESHOLD)
 		{
 			//如果这个field的term数量很少，则采用暴力遍历，用于解决稀疏列
-			this.rebuildCommonTermToOrderFromHotDocs();
 
 			int stat_del_hotterm_cnt=0;
 			long stat_common_doc_cnt=0;
@@ -224,11 +189,14 @@ public final class FpGroupDataRebuild {
 			BytesRef reuse_term=new BytesRef(reuse_bytes);
 			int group_id=parentItem.groupIndex.incrementAndGet();
 			
-			
-			for (FpTermKey key : commonTermKeysInFlushOrder())
+			int order = 1;
+
+			for (CommonTermSortEntry entry : this.commonTermFlushOrder1)
 			{
-				FPDocList val=commonTermToDocs.get(key);
-				Integer index=commonTermToOrder.get(key);
+				FpTermKey key=entry.key;
+			    final Integer index=Integer.valueOf(order++);
+
+				FPDocList val=entry.sourceDocList;
 				boolean isDelTerm=val.docsize()<=0;
 				if(isDelTerm)
 				{
@@ -269,22 +237,22 @@ public final class FpGroupDataRebuild {
 			FpLog.append(sbZero, "doclistCommon", stat_common_doc_cnt);
 			FpLog.append(sbZero, "delHotTerms", stat_del_hotterm_cnt);
 			FpLog.append(sbZero, "distinctDocs", distinctDocUnion.cardinality());
-			FpLog.append(sbZero, "commonTerms", commonTermToDocs.size());
+			FpLog.append(sbZero, "commonTerms", commonTermToDocs1.size());
 			FpLog.infoLineSampled(LOG, FpLog.TAG_REBUILD, sbZero, ts_end - ts_begin);
 
 		
 		}else {
 			
-			int columnLevel=FpTokenBlockLevelPolicy.resolveTargetBlockLevel(this.commonTermToDocs.size(), distinctDocUnion.cardinality());
+			int columnLevel=FpTokenBlockLevelPolicy.resolveTargetBlockLevel(this.commonTermToDocs1.size(), distinctDocUnion.cardinality());
 
 			FpStatNgram ngramstat=FpGroupHotNgramRebuild.execute(columnLevel,this, parentItem);
 			long ts_ngram=CLMillisecondClock.CLOCK.now();
 
-			//----TODO:这三处是主要瓶颈三，找出是那个
-			this.rebuildHotTermOrderFromHotDocs();
-			this.rebuildCommonTermToOrderFromHotDocs();
+			final ArrayList<java.util.Map.Entry<FpTermKey, FPDocList>> hot_ordered = new ArrayList<>(hotTermToDocs1.entrySet());
+			hot_ordered.sort(java.util.Map.Entry.comparingByKey(FpTermKey.ORDER_BY_LENGTH_THEN_BYTES));
+			
 
-			FpGroupHotNgramBitIndex bitinfo=FpGroupHotNgramBitIndex.execute(columnLevel,this);
+			FpGroupHotNgramBitIndex bitinfo=FpGroupHotNgramBitIndex.execute1(columnLevel,this,this.hotTermToDocs1,hot_ordered,this.commonTermFlushOrder1);
 			long ts_bitset=CLMillisecondClock.CLOCK.now();
 
 			int del_term_docid=distinctDocUnion.nextSetBit(0);
@@ -295,12 +263,15 @@ public final class FpGroupDataRebuild {
 			final byte[] reuse_bytes = new byte[1024];
 			BytesRef reuse_term=new BytesRef(reuse_bytes);
 			int group_id=parentItem.groupIndex.incrementAndGet();
-			for (Entry<FpTermKey, FPDocList> e : hotTermToDocs.entrySet()) {
-				final FpTermKey key = e.getKey();
-				final Integer budgetObj = hotTermDownTierBudget.get(key);
+			
+			int order = 1;
+			for (final java.util.Map.Entry<FpTermKey, FPDocList> e : hot_ordered) {
+				  final FpTermKey key = e.getKey();
+				    final FPDocList val = e.getValue();
+				    final Integer index=Integer.valueOf(order++);
+				
+				final Integer budgetObj = hotTermDownTierBudget1.get(key);
 				final int downTierBudget = budgetObj != null ? budgetObj.intValue() : 0;
-				final FPDocList val = e.getValue();
-				final Integer index = hotTermToOrder.get(key);
 				final boolean isDelTerm = val.docsize() <= 0;
 				if (isDelTerm) { // 仅仅占位用
 					val.addDoc(del_term_docid);
@@ -330,11 +301,13 @@ public final class FpGroupDataRebuild {
 				}
 			}
 			
-			
-			for (FpTermKey key : commonTermKeysInFlushOrder())
+			order = 1;
+			for (CommonTermSortEntry entry : this.commonTermFlushOrder1)
 			{
-				FPDocList val=commonTermToDocs.get(key);
-				Integer index=commonTermToOrder.get(key);
+				FpTermKey key=entry.key;
+			    final Integer index=Integer.valueOf(order++);
+
+				FPDocList val=entry.sourceDocList;
 				boolean isDelTerm=val.docsize()<=0;
 				if(isDelTerm)
 				{
@@ -384,8 +357,8 @@ public final class FpGroupDataRebuild {
 			FpLog.append(sbFlush, "doclistCommon", stat_common_doc_cnt);
 			FpLog.append(sbFlush, "delHotTerms", stat_del_hotterm_cnt);
 			FpLog.append(sbFlush, "distinctDocs", distinctDocUnion.cardinality());
-			FpLog.append(sbFlush, "hotTerms", hotTermToDocs.size());
-			FpLog.append(sbFlush, "commonTerms", commonTermToDocs.size());
+			FpLog.append(sbFlush, "hotTerms", hotTermToDocs1.size());
+			FpLog.append(sbFlush, "commonTerms", commonTermToDocs1.size());
 			FpLog.append(sbFlush, "ngramStat", ngramstat);
 			FpLog.append(sbFlush, "bitindex", "staged");
 			FpLog.infoLineSampled(LOG, FpLog.TAG_REBUILD, sbFlush, ts_end - ts_begin);
@@ -407,7 +380,7 @@ public final class FpGroupDataRebuild {
 		
 		BytesRef term_noheader=FpTokenTermLayout.removeColumnAndHeaderBytes(term_withheader);
 		final PostingsEnum pe = termsEnum.postings(docsEnum_reuse.get(), PostingsEnum.NONE);
-		final TreeMap<FpTermKey, FPDocList> bucket = commonTermToDocs;
+		final HashMap<FpTermKey, FPDocList> bucket = commonTermToDocs1;
 		final FpTermKey probe = FpTermKey.viewOf(term_noheader);
 		FPDocList acc = bucket.get(probe);
 		if (acc == null) {
@@ -436,7 +409,7 @@ public final class FpGroupDataRebuild {
 		}
 		
 		BytesRef term_noheader=FpTokenTermLayout.removeColumnAndHeaderBytes(term_withheader.bytesRef());
-		final TreeMap<FpTermKey, FPDocList> bucket = commonTermToDocs;
+		final HashMap<FpTermKey, FPDocList> bucket = commonTermToDocs1;
 		final FpTermKey probe = FpTermKey.viewOf(term_noheader);
 		 FPDocList acc = bucket.get(probe);
 		if (acc == null) {
@@ -467,12 +440,12 @@ public final class FpGroupDataRebuild {
 
 
 	public void resetAfterFlush() {
-		hotTermToDocs.clear();
-		hotTermDownTierBudget.clear();
-		hotTermToOrder.clear();
-		commonTermToDocs.clear();
-		commonTermToOrder.clear();
-		commonTermFlushOrder = null;
 		distinctDocUnion.clear(0, maxDoc);
+		FpHashMapPoolHub.release(FpHashMapPoolIds.anchorTierIndexByHotTerm, hotTermDownTierBudget1);
+		FpHashMapPoolHub.release(FpHashMapPoolIds.hotTermToDocs, hotTermToDocs1);
+		FpHashMapPoolHub.release(FpHashMapPoolIds.commonTermToDocs, commonTermToDocs1);
+
+		
+		
 	}
 }

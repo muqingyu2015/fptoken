@@ -23,6 +23,8 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpStatNgram;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKeyHash;
 import cn.lxdb.plugins.muqingyu.fptoken.ngram.Counter;
+import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolHub;
+import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolIds;
 
 /**
  * 从 {@link FpGroupDataRebuild#commonTermMapInternal()} 按 byte n-gram 挖掘热词，合并 doc，并计算
@@ -74,13 +76,14 @@ public final class FpGroupHotNgramRebuild {
 		}
 	}
 
-	private static final class CommonTermSortEntry {
+	public static final class CommonTermSortEntry {
 		final FpTermKey key;
 		final int sortKey;
 		final int originalOrdinal;
-
-		CommonTermSortEntry(FpTermKey key, int sortKey, int originalOrdinal) {
+		final FPDocList sourceDocList;
+		CommonTermSortEntry(FpTermKey key,FPDocList sourceDocList, int sortKey, int originalOrdinal) {
 			this.key = key;
+			this.sourceDocList=sourceDocList;
 			this.sortKey = sortKey;
 			this.originalOrdinal = originalOrdinal;
 		}
@@ -108,20 +111,28 @@ public final class FpGroupHotNgramRebuild {
 		// 初始化统计对象
 		FpStatNgram stat = new FpStatNgram();
 		// 获取热词输出容器（term→doclist 映射和 downTierBudget 映射），并清空旧数据
-		final TreeMap<FpTermKey, FPDocList> hotTermToDocs = group.hotTermMapInternal();
-		final TreeMap<FpTermKey, Integer> hotTermDownTierBudget = group.hotTermDownTierBudgetInternal();
+		final HashMap<FpTermKey, FPDocList> hotTermToDocs = group.hotTermMapInternal();
+		final HashMap<FpTermKey, Integer> hotTermDownTierBudget = group.hotTermDownTierBudgetInternal();
 		hotTermToDocs.clear();
 		hotTermDownTierBudget.clear();
 
 		// 获取 common term map 和最大文档号
-		final TreeMap<FpTermKey, FPDocList> commonTermToDocs = group.commonTermMapInternal();
+		final HashMap<FpTermKey, FPDocList> commonTermToDocs = group.commonTermMapInternal();
 		final int maxDoc = group.maxDocInternal();
+		
 
 		// 预估 HashMap 容量，避免频繁扩容
-		final int mapCapacity = Math.max(commonTermToDocs.size() / 100, 32);
 		// ngram 出现次数计数器
-		final HashMap<FpTermKey, Counter> ngramOccurrenceCount = new HashMap<>(mapCapacity);
+//		final HashMap<FpTermKey, Counter> ngramOccurrenceCount = new HashMap<>(hash_map_init_size);
+		
+		final HashMap<FpTermKey, Counter> ngramOccurrenceCount = FpHashMapPoolHub.borrow(  FpHashMapPoolIds.ngramOccurrenceCount,  FpTermKey.class,   Counter.class,   FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+		final HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm = FpHashMapPoolHub.borrow(  FpHashMapPoolIds.anchorTierIndexByHotTerm,  FpTermKey.class,   AnchorTierIndex.class,   FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+		final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = FpHashMapPoolHub.borrow(  FpHashMapPoolIds.hotTermsPendingDocMerge,  FpTermKey.class,   FPDocList.class,   FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+		final HashMap<FpTermKey, HotMergeSlot> hotMergeTable = FpHashMapPoolHub.borrow(  FpHashMapPoolIds.hotMergeTable,  FpTermKey.class,   HotMergeSlot.class,   FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
 
+
+
+		try {
 		// === 阶段1：统计 common 中各 ngram 出现次数 ===
 		long t0 = CLMillisecondClock.CLOCK.now();
 		//----TODO:主要瓶颈一
@@ -130,12 +141,13 @@ public final class FpGroupHotNgramRebuild {
 		stat.distinct_ngram = ngramOccurrenceCount.size();
 
 		// === 阶段2：构建热词表和锚点分档索引 ===
-		final HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm = new HashMap<>(mapCapacity);
 		t0 = CLMillisecondClock.CLOCK.now();
-		final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = buildHotTermsAndAnchorTierIndex(stat,
-				ngramOccurrenceCount, FpTokenBlockLevelPolicy.get_common_to_hot_threshold(targetLevel), maxDoc, anchorTierIndexByHotTerm);
+		buildHotTermsAndAnchorTierIndex(hotTermsPendingDocMerge,stat,ngramOccurrenceCount, FpTokenBlockLevelPolicy.get_common_to_hot_threshold(targetLevel), maxDoc, anchorTierIndexByHotTerm);
+		
 		stat.ms_build = CLMillisecondClock.CLOCK.now() - t0;
 		stat.hot_pending = hotTermsPendingDocMerge.size();
+		
+		
 
 		// === 阶段3：计算每个热词锚点的向下遍历预算 ===
 		t0 = CLMillisecondClock.CLOCK.now();
@@ -145,22 +157,22 @@ public final class FpGroupHotNgramRebuild {
 
 		// === 阶段4准备：构建 merge 加速结构 ===
 		// merge 阶段大量 get：一次性拷贝为 HashMap，规则不变，仅加速查找
-		final HashMap<FpTermKey, Integer> hotTermDownTierBudgetFast = new HashMap<>(hotTermDownTierBudget);
+//		final HashMap<FpTermKey, Integer> hotTermDownTierBudgetFast = new HashMap<>(hotTermDownTierBudget);
+		
 		// 将所有热词 doclist 切换为稀疏模式以优化批量 merge 性能
 		ensureAllHotDocListsSparse(hotTermsPendingDocMerge);
 		// 构建 hotMergeTable：key → (docList, ordinal) 的快速查找表
-		final HashMap<FpTermKey, HotMergeSlot> hotMergeTable = buildHotMergeTable(hotTermsPendingDocMerge);
+		buildHotMergeTable(hotMergeTable,hotTermsPendingDocMerge);
 		
 		// 按锚点长度分区 budget，便于 merge 时按长度快速定位
-		final HashMap<FpTermKey, Integer>[] budgetByLen = partitionBudgetByAnchorLength(hotTermDownTierBudgetFast);
+//		final HashMap<FpTermKey, Integer>[] budgetByLen = partitionBudgetByAnchorLength1(hotTermDownTierBudget);
 		// 标记哪些长度存在 budget 条目，用于快速跳过无预算的长度档
-		final boolean[] anchorLenHasBudget = anchorLengthsPresentInBudget(hotTermDownTierBudgetFast);
+//		final boolean[] anchorLenHasBudget = anchorLengthsPresentInBudget(hotTermDownTierBudget);
 
 		// === 阶段4：将 common doc 合并到热词 posting ===
 		t0 = CLMillisecondClock.CLOCK.now();
 		//----TODO:主要瓶颈二
-		final ArrayList<FpTermKey> commonFlushOrder = mergeCommonDocsIntoHotTerms(stat, commonTermToDocs, hotMergeTable,
-				budgetByLen, anchorLenHasBudget);
+		final ArrayList<CommonTermSortEntry> commonFlushOrder = mergeCommonDocsIntoHotTerms(stat, commonTermToDocs, hotMergeTable,hotTermDownTierBudget);
 		group.setCommonTermFlushOrder(commonFlushOrder);
 		stat.ms_merge = CLMillisecondClock.CLOCK.now() - t0;
 		stat.hot_doclist_sparse = countSparseHotDocLists(hotTermsPendingDocMerge);
@@ -170,6 +182,15 @@ public final class FpGroupHotNgramRebuild {
 		// 将待 merge 的热词写入最终输出容器
 		hotTermToDocs.putAll(hotTermsPendingDocMerge);
 		stat.hot_final = hotTermToDocs.size();
+		
+		
+		}finally {
+			FpHashMapPoolHub.release(FpHashMapPoolIds.ngramOccurrenceCount, ngramOccurrenceCount);
+			FpHashMapPoolHub.release(FpHashMapPoolIds.anchorTierIndexByHotTerm, anchorTierIndexByHotTerm);
+			FpHashMapPoolHub.release(FpHashMapPoolIds.hotTermsPendingDocMerge, hotTermsPendingDocMerge);
+			FpHashMapPoolHub.release(FpHashMapPoolIds.hotMergeTable, hotMergeTable);
+
+		}
 
 		return stat;
 	}
@@ -183,7 +204,7 @@ public final class FpGroupHotNgramRebuild {
 	 * @param anchorTierIndexByHotTerm  锚点分档索引（按字节长度组织的子串集合）
 	 * @param hotFreqThreshold          累加子串数量的阈值上限
 	 */
-	private static void computeHotDownTierBudgets(FpStatNgram stat, TreeMap<FpTermKey, Integer> hotTermDownTierBudget,
+	private static void computeHotDownTierBudgets(FpStatNgram stat, HashMap<FpTermKey, Integer> hotTermDownTierBudget,
 			HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm, final long hotFreqThreshold) {
 		for (Map.Entry<FpTermKey, AnchorTierIndex> entry : anchorTierIndexByHotTerm.entrySet()) {
 			final FpTermKey anchorTerm = entry.getKey();
@@ -218,11 +239,11 @@ public final class FpGroupHotNgramRebuild {
 	 * @param commonTermToDocs      common term → doclist 映射
 	 * @param ngramOccurrenceCount  输出：ngram → 出现次数映射
 	 */
-	private static void countNgramOccurrencesInCommon(FpStatNgram stat, TreeMap<FpTermKey, FPDocList> commonTermToDocs,
+	private static void countNgramOccurrencesInCommon(FpStatNgram stat, HashMap<FpTermKey, FPDocList> commonTermToDocs,
 			HashMap<FpTermKey, Counter> ngramOccurrenceCount) {
 		// 复用的 BytesRef 滑动窗口，避免重复分配
 		final BytesRef sliceScratch = new BytesRef();
-
+		final HashSet<FpTermKey> uniqueNgramsThisCommonTerm = new HashSet<>(Lucene80FPSearchConfig.BITSET_WINDOW_SIZE * Lucene80FPSearchConfig.NGRAM_MAX* Lucene80FPSearchConfig.NGRAM_MAX);
 		for (Map.Entry<FpTermKey, FPDocList> entry : commonTermToDocs.entrySet()) {
 			final BytesRef commonPayload = entry.getKey().bytesRef();
 			final int payloadLen = commonPayload.length;
@@ -231,11 +252,12 @@ public final class FpGroupHotNgramRebuild {
 			}
 			stat.term_cnt++;
 			// 当前 common term 内已出现的 ngram 集合（用于 term 内去重）
-			final HashSet<FpTermKey> uniqueNgramsThisCommonTerm = new HashSet<>(
-					Math.max(16, Math.min(payloadLen * 4, 4096)));
+			uniqueNgramsThisCommonTerm.clear();
 			final byte[] bytes = commonPayload.bytes;
 			final int base = commonPayload.offset;
 			sliceScratch.bytes = bytes;
+			
+			
 			for (int start = 0; start < payloadLen; start++) {
 				int h = 0;
 				final int maxNgramLen = Math.min(Lucene80FPSearchConfig.NGRAM_MAX, payloadLen - start);
@@ -283,12 +305,10 @@ public final class FpGroupHotNgramRebuild {
 	 * @param anchorTierIndexByHotTerm   输出：热词锚点→分档索引映射
 	 * @return 待 merge 的热词→空 doclist 映射
 	 */
-	private static HashMap<FpTermKey, FPDocList> buildHotTermsAndAnchorTierIndex(FpStatNgram stat,
+	private static HashMap<FpTermKey, FPDocList> buildHotTermsAndAnchorTierIndex(final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge,FpStatNgram stat,
 			HashMap<FpTermKey, Counter> ngramOccurrenceCount, long hotFreqThreshold, int maxDoc,
 			HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm) {
-		// 预估容量为 ngram 总数的 1/4
-		final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = new HashMap<>(
-				Math.max(16, ngramOccurrenceCount.size() / 4));
+		
 		// 单档 TreeSet 的最大容量上限，防止某个锚点的子串过多导致内存爆炸
 		final int tierSetSizeCap = (int) (hotFreqThreshold * 2);
 
@@ -353,42 +373,42 @@ public final class FpGroupHotNgramRebuild {
 		}
 	}
 
-	/**
-	 * 按锚点字节长度将 budget 映射分区到数组中，便于 merge 阶段按长度 O(1) 定位。
-	 *
-	 * @param hotTermDownTierBudget 热词→预算映射
-	 * @return 按长度分区的 budget 数组，下标为字节长度
-	 */
-	@SuppressWarnings("unchecked")
-	private static HashMap<FpTermKey, Integer>[] partitionBudgetByAnchorLength(
-			HashMap<FpTermKey, Integer> hotTermDownTierBudget) {
-		final HashMap<FpTermKey, Integer>[] byLen = new HashMap[Lucene80FPSearchConfig.NGRAM_MAX + 1];
-		for (Map.Entry<FpTermKey, Integer> entry : hotTermDownTierBudget.entrySet()) {
-			final int len = entry.getKey().bytesRef().length;
-			HashMap<FpTermKey, Integer> bucket = byLen[len];
-			if (bucket == null) {
-				bucket = new HashMap<>();
-				byLen[len] = bucket;
-			}
-			bucket.put(entry.getKey(), entry.getValue());
-		}
-		return byLen;
-	}
-
-	/**
-	 * 生成一个布尔数组，标记哪些字节长度在 budget 中存在条目。
-	 * 用于 merge 阶段快速跳过无预算的长度档，避免无效的 HashMap 查找。
-	 *
-	 * @param hotTermDownTierBudget 热词→预算映射
-	 * @return 长度存在性标记数组
-	 */
-	private static boolean[] anchorLengthsPresentInBudget(HashMap<FpTermKey, Integer> hotTermDownTierBudget) {
-		final boolean[] present = new boolean[Lucene80FPSearchConfig.NGRAM_MAX + 1];
-		for (FpTermKey anchor : hotTermDownTierBudget.keySet()) {
-			present[anchor.bytesRef().length] = true;
-		}
-		return present;
-	}
+//	/**
+//	 * 按锚点字节长度将 budget 映射分区到数组中，便于 merge 阶段按长度 O(1) 定位。
+//	 *
+//	 * @param hotTermDownTierBudget 热词→预算映射
+//	 * @return 按长度分区的 budget 数组，下标为字节长度
+//	 */
+//	@SuppressWarnings("unchecked")
+//	private static HashMap<FpTermKey, Integer>[] partitionBudgetByAnchorLength1(
+//			HashMap<FpTermKey, Integer> hotTermDownTierBudget) {
+//		final HashMap<FpTermKey, Integer>[] byLen = new HashMap[Lucene80FPSearchConfig.NGRAM_MAX + 1];
+//		for (Map.Entry<FpTermKey, Integer> entry : hotTermDownTierBudget.entrySet()) {
+//			final int len = entry.getKey().bytesRef().length;
+//			HashMap<FpTermKey, Integer> bucket = byLen[len];
+//			if (bucket == null) {
+//				bucket = new HashMap<>();
+//				byLen[len] = bucket;
+//			}
+//			bucket.put(entry.getKey(), entry.getValue());
+//		}
+//		return byLen;
+//	}
+//
+//	/**
+//	 * 生成一个布尔数组，标记哪些字节长度在 budget 中存在条目。
+//	 * 用于 merge 阶段快速跳过无预算的长度档，避免无效的 HashMap 查找。
+//	 *
+//	 * @param hotTermDownTierBudget 热词→预算映射
+//	 * @return 长度存在性标记数组
+//	 */
+//	private static boolean[] anchorLengthsPresentInBudget(HashMap<FpTermKey, Integer> hotTermDownTierBudget) {
+//		final boolean[] present = new boolean[Lucene80FPSearchConfig.NGRAM_MAX + 1];
+//		for (FpTermKey anchor : hotTermDownTierBudget.keySet()) {
+//			present[anchor.bytesRef().length] = true;
+//		}
+//		return present;
+//	}
 
 	/**
 	 * 统计热词 doclist 中使用稀疏存储的数量。
@@ -413,9 +433,8 @@ public final class FpGroupHotNgramRebuild {
 	 * @param hotTermsPendingDocMerge 热词→doclist 映射
 	 * @return 热词→HotMergeSlot 映射
 	 */
-	private static HashMap<FpTermKey, HotMergeSlot> buildHotMergeTable(
+	private static HashMap<FpTermKey, HotMergeSlot> buildHotMergeTable(final HashMap<FpTermKey, HotMergeSlot> hotMergeTable,
 			HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge) {
-		final HashMap<FpTermKey, HotMergeSlot> hotMergeTable = new HashMap<>(hotTermsPendingDocMerge.size() * 2);
 		int ord = 0;
 		for (Map.Entry<FpTermKey, FPDocList> entry : hotTermsPendingDocMerge.entrySet()) {
 			hotMergeTable.put(entry.getKey(), new HotMergeSlot(entry.getValue(), ord++));
@@ -443,9 +462,9 @@ public final class FpGroupHotNgramRebuild {
 	 * @param anchorLenHasBudget 长度存在性标记数组
 	 * @throws IOException IO 异常
 	 */
-	private static ArrayList<FpTermKey> mergeCommonDocsIntoHotTerms(final FpStatNgram stat,
-			TreeMap<FpTermKey, FPDocList> commonTermToDocs, final HashMap<FpTermKey, HotMergeSlot> hotMergeTable,
-			final HashMap<FpTermKey, Integer>[] budgetByLen, final boolean[] anchorLenHasBudget) throws IOException {
+	private static ArrayList<CommonTermSortEntry> mergeCommonDocsIntoHotTerms(final FpStatNgram stat,
+			HashMap<FpTermKey, FPDocList> commonTermToDocs, final HashMap<FpTermKey, HotMergeSlot> hotMergeTable,
+			final HashMap<FpTermKey, Integer> hotTermDownTierBudget) throws IOException {
 		// 位图：标记当前 common term 内哪些热词已经 merge 过
 		final boolean[] mergedThisCommon = new boolean[hotMergeTable.size()];
 		// 复用的 BytesRef 滑动窗口
@@ -500,20 +519,20 @@ public final class FpGroupHotNgramRebuild {
 					slot.docList.addAllDocsFrom(sourceDocList);
 					// 标记预算内的父前缀，避免短 ngram 重复 merge 同一 doc
 					markParentPrefixesSkippedInCommonTerm(stat, sliceScratch, mergedThisCommon, hotMergeTable,
-							budgetByLen, anchorLenHasBudget);
+							hotTermDownTierBudget);
 				}
 			}
 
 			final int sortKey = hotHitCount == 0 ? Integer.MAX_VALUE : hotHitCount;
 			stat.commonHotHitTierCnt[FpStatNgram.hotHitCountToTier(hotHitCount)]++;
-			sortEntries.add(new CommonTermSortEntry(entry.getKey(), sortKey, originalOrdinal++));
+			sortEntries.add(new CommonTermSortEntry(entry.getKey(),entry.getValue(), sortKey, originalOrdinal++));
 		}
 
 		sortEntries.sort(Comparator.comparingInt((CommonTermSortEntry e) -> e.sortKey)
 				.thenComparingInt(e -> e.originalOrdinal));
-		final ArrayList<FpTermKey> flushOrder = new ArrayList<>(sortEntries.size());
+		final ArrayList<CommonTermSortEntry> flushOrder = new ArrayList<>(sortEntries.size());
 		for (CommonTermSortEntry e : sortEntries) {
-			flushOrder.add(e.key);
+			flushOrder.add(e);
 		}
 		return flushOrder;
 	}
@@ -536,7 +555,7 @@ public final class FpGroupHotNgramRebuild {
 	 */
 	public static void markParentPrefixesSkippedInCommonTerm(final FpStatNgram stat, final BytesRef matchedHotSlice,
 			final boolean[] mergedThisCommon, final HashMap<FpTermKey, HotMergeSlot> hotMergeTable,
-			final HashMap<FpTermKey, Integer>[] budgetByLen, final boolean[] anchorLenHasBudget) {
+			final HashMap<FpTermKey, Integer> hotTermDownTierBudget) {
 		final int childByteLen = matchedHotSlice.length;
 		// 最短 ngram 没有更短的父前缀，直接返回
 		if (childByteLen <= Lucene80FPSearchConfig.NGRAM_MIN) {
@@ -547,10 +566,7 @@ public final class FpGroupHotNgramRebuild {
 		final BytesRef parentScratch = new BytesRef(bytes, childOffset, 0);
 
 		for (int parentLen = childByteLen - 1; parentLen >= Lucene80FPSearchConfig.NGRAM_MIN; parentLen--) {
-			if (!anchorLenHasBudget[parentLen]) {
-				continue;
-			}
-			final HashMap<FpTermKey, Integer> budgetAtLen = budgetByLen[parentLen];
+		
 			final int maxStart = childByteLen - parentLen;
 			int h = FpTermKeyHash.hashOf(bytes, childOffset, parentLen);
 			for (int start = 0; start <= maxStart; start++) {
@@ -561,7 +577,7 @@ public final class FpGroupHotNgramRebuild {
 				parentScratch.length = parentLen;
 				final FpTermKey parentHotKey = FpTermKey.viewOf(parentScratch, h);
 				// 查找该父前缀是否为热词及其预算值
-				final Integer parentDownTierBudget = budgetAtLen.get(parentHotKey);
+				final Integer parentDownTierBudget = hotTermDownTierBudget.get(parentHotKey);
 				if (parentDownTierBudget == null) {
 					continue;
 				}
