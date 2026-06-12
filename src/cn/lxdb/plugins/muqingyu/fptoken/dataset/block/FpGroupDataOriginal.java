@@ -70,9 +70,8 @@ public final class FpGroupDataOriginal {
 
 
 	
-	private static Object[] PRAL_BIG=new Object[] {new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object()};
-	private static Object[] PRAL_MID=new Object[] {new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object(),new Object()};
-
+	private static Object[] PRAL_BIG = FpPralLockPools.makePralLock(12);
+	private static Object[] PRAL_MID = FpPralLockPools.makePralLock(16);
 	private static AtomicLong PRAL_BIG_INDEX=new AtomicLong(0);
 	private static AtomicLong PRAL_MID_INDEX=new AtomicLong(0);
 	
