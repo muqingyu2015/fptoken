@@ -30,7 +30,7 @@ public final class Lucene80FPSearchConfig {
 
 	public static final int NGRAM_MIN = 1;
 
-	public static final int NGRAM_MAX = 6;
+	public static final int NGRAM_MAX = 5;
 
 
 
