@@ -305,7 +305,7 @@ public final class FpGroupHotNgramRebuild {
 							val.cnt++;
 						}
 						uniqueNgramsThisCommonTerm.put(val.key, UNIQUE_NGRAM_MARKER);
-						if (val.cnt >= hotThreshold) {
+						if (val.cnt > hotThreshold) {
 							break;
 						}
 					}

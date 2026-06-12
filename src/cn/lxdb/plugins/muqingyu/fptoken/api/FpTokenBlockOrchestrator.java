@@ -383,6 +383,7 @@ public final class FpTokenBlockOrchestrator {
 			// 合并前逻辑组：从当前索引读已有位图（与透传 posting 同源）
 			final int logical_group = FpTokenTermLayout.readGroupId(group_original.key);
 			final FpGroupHotNgramBitIndex bits = this.terms.fpBits(index_id, logical_group, null, null);
+			try {
 			if(bits!=null)
 			{
 				// 本段新组号：写出倒排头 + fpblock_list + 本次 bit 区（与查询一致）
@@ -391,6 +392,7 @@ public final class FpTokenBlockOrchestrator {
 
 				this.stat.flush_high_cnt_original++;
 				needCommonMerger=false;
+				
 			}else {
 				final StringBuilder sb = FpLog.kv();
 				FpLog.append(sb, "event", "missingBitIndex");
@@ -398,6 +400,12 @@ public final class FpTokenBlockOrchestrator {
 				FpLog.append(sb, "logicalGroup", logical_group);
 				FpLog.append(sb, "action", "downgradeToRebuild");
 				LOG.error(FpLog.line(FpLog.TAG_WRITE, sb));
+			}
+			}finally {
+				if(bits!=null)
+				{
+					bits.releasePooledMaps();
+				}
 			}
 			
 		} 

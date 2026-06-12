@@ -178,44 +178,43 @@ public final class FpGroupDataRebuild {
 		
 	}
 
-	public void ____flushto(long ts,FpTokenBlockOrchestrator parentItem, byte[] groupkey,String debug_msg) throws IOException {
-		long ts_begin=CLMillisecondClock.CLOCK.now();
+	public void ____flushto(long ts, FpTokenBlockOrchestrator parentItem, byte[] groupkey, String debug_msg)
+			throws IOException {
+		long ts_begin = CLMillisecondClock.CLOCK.now();
 
 		final BytesRef columnName = FpTokenTermLayout.readColumnName(new BytesRef(groupkey));
-		
-		if(commonTermToDocs1.size()<=FpTokenBlockLevelPolicy.NO_INDEX_THRESHOLD)
-		{
-			//如果这个field的term数量很少，则采用暴力遍历，用于解决稀疏列
 
-			int stat_del_hotterm_cnt=0;
-			long stat_common_doc_cnt=0;
+		if (commonTermToDocs1.size() <= FpTokenBlockLevelPolicy.NO_INDEX_THRESHOLD) {
+			// 如果这个field的term数量很少，则采用暴力遍历，用于解决稀疏列
+
+			int stat_del_hotterm_cnt = 0;
+			long stat_common_doc_cnt = 0;
 
 			final byte[] reuse_bytes = new byte[1024];
-			BytesRef reuse_term=new BytesRef(reuse_bytes);
-			int group_id=parentItem.groupIndex.incrementAndGet();
-			
+			BytesRef reuse_term = new BytesRef(reuse_bytes);
+			int group_id = parentItem.groupIndex.incrementAndGet();
+
 			int order = 1;
 
-			for (Entry<FpTermKey, FPDocList> entry : this.commonTermToDocs1.entrySet())
-			{//这里排序不重要
-				FpTermKey key=entry.getKey();
-			    final Integer index=Integer.valueOf(order++);
+			for (Entry<FpTermKey, FPDocList> entry : this.commonTermToDocs1.entrySet()) {// 这里排序不重要
+				FpTermKey key = entry.getKey();
+				final Integer index = Integer.valueOf(order++);
 
-				FPDocList val=entry.getValue();
-				boolean isDelTerm=val.docsize()<=0;
-				if(isDelTerm)
-				{
+				FPDocList val = entry.getValue();
+				boolean isDelTerm = val.docsize() <= 0;
+				if (isDelTerm) {
 					continue;
 				}
 
-				stat_common_doc_cnt+=val.docsize();
+				stat_common_doc_cnt += val.docsize();
 
 				final BytesRef columnPayload = key.bytesRef();
 
-				FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short)0, group_id, (byte)FpTokenBlockLevelPolicy.BLOCK_LEVEL_NOGROUP, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, columnPayload);
-				BlockTermState stat=parentItem.writefpChecked(reuse_term, val, debug_msg + " rebuild:commonskip");
-				if(Lucene80FPSearchConfig.PRINT_DEBUG)
-				{
+				FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short) 0, group_id,
+						(byte) FpTokenBlockLevelPolicy.BLOCK_LEVEL_NOGROUP, FpTokenTermLayout.TERM_MARK_COMMON, index,
+						false, (byte) 0, columnPayload);
+				BlockTermState stat = parentItem.writefpChecked(reuse_term, val, debug_msg + " rebuild:commonskip");
+				if (Lucene80FPSearchConfig.PRINT_DEBUG) {
 					final StringBuilder sb = FpLog.kv();
 					FpLog.append(sb, "event", "commonSkipTerm");
 					FpLog.append(sb, "phase", debug_msg);
@@ -226,13 +225,10 @@ public final class FpGroupDataRebuild {
 					FpLog.debugLine(LOG, FpLog.TAG_REBUILD, sb);
 				}
 			}
-			
 
-		
-			parentItem.stat.doclist_common+=stat_common_doc_cnt;
+			parentItem.stat.doclist_common += stat_common_doc_cnt;
 
-		
-			long ts_end=CLMillisecondClock.CLOCK.now();
+			long ts_end = CLMillisecondClock.CLOCK.now();
 
 			final StringBuilder sbZero = FpLog.kv();
 			FpLog.append(sbZero, "event", "flushZero");
@@ -245,133 +241,130 @@ public final class FpGroupDataRebuild {
 			FpLog.append(sbZero, "commonTerms", commonTermToDocs1.size());
 			FpLog.infoLineSampled(LOG, FpLog.TAG_REBUILD, sbZero, ts_end - ts_begin);
 
-		
-		}else {
-			
-			int columnLevel=FpTokenBlockLevelPolicy.resolveTargetBlockLevel(this.commonTermToDocs1.size(), distinctDocUnion.cardinality());
+		} else {
 
-			FpStatNgram ngramstat=FpGroupHotNgramRebuild.execute(columnLevel,this, parentItem);
-			long ts_ngram=CLMillisecondClock.CLOCK.now();
+			int columnLevel = FpTokenBlockLevelPolicy.resolveTargetBlockLevel(this.commonTermToDocs1.size(),
+					distinctDocUnion.cardinality());
 
-			final ArrayList<java.util.Map.Entry<FpTermKey, FPDocList>> hot_ordered = new ArrayList<>(hotTermToDocs1.entrySet());
+			FpStatNgram ngramstat = FpGroupHotNgramRebuild.execute(columnLevel, this, parentItem);
+			long ts_ngram = CLMillisecondClock.CLOCK.now();
+
+			final ArrayList<java.util.Map.Entry<FpTermKey, FPDocList>> hot_ordered = new ArrayList<>(
+					hotTermToDocs1.entrySet());
 			hot_ordered.sort(java.util.Map.Entry.comparingByKey(FpTermKey.ORDER_BY_LENGTH_THEN_BYTES));
-			
 
-			FpGroupHotNgramBitIndex bitinfo=FpGroupHotNgramBitIndex.execute1(columnLevel,this,this.hotTermToDocs1,hot_ordered,this.commonTermFlushOrder1);
-			long ts_bitset=CLMillisecondClock.CLOCK.now();
+			FpGroupHotNgramBitIndex bitinfo = FpGroupHotNgramBitIndex.execute1(columnLevel, this, this.hotTermToDocs1,
+					hot_ordered, this.commonTermFlushOrder1);
+			try {
+				long ts_bitset = CLMillisecondClock.CLOCK.now();
 
-			int del_term_docid=distinctDocUnion.nextSetBit(0);
-			int stat_del_hotterm_cnt=0;
-			long stat_hot_doc_cnt=0;
-			long stat_common_doc_cnt=0;
+				int del_term_docid = distinctDocUnion.nextSetBit(0);
+				int stat_del_hotterm_cnt = 0;
+				long stat_hot_doc_cnt = 0;
+				long stat_common_doc_cnt = 0;
 
-			final byte[] reuse_bytes = new byte[1024];
-			BytesRef reuse_term=new BytesRef(reuse_bytes);
-			int group_id=parentItem.groupIndex.incrementAndGet();
-			
-			int order = 1;
-			for (final java.util.Map.Entry<FpTermKey, FPDocList> e : hot_ordered) {
-				  final FpTermKey key = e.getKey();
-				    final FPDocList val = e.getValue();
-				    final Integer index=Integer.valueOf(order++);
-				
-				final Integer budgetObj = hotTermDownTierBudget1.get(key);
-				final int downTierBudget = budgetObj != null ? budgetObj.intValue() : 0;
-				final boolean isDelTerm = val.docsize() <= 0;
-				if (isDelTerm) { // 仅仅占位用
-					val.addDoc(del_term_docid);
-					stat_del_hotterm_cnt++;
+				final byte[] reuse_bytes = new byte[1024];
+				BytesRef reuse_term = new BytesRef(reuse_bytes);
+				int group_id = parentItem.groupIndex.incrementAndGet();
+
+				int order = 1;
+				for (final java.util.Map.Entry<FpTermKey, FPDocList> e : hot_ordered) {
+					final FpTermKey key = e.getKey();
+					final FPDocList val = e.getValue();
+					final Integer index = Integer.valueOf(order++);
+
+					final Integer budgetObj = hotTermDownTierBudget1.get(key);
+					final int downTierBudget = budgetObj != null ? budgetObj.intValue() : 0;
+					final boolean isDelTerm = val.docsize() <= 0;
+					if (isDelTerm) { // 仅仅占位用
+						val.addDoc(del_term_docid);
+						stat_del_hotterm_cnt++;
+					}
+
+					stat_hot_doc_cnt += val.docsize();
+
+					final BytesRef columnPayload = key.bytesRef();
+
+					FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short) 0, group_id, (byte) columnLevel,
+							FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, columnPayload);
+					parentItem.writefpChecked(reuse_term, val, debug_msg + " rebuild:hot");
+
+					if (Lucene80FPSearchConfig.PRINT_DEBUG) {
+						final StringBuilder sb = FpLog.kv();
+						FpLog.append(sb, "event", "hotTerm");
+						FpLog.append(sb, "phase", debug_msg);
+						FpLog.append(sb, "termIndex", index);
+						FpLog.append(sb, "docFreq", val.docsize());
+						FpLog.append(sb, "downTier", downTierBudget);
+						FpLog.append(sb, "isDel", isDelTerm);
+						FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(reuse_term));
+						FpLog.debugLine(LOG, FpLog.TAG_REBUILD, sb);
+					}
 				}
 
-				stat_hot_doc_cnt += val.docsize();
+				order = 1;
+				for (CommonTermSortEntry entry : this.commonTermFlushOrder1) {
+					FpTermKey key = entry.key;
+					final Integer index = Integer.valueOf(order++);
 
-				final BytesRef columnPayload = key.bytesRef();
+					FPDocList val = entry.sourceDocList;
+					boolean isDelTerm = val.docsize() <= 0;
+					if (isDelTerm) {
+						continue;
+					}
 
-				FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short) 0, group_id, (byte) columnLevel,
-						FpTokenTermLayout.TERM_MARK_HOT, index, isDelTerm, (byte) downTierBudget, columnPayload);
-				parentItem.writefpChecked(reuse_term, val, debug_msg + " rebuild:hot");
-				
-				
-				if(Lucene80FPSearchConfig.PRINT_DEBUG)
-				{
-					final StringBuilder sb = FpLog.kv();
-					FpLog.append(sb, "event", "hotTerm");
-					FpLog.append(sb, "phase", debug_msg);
-					FpLog.append(sb, "termIndex", index);
-					FpLog.append(sb, "docFreq", val.docsize());
-					FpLog.append(sb, "downTier", downTierBudget);
-					FpLog.append(sb, "isDel", isDelTerm);
-					FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(reuse_term));
-					FpLog.debugLine(LOG, FpLog.TAG_REBUILD, sb);
+					stat_common_doc_cnt += val.docsize();
+
+					final BytesRef columnPayload = key.bytesRef();
+
+					FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short) 0, group_id, (byte) columnLevel,
+							FpTokenTermLayout.TERM_MARK_COMMON, index, false, (byte) 0, columnPayload);
+					parentItem.writefpChecked(reuse_term, val, debug_msg + " rebuild:common");
+					if (Lucene80FPSearchConfig.PRINT_DEBUG) {
+						final StringBuilder sb = FpLog.kv();
+						FpLog.append(sb, "event", "commonTerm");
+						FpLog.append(sb, "phase", debug_msg);
+						FpLog.append(sb, "termIndex", index);
+						FpLog.append(sb, "docFreq", val.docsize());
+						FpLog.append(sb, "targetLevel", "L" + columnLevel);
+						FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(reuse_term));
+						FpLog.debugLine(LOG, FpLog.TAG_REBUILD, sb);
+					}
 				}
+
+				parentItem.stageBitIndex(group_id, bitinfo, "rebuild", columnName, del_term_docid);
+
+				parentItem.stat.doclist_hot += stat_hot_doc_cnt;
+				parentItem.stat.doclist_common += stat_common_doc_cnt;
+
+				long ts_end = CLMillisecondClock.CLOCK.now();
+
+				final StringBuilder sbFlush = FpLog.kv();
+				FpLog.append(sbFlush, "event", "flush");
+				FpLog.append(sbFlush, "phase", debug_msg);
+				FpLog.append(sbFlush, "groupId", group_id);
+				FpLog.append(sbFlush, "msLock", ts_begin - ts);
+				FpLog.append(sbFlush, "ms", ts_end - ts_begin);
+				FpLog.append(sbFlush, "pral",
+						PRAL_BIG_CNT.get() + ":" + PRAL_MID_CNT.get() + ":" + PRAL_COMMON_CNT.get());
+
+				FpLog.append(sbFlush, "msNgram", ts_ngram - ts_begin);
+				FpLog.append(sbFlush, "msBitset", ts_bitset - ts_ngram);
+				FpLog.append(sbFlush, "targetLevel", "L" + columnLevel);
+				FpLog.append(sbFlush, "doclistHot", stat_hot_doc_cnt);
+				FpLog.append(sbFlush, "doclistCommon", stat_common_doc_cnt);
+				FpLog.append(sbFlush, "delHotTerms", stat_del_hotterm_cnt);
+				FpLog.append(sbFlush, "distinctDocs", distinctDocUnion.cardinality());
+				FpLog.append(sbFlush, "hotTerms", hotTermToDocs1.size());
+				FpLog.append(sbFlush, "commonTerms", commonTermToDocs1.size());
+				FpLog.append(sbFlush, "ngramStat", ngramstat);
+				FpLog.append(sbFlush, "bitindex", "staged");
+				FpLog.infoLineSampled(LOG, FpLog.TAG_REBUILD, sbFlush, ts_end - ts_begin);
+			} finally {
+				bitinfo.releasePooledMaps();
 			}
-			
-			order = 1;
-			for (CommonTermSortEntry entry : this.commonTermFlushOrder1)
-			{
-				FpTermKey key=entry.key;
-			    final Integer index=Integer.valueOf(order++);
-
-				FPDocList val=entry.sourceDocList;
-				boolean isDelTerm=val.docsize()<=0;
-				if(isDelTerm)
-				{
-					continue;
-				}
-
-				stat_common_doc_cnt+=val.docsize();
-
-				final BytesRef columnPayload = key.bytesRef();
-
-				FpTokenTermLayout.make_fp_term(reuse_term, columnName, (short)0, group_id, (byte)columnLevel, FpTokenTermLayout.TERM_MARK_COMMON, index, false,(byte)0, columnPayload);
-				parentItem.writefpChecked(reuse_term, val, debug_msg + " rebuild:common");
-				if(Lucene80FPSearchConfig.PRINT_DEBUG)
-				{
-					final StringBuilder sb = FpLog.kv();
-					FpLog.append(sb, "event", "commonTerm");
-					FpLog.append(sb, "phase", debug_msg);
-					FpLog.append(sb, "termIndex", index);
-					FpLog.append(sb, "docFreq", val.docsize());
-					FpLog.append(sb, "targetLevel", "L" + columnLevel);
-					FpLog.append(sb, "term", FpTokenTermLayout.toReadableString(reuse_term));
-					FpLog.debugLine(LOG, FpLog.TAG_REBUILD, sb);
-				}
-			}
-			
-
-			parentItem.stageBitIndex(group_id, bitinfo, "rebuild", columnName, del_term_docid);
-		
-			parentItem.stat.doclist_hot+=stat_hot_doc_cnt;
-			parentItem.stat.doclist_common+=stat_common_doc_cnt;
-
-		
-			long ts_end=CLMillisecondClock.CLOCK.now();
-
-			final StringBuilder sbFlush = FpLog.kv();
-			FpLog.append(sbFlush, "event", "flush");
-			FpLog.append(sbFlush, "phase", debug_msg);
-			FpLog.append(sbFlush, "groupId", group_id);
-			FpLog.append(sbFlush, "msLock", ts_begin-ts );
-			FpLog.append(sbFlush, "ms", ts_end - ts_begin);
-			FpLog.append(sbFlush, "pral", PRAL_BIG_CNT.get()+":"+PRAL_MID_CNT.get()+":"+PRAL_COMMON_CNT.get() );
-
-			FpLog.append(sbFlush, "msNgram", ts_ngram - ts_begin);
-			FpLog.append(sbFlush, "msBitset", ts_bitset - ts_ngram);
-			FpLog.append(sbFlush, "targetLevel", "L" + columnLevel);
-			FpLog.append(sbFlush, "doclistHot", stat_hot_doc_cnt);
-			FpLog.append(sbFlush, "doclistCommon", stat_common_doc_cnt);
-			FpLog.append(sbFlush, "delHotTerms", stat_del_hotterm_cnt);
-			FpLog.append(sbFlush, "distinctDocs", distinctDocUnion.cardinality());
-			FpLog.append(sbFlush, "hotTerms", hotTermToDocs1.size());
-			FpLog.append(sbFlush, "commonTerms", commonTermToDocs1.size());
-			FpLog.append(sbFlush, "ngramStat", ngramstat);
-			FpLog.append(sbFlush, "bitindex", "staged");
-			FpLog.infoLineSampled(LOG, FpLog.TAG_REBUILD, sbFlush, ts_end - ts_begin);
-
 		}
-		
 
-	
 		this.resetAfterFlush();
 	}
 

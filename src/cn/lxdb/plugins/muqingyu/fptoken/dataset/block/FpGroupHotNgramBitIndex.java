@@ -285,9 +285,9 @@ public final class FpGroupHotNgramBitIndex {
 
 		// 遍历所有热词，将其 ngram 切片标记到 hot tier
 		for (final java.util.Map.Entry<FpTermKey, FPDocList> e : hot_ordered) {
-			
-			 final FpTermKey key = e.getKey();
-			    final FPDocList val = e.getValue();
+//			
+//			 final FpTermKey key = e.getKey();
+//			    final FPDocList val = e.getValue();
 			    final Integer index=Integer.valueOf(order++);
 			markHotNgramsForPayload(hotTier, e.getKey().bytesRef(),index);
 		}
