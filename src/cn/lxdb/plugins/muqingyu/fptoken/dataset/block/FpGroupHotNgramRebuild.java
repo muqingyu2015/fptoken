@@ -25,6 +25,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKeyHash;
 import cn.lxdb.plugins.muqingyu.fptoken.ngram.Counter;
 import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolHub;
 import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolIds;
+import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolLease;
 
 /**
  * 从 {@link FpGroupDataRebuild#commonTermMapInternal()} 按 byte n-gram 挖掘热词，合并 doc，并计算
@@ -125,10 +126,22 @@ public final class FpGroupHotNgramRebuild {
 		// ngram 出现次数计数器
 //		final HashMap<FpTermKey, Counter> ngramOccurrenceCount = new HashMap<>(hash_map_init_size);
 		
-		final HashMap<FpTermKey, Counter> ngramOccurrenceCount = FpHashMapPoolHub.borrow(  FpHashMapPoolIds.ngramOccurrenceCount,  FpTermKey.class,   Counter.class,   FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
-		final HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm = FpHashMapPoolHub.borrow(  FpHashMapPoolIds.anchorTierIndexByHotTerm,  FpTermKey.class,   AnchorTierIndex.class,   FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
-		final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = FpHashMapPoolHub.borrow(  FpHashMapPoolIds.hotTermsPendingDocMerge,  FpTermKey.class,   FPDocList.class,   FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
-		final HashMap<FpTermKey, HotMergeSlot> hotMergeTable = FpHashMapPoolHub.borrow(  FpHashMapPoolIds.hotMergeTable,  FpTermKey.class,   HotMergeSlot.class,   FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+		final FpHashMapPoolLease<FpTermKey, Counter> ngramOccurrenceCountLease = FpHashMapPoolHub.borrow(
+				FpHashMapPoolIds.ngramOccurrenceCount, FpTermKey.class, Counter.class,
+				FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+		final HashMap<FpTermKey, Counter> ngramOccurrenceCount = ngramOccurrenceCountLease.map();
+		final FpHashMapPoolLease<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTermLease = FpHashMapPoolHub.borrow(
+				FpHashMapPoolIds.anchorTierIndexByHotTerm, FpTermKey.class, AnchorTierIndex.class,
+				FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+		final HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm = anchorTierIndexByHotTermLease.map();
+		final FpHashMapPoolLease<FpTermKey, FPDocList> hotTermsPendingDocMergeLease = FpHashMapPoolHub.borrow(
+				FpHashMapPoolIds.hotTermsPendingDocMerge, FpTermKey.class, FPDocList.class,
+				FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+		final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = hotTermsPendingDocMergeLease.map();
+		final FpHashMapPoolLease<FpTermKey, HotMergeSlot> hotMergeTableLease = FpHashMapPoolHub.borrow(
+				FpHashMapPoolIds.hotMergeTable, FpTermKey.class, HotMergeSlot.class,
+				FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+		final HashMap<FpTermKey, HotMergeSlot> hotMergeTable = hotMergeTableLease.map();
 
 
 
@@ -184,12 +197,11 @@ public final class FpGroupHotNgramRebuild {
 		stat.hot_final = hotTermToDocs.size();
 		
 		
-		}finally {
-			FpHashMapPoolHub.release(FpHashMapPoolIds.ngramOccurrenceCount, ngramOccurrenceCount);
-			FpHashMapPoolHub.release(FpHashMapPoolIds.anchorTierIndexByHotTerm, anchorTierIndexByHotTerm);
-			FpHashMapPoolHub.release(FpHashMapPoolIds.hotTermsPendingDocMerge, hotTermsPendingDocMerge);
-			FpHashMapPoolHub.release(FpHashMapPoolIds.hotMergeTable, hotMergeTable);
-
+		} finally {
+			FpHashMapPoolHub.release(ngramOccurrenceCountLease);
+			FpHashMapPoolHub.release(anchorTierIndexByHotTermLease);
+			FpHashMapPoolHub.release(hotTermsPendingDocMergeLease);
+			FpHashMapPoolHub.release(hotMergeTableLease);
 		}
 
 		return stat;

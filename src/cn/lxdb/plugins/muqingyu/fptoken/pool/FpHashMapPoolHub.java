@@ -9,22 +9,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * 多槽位 HashMap 对象池：按 {@code poolId} 隔离，首次借出时自动注册。
  *
- * <p>推荐用法（借 / 还分开，不用 try）：
+ * <p>推荐用法：
  * <pre>{@code
- * HashMap<FpTermKey, Counter> map = FpHashMapPoolHub.borrow(
+ * FpHashMapPoolLease<FpTermKey, Counter> lease = FpHashMapPoolHub.borrow(
  *     FpHashMapPoolIds.NGRAM_OCCURRENCE, FpTermKey.class, Counter.class, 4096);
+ * HashMap<FpTermKey, Counter> map = lease.map();
  * try {
  *     // 使用 map
  * } finally {
- *     FpHashMapPoolHub.release(FpHashMapPoolIds.NGRAM_OCCURRENCE, map);
+ *     FpHashMapPoolHub.release(lease);
  * }
  * }</pre>
  *
- * <p>若已在 {@link FpHashMapPoolIds} 中 {@link #definePool(int, Class, Class, int)}，
- * 也可简写为 {@code borrow(poolId)} / {@code release(poolId, map)}。
- *
- * <p><b>忘记 release</b>：租约表对 map 使用弱引用；业务侧不再持有 map 时，GC 会回收 map，
- * 池内对应租约条目会被清理，<strong>不会</strong>在空闲池或 leased 里无限积压。未归还的 map 也不会被复用给其他人。
+ * <p>归还时使用 {@link FpHashMapPoolLease}，不依赖 map 实例作租约键。
  */
 public final class FpHashMapPoolHub {
 
@@ -78,7 +75,7 @@ public final class FpHashMapPoolHub {
 	}
 
 	/** 池已定义或曾借出过时，仅传 poolId 即可。 */
-	public static <K, V> HashMap<K, V> borrow(int poolId) {
+	public static <K, V> FpHashMapPoolLease<K, V> borrow(int poolId) {
 		if (!SLOTS.containsKey(poolId)) {
 			throw new IllegalStateException(
 					"poolId not defined: " + poolId + "; use borrow(poolId, keyType, valueType, initialCapacity) first");
@@ -89,24 +86,25 @@ public final class FpHashMapPoolHub {
 	/**
 	 * 首次调用时按类型自动注册；之后同 poolId 类型必须一致。
 	 */
-	public static <K, V> HashMap<K, V> borrow(int poolId, Class<K> keyType, Class<V> valueType) {
+	public static <K, V> FpHashMapPoolLease<K, V> borrow(int poolId, Class<K> keyType, Class<V> valueType) {
 		return borrow(poolId, keyType, valueType, 0);
 	}
 
-	public static <K, V> HashMap<K, V> borrow(int poolId, Class<K> keyType, Class<V> valueType, int initialCapacity) {
+	public static <K, V> FpHashMapPoolLease<K, V> borrow(int poolId, Class<K> keyType, Class<V> valueType,
+			int initialCapacity) {
 		ensureRegistered(poolId, keyType, valueType, initialCapacity, FpHashMapPoolSettings.DEFAULT);
 		return borrowFromSlot(poolId);
 	}
 
-	public static <K, V> HashMap<K, V> borrow(int poolId, Class<K> keyType, Class<V> valueType, int initialCapacity,
-			FpHashMapPoolSettings settings) {
+	public static <K, V> FpHashMapPoolLease<K, V> borrow(int poolId, Class<K> keyType, Class<V> valueType,
+			int initialCapacity, FpHashMapPoolSettings settings) {
 		ensureRegistered(poolId, keyType, valueType, initialCapacity, settings);
 		return borrowFromSlot(poolId);
 	}
 
-	public static void release(int poolId, HashMap<?, ?> map) {
-		Objects.requireNonNull(map, "map");
-		releaseUnchecked(poolId, map);
+	public static void release(FpHashMapPoolLease<?, ?> lease) {
+		Objects.requireNonNull(lease, "lease");
+		releaseUnchecked(lease);
 	}
 
 	public static FpHashMapPoolStats stats(int poolId) {
@@ -172,11 +170,9 @@ public final class FpHashMapPoolHub {
 		}
 	}
 
-	private static <K, V> HashMap<K, V> borrowFromSlot(int poolId) {
-		final FpHashMapPoolSlot<K, V> poolSlot = slot(poolId);
-		@SuppressWarnings("unchecked")
-		final HashMap<K, V> map = (HashMap<K, V>) poolSlot.borrowMap();
-		return map;
+	@SuppressWarnings("unchecked")
+	private static <K, V> FpHashMapPoolLease<K, V> borrowFromSlot(int poolId) {
+		return (FpHashMapPoolLease<K, V>) slot(poolId).borrowLease();
 	}
 
 	@SuppressWarnings("unchecked")
@@ -189,12 +185,12 @@ public final class FpHashMapPoolHub {
 	}
 
 	@SuppressWarnings("unchecked")
-	private static <K, V> void releaseUnchecked(int poolId, HashMap<?, ?> map) {
-		final FpHashMapPoolSlot<?, ?> found = SLOTS.get(poolId);
+	private static void releaseUnchecked(FpHashMapPoolLease<?, ?> lease) {
+		final FpHashMapPoolSlot<?, ?> found = SLOTS.get(lease.poolId());
 		if (found == null) {
-			throw new IllegalStateException("poolId not registered: " + poolId);
+			throw new IllegalStateException("poolId not registered: " + lease.poolId());
 		}
-		((FpHashMapPoolSlot<K, V>) found).release((HashMap<K, V>) map);
+		((FpHashMapPoolSlot<Object, Object>) found).release((FpHashMapPoolLease<Object, Object>) lease);
 	}
 
 	private static void updateCleanerInterval(long intervalMs) {

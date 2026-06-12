@@ -30,6 +30,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTokenTermLayout;
 import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolHub;
 import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolIds;
+import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolLease;
 
 /**
  * 单组内：组级 doc 并集用 {@link SparseFixedBitSet}；每个 term 对应 {@link FPDocList}，
@@ -44,21 +45,24 @@ public final class FpGroupDataRebuild {
 	/** 组内去重 doc 并集（闭块判定） */
 	public final SparseFixedBitSet distinctDocUnion;
 	/** 热词表，键序见 {@link FpTermKey#ORDER_BY_LENGTH_THEN_BYTES}。 */
-//	public final HashMap<FpTermKey, FPDocList> hotTermToDocs1 = new HashMap<>();
+	private final FpHashMapPoolLease<FpTermKey, FPDocList> hotTermToDocsLease = FpHashMapPoolHub.borrow(
+			FpHashMapPoolIds.hotTermToDocs, FpTermKey.class, FPDocList.class,
+			FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+	public final HashMap<FpTermKey, FPDocList> hotTermToDocs1 = hotTermToDocsLease.map();
 	/**
 	 * 热词锚点「向下扩展档」预算（≥1，含锚点档），由 {@link FpGroupHotNgramRebuild} 写入词项头 offset 12。
 	 * 与 {@link FpTokenTermLayout#maxHotPayloadLen(int, int)}、检索热词长度截断一致。
 	 */
-	public  final HashMap<FpTermKey, FPDocList> hotTermToDocs1 = FpHashMapPoolHub.borrow(  FpHashMapPoolIds.hotTermToDocs,  FpTermKey.class,   FPDocList.class,  FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
-
-	
-	public  final HashMap<FpTermKey, Integer> hotTermDownTierBudget1 = FpHashMapPoolHub.borrow(  FpHashMapPoolIds.hotTermDownTierBudget,  FpTermKey.class,   Integer.class,  FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
-
-//	public final HashMap<FpTermKey, Integer> hotTermToOrder1 = FpHashMapPoolHub.borrow(6, FpTermKey.class, Integer.class,
-//			FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+	private final FpHashMapPoolLease<FpTermKey, Integer> hotTermDownTierBudgetLease = FpHashMapPoolHub.borrow(
+			FpHashMapPoolIds.hotTermDownTierBudget, FpTermKey.class, Integer.class,
+			FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+	public final HashMap<FpTermKey, Integer> hotTermDownTierBudget1 = hotTermDownTierBudgetLease.map();
 
 	/** 普通词表 */
-	public  final HashMap<FpTermKey, FPDocList> commonTermToDocs1 = FpHashMapPoolHub.borrow(  FpHashMapPoolIds.commonTermToDocs,  FpTermKey.class,   FPDocList.class,  FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+	private final FpHashMapPoolLease<FpTermKey, FPDocList> commonTermToDocsLease = FpHashMapPoolHub.borrow(
+			FpHashMapPoolIds.commonTermToDocs, FpTermKey.class, FPDocList.class,
+			FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+	public final HashMap<FpTermKey, FPDocList> commonTermToDocs1 = commonTermToDocsLease.map();
 
 
 	private ArrayList<CommonTermSortEntry> commonTermFlushOrder1=null;
@@ -442,11 +446,8 @@ public final class FpGroupDataRebuild {
 
 	public void resetAfterFlush() {
 		distinctDocUnion.clear(0, maxDoc);
-		FpHashMapPoolHub.release(FpHashMapPoolIds.hotTermDownTierBudget, hotTermDownTierBudget1);
-		FpHashMapPoolHub.release(FpHashMapPoolIds.hotTermToDocs, hotTermToDocs1);
-		FpHashMapPoolHub.release(FpHashMapPoolIds.commonTermToDocs, commonTermToDocs1);
-
-		
-		
+		FpHashMapPoolHub.release(hotTermDownTierBudgetLease);
+		FpHashMapPoolHub.release(hotTermToDocsLease);
+		FpHashMapPoolHub.release(commonTermToDocsLease);
 	}
 }
