@@ -22,7 +22,7 @@ public final class FpTokenBlockLevelPolicy {
 	public static final int OVER_WRITE_TOP_CNT = (int) (BLOCK_LEVEL_TOP_CNT * getOverRate(BLOCK_LEVEL_TOP));
 
 	public final static int HASH_MAP_TOKEN_SIZE=Lucene80FPSearchConfig.BITSET_WINDOW_SIZE*Lucene80FPSearchConfig.NGRAM_MAX*Lucene80FPSearchConfig.NGRAM_MAX;
-	public final static int HASH_MAP_DEFAULT_SIZE=HASH_MAP_TOKEN_SIZE*128;
+	public final static int HASH_MAP_DEFAULT_SIZE=HASH_MAP_TOKEN_SIZE*32;
 
 	public static  int get_hot_layer_threshold(int level)
 	{

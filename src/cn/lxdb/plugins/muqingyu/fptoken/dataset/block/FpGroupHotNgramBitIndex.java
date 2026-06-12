@@ -1423,7 +1423,7 @@ public final class FpGroupHotNgramBitIndex {
 				return;
 			}
 			buildMapLease = FpHashMapPoolHub.borrow(FpHashMapPoolIds.lenRowBuildMap, Integer.class, IntList.class,
-					FpTokenBlockLevelPolicy.HASH_MAP_TOKEN_SIZE);
+					FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
 			buildMap = buildMapLease.map();
 		}
 
