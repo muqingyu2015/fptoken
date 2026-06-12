@@ -172,6 +172,15 @@ public final class FpGroupHotNgramBitIndex {
 	}
 
 	/**
+	 * 归还 hot/common tier 中仍持有的池化 HashMap。
+	 * 构建路径在 {@link TierIndex#finalizeRows()} 已释放 buildMap；稀疏 selective 读路径需在 lookup 结束后调用。
+	 */
+	public void releasePooledMaps() {
+		hot.releasePooledMaps();
+		common.releasePooledMaps();
+	}
+
+	/**
 	 * 将 lenIdx 和 bucketIndex 打包为一个 long 型 key。
 	 * lenIdx 放高 32 位，bucketIndex 放低 32 位。
 	 *
@@ -816,6 +825,13 @@ public final class FpGroupHotNgramBitIndex {
 			}
 		}
 
+		/** 归还各行仍持有的池化 HashMap（稀疏 selective 读路径）。 */
+		void releasePooledMaps() {
+			for (LenRow row : rows) {
+				row.releasePooledMaps();
+			}
+		}
+
 //		/** 返回所有行中最大的 orderArena 字节数 */
 		int maxArenaBytes() {
 			int max = 0;
@@ -1378,8 +1394,12 @@ public final class FpGroupHotNgramBitIndex {
 	 * selective 读在 {@link TierIndex#readSelective} 预取到 {@link #sparseOrders}；{@link #viewSelective} 从全量实例截取。
 	 */
 	static final class LenRow {
-		/** 构建期使用的 HashMap（bucket → order 列表），finalize 后置 null */
+		/** 构建期租约；{@link #finalizeRow()} 后归还池 */
+		private FpHashMapPoolLease<Integer, IntList> buildMapLease;
+		/** 构建期使用的 HashMap（bucket → order 列表），finalize 后 null */
 		private HashMap<Integer, IntList> buildMap;
+		/** 稀疏读租约；{@link #releasePooledMaps()} 归还池 */
+		private FpHashMapPoolLease<Integer, int[]> sparseOrdersLease;
 		/** 稀疏模式下存储已加载的 bucket → order 映射 */
 		private HashMap<Integer, int[]> sparseOrders;
 
@@ -1396,8 +1416,44 @@ public final class FpGroupHotNgramBitIndex {
 		 * @param sparse true 为稀疏模式（不初始化 buildMap），false 为全量构建模式
 		 */
 		LenRow(boolean sparse) {
-			if (!sparse) {
-				buildMap = new HashMap<>();
+		}
+
+		private void ensureBuildMap() {
+			if (buildMap != null) {
+				return;
+			}
+			buildMapLease = FpHashMapPoolHub.borrow(FpHashMapPoolIds.lenRowBuildMap, Integer.class, IntList.class,
+					FpTokenBlockLevelPolicy.HASH_MAP_TOKEN_SIZE);
+			buildMap = buildMapLease.map();
+		}
+
+		private void ensureSparseOrders() {
+			if (sparseOrders != null) {
+				return;
+			}
+			sparseOrdersLease = FpHashMapPoolHub.borrow(FpHashMapPoolIds.lenRowSparseOrders, Integer.class,
+					int[].class, 64);
+			sparseOrders = sparseOrdersLease.map();
+		}
+
+		/** 归还本行借用的 HashMap（构建 map 应在 {@link #finalizeRow()} 已释放；稀疏 map 由调用方在用完索引后调用）。 */
+		void releasePooledMaps() {
+			releaseSparseOrdersLease();
+		}
+
+		private void releaseBuildMapLease() {
+			if (buildMapLease != null) {
+				FpHashMapPoolHub.release(buildMapLease);
+				buildMapLease = null;
+				buildMap = null;
+			}
+		}
+
+		private void releaseSparseOrdersLease() {
+			if (sparseOrdersLease != null) {
+				FpHashMapPoolHub.release(sparseOrdersLease);
+				sparseOrdersLease = null;
+				sparseOrders = null;
 			}
 		}
 
@@ -1408,9 +1464,7 @@ public final class FpGroupHotNgramBitIndex {
 		 * @param order  term 序号
 		 */
 		void add(int bucket, int order) {
-			if (buildMap == null) {
-				return;
-			}
+			ensureBuildMap();
 			IntList list = buildMap.get(bucket);
 			if (list == null) {
 				list = new IntList();
@@ -1426,9 +1480,7 @@ public final class FpGroupHotNgramBitIndex {
 		 * @param orders 该 bucket 对应的 order 数组
 		 */
 		void putSparse(int bucket, int[] orders) {
-			if (sparseOrders == null) {
-				sparseOrders = new HashMap<>();
-			}
+			ensureSparseOrders();
 			sparseOrders.put(bucket, orders);
 		}
 
@@ -1459,6 +1511,7 @@ public final class FpGroupHotNgramBitIndex {
 				sortedKeys = EMPTY_INT;
 				entryMeta = EMPTY_INT;
 				orderArena = EMPTY_BYTES;
+				releaseBuildMapLease();
 				return;
 			}
 			final int n = buildMap.size();
@@ -1487,8 +1540,7 @@ public final class FpGroupHotNgramBitIndex {
 			// 将 arena 缓冲拷贝到字节数组
 			orderArena = new byte[Math.toIntExact(arenaOut.getFilePointer())];
 			arenaOut.writeTo(orderArena, 0);
-			// 释放构建期 Map
-			buildMap = null;
+			releaseBuildMapLease();
 		}
 
 		/**

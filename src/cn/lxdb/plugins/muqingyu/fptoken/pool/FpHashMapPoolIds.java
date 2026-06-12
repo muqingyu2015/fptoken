@@ -26,6 +26,13 @@ public final class FpHashMapPoolIds {
 
 	/** {@code HashMap<FpTermKey, Boolean>} — countNgram 阶段 common term 内 ngram 去重 */
 	public static final int commonTermUniqueNgrams = 10;
+
+	/** {@code HashMap<Integer, IntList>} — bitindex LenRow 构建期 bucket → order 列表 */
+	public static final int lenRowBuildMap = 11;
+
+	/** {@code HashMap<Integer, int[]>} — bitindex LenRow 稀疏读 bucket → order 数组 */
+	public static final int lenRowSparseOrders = 12;
+
 	/** 自定义池从 100 起，避免与内置 id 冲突 */
 	public static final int CUSTOM_BASE = 100;
 

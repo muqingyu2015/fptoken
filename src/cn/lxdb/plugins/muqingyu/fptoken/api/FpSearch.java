@@ -141,9 +141,13 @@ public class FpSearch {
 				continue;
 			}
 
-			// 对每个 slice 在当前 group 内搜索，结果累积到 collect[i]
-			for (int i = 0; i < slices.length; i++) {
-				searchSliceInGroup(bitsetIndex, columnName, slices[i], blkinfo, groupId, terms, maxDoc, collect, i);
+			try {
+				// 对每个 slice 在当前 group 内搜索，结果累积到 collect[i]
+				for (int i = 0; i < slices.length; i++) {
+					searchSliceInGroup(bitsetIndex, columnName, slices[i], blkinfo, groupId, terms, maxDoc, collect, i);
+				}
+			} finally {
+				bitsetIndex.releasePooledMaps();
 			}
 		}
 
