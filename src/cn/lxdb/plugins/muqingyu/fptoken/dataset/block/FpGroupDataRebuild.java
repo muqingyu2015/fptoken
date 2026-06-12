@@ -337,6 +337,9 @@ public final class FpGroupDataRebuild {
 				FpLog.append(sbFlush, "ms", ts_end - ts_begin);
 				FpLog.append(sbFlush, "pral",
 						PRAL_BIG_CNT.get() + ":" + PRAL_MID_CNT.get() + ":" + PRAL_COMMON_CNT.get());
+				FpLog.append(sbFlush, "pralmax",
+						PRAL_BIG.length + ":" + PRAL_MID.length);
+				
 
 				FpLog.append(sbFlush, "msNgram", ts_ngram - ts_begin);
 				FpLog.append(sbFlush, "msBitset", ts_bitset - ts_ngram);

@@ -23,7 +23,7 @@ public final class FpPralLockPools {
 	}
 
 	static int pralLockCount(int countAtRefCores) {
-		return Math.max(1, countAtRefCores * EFFECTIVE_CPU_CORES / REF_CPU_CORES);
+		return Math.max(1, countAtRefCores * EFFECTIVE_CPU_CORES / 32);
 	}
 
 	private static int resolveCpuCores() {
