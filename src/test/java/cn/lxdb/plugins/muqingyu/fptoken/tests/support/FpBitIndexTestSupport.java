@@ -27,6 +27,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.ngram.Counter;
 import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolHub;
 import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolIds;
+import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolLease;
 
 /** 构建 bitindex / ngram 统计测试夹具（不依赖 patched {@code FpGroupDataRebuild}）。 */
 public final class FpBitIndexTestSupport {
@@ -115,7 +116,8 @@ public final class FpBitIndexTestSupport {
 
 	public static HashMap<FpTermKey, Counter> invokeCountNgram(int hotThreshold, FpStatNgram stat,
 			HashMap<FpTermKey, FPDocList> common, HashMap<FpTermKey, Counter> out) throws ReflectiveOperationException {
-		final var lease = FpHashMapPoolHub.borrow(FpHashMapPoolIds.ngramOccurrenceCount, FpTermKey.class,
+		final FpHashMapPoolLease<FpTermKey, Counter> lease = FpHashMapPoolHub.borrow(
+				FpHashMapPoolIds.ngramOccurrenceCount, FpTermKey.class,
 				Counter.class, 256);
 		final HashMap<FpTermKey, Counter> map = lease.map();
 		try {

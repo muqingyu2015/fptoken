@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolIds;
+import cn.lxdb.plugins.muqingyu.fptoken.tests.support.FpBitIndexTestSupport.RamFlushedBitIndex;
 
 /** bitindex 写读、selective 与 releasePooledMaps 一致性。 */
 @Tag("lxdb-runtime")
@@ -40,7 +41,7 @@ class FpBitIndexWriteReadTest {
 	void flush_fullRead_roundTrip_preservesLookup() throws Exception {
 		final FpGroupHotNgramBitIndex built = buildBitIndexFromCommonPayloads(
 				List.of("abcdef", "abzzzz", "zzabc"));
-		final var ram = flushBitIndexToRam(built, 0);
+		final RamFlushedBitIndex ram = flushBitIndexToRam(built, 0);
 		built.releasePooledMaps();
 
 		try (IndexInput in = openRamBits(ram.dir)) {
@@ -54,7 +55,7 @@ class FpBitIndexWriteReadTest {
 	void selectiveRead_matchesFullRead_forQuerySlices() throws Exception {
 		final FpGroupHotNgramBitIndex built = buildBitIndexFromCommonPayloads(
 				List.of("abcdef", "abzzzz", "zzabc"));
-		final var ram = flushBitIndexToRam(built, 0);
+		final RamFlushedBitIndex ram = flushBitIndexToRam(built, 0);
 
 		try (IndexInput in = openRamBits(ram.dir)) {
 			final FpGroupHotNgramBitIndex full = FpGroupHotNgramBitIndex.readfrom(in, ram.blockInfo);
@@ -88,7 +89,7 @@ class FpBitIndexWriteReadTest {
 			payloads.add("z" + (char) ('A' + (i % 26)) + (char) ('a' + (i % 26)) + i);
 		}
 		final FpGroupHotNgramBitIndex built = buildBitIndexFromCommonPayloads(payloads);
-		final var ram = flushBitIndexToRam(built, 0);
+		final RamFlushedBitIndex ram = flushBitIndexToRam(built, 0);
 
 		final BytesRef probe = new BytesRef("zAa0".getBytes(StandardCharsets.UTF_8));
 		final long[] keys = FpGroupHotNgramBitIndex.selectiveKeysForSlices(new BytesRef[] { probe });
