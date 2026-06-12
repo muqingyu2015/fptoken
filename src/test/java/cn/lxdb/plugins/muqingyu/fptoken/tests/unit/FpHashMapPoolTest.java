@@ -129,6 +129,15 @@ class FpHashMapPoolTest {
 	}
 
 	@Test
+	void lenRowSparseOrdersPool_borrowRelease() {
+		final FpHashMapPoolLease<Integer, int[]> sparse = FpHashMapPoolHub.borrow(
+				FpHashMapPoolIds.lenRowSparseOrders, Integer.class, int[].class, 8);
+		sparse.map().put(1, new int[] { 9 });
+		FpHashMapPoolHub.release(sparse);
+		assertEquals(0, FpHashMapPoolHub.stats(FpHashMapPoolIds.lenRowSparseOrders).leasedSize());
+	}
+
+	@Test
 	void releaseAfterPoolResetFails() {
 		final FpHashMapPoolLease<String, String> lease = FpHashMapPoolHub.borrow(3, String.class, String.class, 0);
 		FpHashMapPoolHub.resetForTests();
