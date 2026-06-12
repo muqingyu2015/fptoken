@@ -7,6 +7,8 @@ import java.util.Objects;
 
 /**
  * 单一 {@code (K,V)} 类型的 HashMap 对象池槽位；借出跟踪按 {@code leaseId} 强引用，直到 {@link #release}。
+ * <p>
+ * {@link HashMap#clear()} 在锁外执行，避免大 map 清空长时间阻塞其它 borrow/release。
  */
 final class FpHashMapPoolSlot<K, V> {
 
@@ -29,6 +31,18 @@ final class FpHashMapPoolSlot<K, V> {
 		ActiveLease(HashMap<K, V> map, long bornAtMs) {
 			this.map = map;
 			this.bornAtMs = bornAtMs;
+		}
+	}
+
+	private static final class ReleaseDisposition {
+		final HashMap<?, ?> map;
+		final long bornAtMs;
+		final boolean returnToIdle;
+
+		ReleaseDisposition(HashMap<?, ?> map, long bornAtMs, boolean returnToIdle) {
+			this.map = map;
+			this.bornAtMs = bornAtMs;
+			this.returnToIdle = returnToIdle;
 		}
 	}
 
@@ -79,53 +93,45 @@ final class FpHashMapPoolSlot<K, V> {
 		return settings.cleanupIntervalMs();
 	}
 
-	synchronized FpHashMapPoolLease<K, V> borrowLease() {
-		final long now = clock.nowMs();
-		final Holder<K, V> holder = pollReusableHolder(now);
+	FpHashMapPoolLease<K, V> borrowLease() {
 		final HashMap<K, V> map;
 		final long bornAtMs;
-		if (holder == null) {
-			map = newHashMap();
-			bornAtMs = now;
-			createdCount++;
-		} else {
-			map = holder.map;
-			bornAtMs = holder.bornAtMs;
+		final long leaseId;
+		final boolean clearBeforeUse;
+		synchronized (this) {
+			final long now = clock.nowMs();
+			final Holder<K, V> reused = pollReusableHolderLocked(now);
+			if (reused == null) {
+				map = newHashMap();
+				bornAtMs = now;
+				createdCount++;
+				clearBeforeUse = false;
+			} else {
+				map = reused.map;
+				bornAtMs = reused.bornAtMs;
+				clearBeforeUse = true;
+			}
+			leaseId = nextLeaseId++;
+			leased.put(leaseId, new ActiveLease<>(map, bornAtMs));
+			borrowCount++;
 		}
-		final long leaseId = nextLeaseId++;
-		leased.put(leaseId, new ActiveLease<>(map, bornAtMs));
-		borrowCount++;
+		if (clearBeforeUse) {
+			clearOutsideLock(map);
+		}
 		return new FpHashMapPoolLease<>(poolId, leaseId, map, bornAtMs);
 	}
 
-	synchronized void release(FpHashMapPoolLease<K, V> lease) {
+	void release(FpHashMapPoolLease<K, V> lease) {
 		Objects.requireNonNull(lease, "lease");
 		if (lease.poolId() != poolId) {
 			throw new IllegalStateException(
 					"lease poolId=" + lease.poolId() + " does not match slot poolId=" + poolId);
 		}
 		lease.ensureReleasable();
-		final ActiveLease<K, V> active = leased.remove(lease.leaseId());
-		if (active == null) {
-			throw new IllegalStateException("unknown or already released lease: poolId=" + poolId + " leaseId="
-					+ lease.leaseId());
-		}
-		if (active.map != lease.map()) {
-			throw new IllegalStateException("lease map mismatch: poolId=" + poolId + " leaseId=" + lease.leaseId());
-		}
-		lease.markReleased();
-		final HashMap<K, V> map = active.map;
-		map.clear();
-		releaseCount++;
-		final long now = clock.nowMs();
-		if (isReuseLifetimeExpired(active.bornAtMs, now)) {
-			expiredReuseCount++;
-			return;
-		}
-		if (idle.size() < settings.maxIdleSize()) {
-			final Holder<K, V> holder = new Holder<>(map, active.bornAtMs);
-			holder.lastIdleAtMs = now;
-			idle.addLast(holder);
+		final ReleaseDisposition disposition = removeLeaseLocked(lease);
+		clearOutsideLock(disposition.map);
+		if (disposition.returnToIdle) {
+			offerIdleLocked(disposition.map, disposition.bornAtMs);
 		}
 	}
 
@@ -153,7 +159,37 @@ final class FpHashMapPoolSlot<K, V> {
 				expiredReuseCount, expiredIdleEvictCount);
 	}
 
-	private Holder<K, V> pollReusableHolder(long now) {
+	private synchronized ReleaseDisposition removeLeaseLocked(FpHashMapPoolLease<K, V> lease) {
+		final ActiveLease<K, V> active = leased.remove(lease.leaseId());
+		if (active == null) {
+			throw new IllegalStateException("unknown or already released lease: poolId=" + poolId + " leaseId="
+					+ lease.leaseId());
+		}
+		if (active.map != lease.map()) {
+			throw new IllegalStateException("lease map mismatch: poolId=" + poolId + " leaseId=" + lease.leaseId());
+		}
+		lease.markReleased();
+		releaseCount++;
+		final long now = clock.nowMs();
+		if (isReuseLifetimeExpired(active.bornAtMs, now)) {
+			expiredReuseCount++;
+			return new ReleaseDisposition(active.map, active.bornAtMs, false);
+		}
+		return new ReleaseDisposition(active.map, active.bornAtMs, idle.size() < settings.maxIdleSize());
+	}
+
+	private synchronized void offerIdleLocked(HashMap<?, ?> map, long bornAtMs) {
+		if (idle.size() >= settings.maxIdleSize()) {
+			return;
+		}
+		@SuppressWarnings("unchecked")
+		final HashMap<K, V> typed = (HashMap<K, V>) map;
+		final Holder<K, V> holder = new Holder<>(typed, bornAtMs);
+		holder.lastIdleAtMs = clock.nowMs();
+		idle.addLast(holder);
+	}
+
+	private Holder<K, V> pollReusableHolderLocked(long now) {
 		while (true) {
 			final Holder<K, V> holder = idle.pollFirst();
 			if (holder == null) {
@@ -163,9 +199,13 @@ final class FpHashMapPoolSlot<K, V> {
 				expiredIdleEvictCount++;
 				continue;
 			}
-			holder.map.clear();
 			return holder;
 		}
+	}
+
+	@SuppressWarnings("unchecked")
+	private static void clearOutsideLock(HashMap<?, ?> map) {
+		((HashMap<Object, Object>) map).clear();
 	}
 
 	private HashMap<K, V> newHashMap() {
