@@ -21,9 +21,11 @@ public final class FpHashMapPoolIds {
 
 	public static final int hotMergeTable = 8;
 
-	
-	
-	
+	/** {@code HashMap<FpTermKey, Boolean>} — common payload 内 ngram slice 去重（bitindex 构建） */
+	public static final int commonPayloadUniqueSlices = 9;
+
+	/** {@code HashMap<FpTermKey, Boolean>} — countNgram 阶段 common term 内 ngram 去重 */
+	public static final int commonTermUniqueNgrams = 10;
 	/** 自定义池从 100 起，避免与内置 id 冲突 */
 	public static final int CUSTOM_BASE = 100;
 

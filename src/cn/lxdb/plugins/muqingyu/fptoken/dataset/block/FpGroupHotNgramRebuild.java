@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -60,6 +59,8 @@ import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolLease;
 public final class FpGroupHotNgramRebuild {
     /** 日志记录器，使用加密/脱敏日志工具获取 */
     public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
+
+	private static final Boolean UNIQUE_NGRAM_MARKER = Boolean.TRUE;
 
 	/**
 	 * merge 阶段辅助结构：一次 {@link HashMap#get} 同时拿到 doclist 与序号，
@@ -134,10 +135,10 @@ public final class FpGroupHotNgramRebuild {
 				FpHashMapPoolIds.anchorTierIndexByHotTerm, FpTermKey.class, AnchorTierIndex.class,
 				FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
 		final HashMap<FpTermKey, AnchorTierIndex> anchorTierIndexByHotTerm = anchorTierIndexByHotTermLease.map();
-		final FpHashMapPoolLease<FpTermKey, FPDocList> hotTermsPendingDocMergeLease = FpHashMapPoolHub.borrow(
-				FpHashMapPoolIds.hotTermsPendingDocMerge, FpTermKey.class, FPDocList.class,
-				FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
-		final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = hotTermsPendingDocMergeLease.map();
+//		final FpHashMapPoolLease<FpTermKey, FPDocList> hotTermsPendingDocMergeLease = FpHashMapPoolHub.borrow(
+//				FpHashMapPoolIds.hotTermsPendingDocMerge, FpTermKey.class, FPDocList.class,
+//				FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
+		final HashMap<FpTermKey, FPDocList> hotTermsPendingDocMerge = hotTermToDocs;
 		final FpHashMapPoolLease<FpTermKey, HotMergeSlot> hotMergeTableLease = FpHashMapPoolHub.borrow(
 				FpHashMapPoolIds.hotMergeTable, FpTermKey.class, HotMergeSlot.class,
 				FpTokenBlockLevelPolicy.HASH_MAP_DEFAULT_SIZE);
@@ -193,14 +194,14 @@ public final class FpGroupHotNgramRebuild {
 		anchorTierIndexByHotTerm.clear();
 
 		// 将待 merge 的热词写入最终输出容器
-		hotTermToDocs.putAll(hotTermsPendingDocMerge);
+//		hotTermToDocs.putAll(hotTermsPendingDocMerge);
 		stat.hot_final = hotTermToDocs.size();
 		
 		
 		} finally {
 			FpHashMapPoolHub.release(ngramOccurrenceCountLease);
 			FpHashMapPoolHub.release(anchorTierIndexByHotTermLease);
-			FpHashMapPoolHub.release(hotTermsPendingDocMergeLease);
+//			FpHashMapPoolHub.release(hotTermsPendingDocMergeLease);
 			FpHashMapPoolHub.release(hotMergeTableLease);
 		}
 
@@ -253,56 +254,55 @@ public final class FpGroupHotNgramRebuild {
 	 */
 	private static void countNgramOccurrencesInCommon(FpStatNgram stat, HashMap<FpTermKey, FPDocList> commonTermToDocs,
 			HashMap<FpTermKey, Counter> ngramOccurrenceCount) {
-		// 复用的 BytesRef 滑动窗口，避免重复分配
-		final BytesRef sliceScratch = new BytesRef();
-		final HashSet<FpTermKey> uniqueNgramsThisCommonTerm = new HashSet<>(Lucene80FPSearchConfig.BITSET_WINDOW_SIZE * Lucene80FPSearchConfig.NGRAM_MAX* Lucene80FPSearchConfig.NGRAM_MAX);
-		for (Map.Entry<FpTermKey, FPDocList> entry : commonTermToDocs.entrySet()) {
-			final BytesRef commonPayload = entry.getKey().bytesRef();
-			final int payloadLen = commonPayload.length;
-			if (payloadLen <= 0) {
-				continue;
-			}
-			stat.term_cnt++;
-			// 当前 common term 内已出现的 ngram 集合（用于 term 内去重）
-			uniqueNgramsThisCommonTerm.clear();
-			final byte[] bytes = commonPayload.bytes;
-			final int base = commonPayload.offset;
-			sliceScratch.bytes = bytes;
-			
-			
-			for (int start = 0; start < payloadLen; start++) {
-				int h = 0;
-				final int maxNgramLen = Math.min(Lucene80FPSearchConfig.NGRAM_MAX, payloadLen - start);
-				for (int ngramLen = Lucene80FPSearchConfig.NGRAM_MIN; ngramLen <= maxNgramLen; ngramLen++) {
-					h = FpTermKeyHash.rollAppend(h, bytes[base + start + ngramLen - 1]);
-					sliceScratch.offset = base + start;
-					sliceScratch.length = ngramLen;
-					stat.token_cnt++;
-					final FpTermKey view_key = FpTermKey.viewOf(sliceScratch, h);
-					// term 内去重：相同 ngram 在同一 common term 中只计一次
-					if (uniqueNgramsThisCommonTerm.contains(view_key)) {
-						continue;
+		final int uniqueCap = Lucene80FPSearchConfig.BITSET_WINDOW_SIZE * Lucene80FPSearchConfig.NGRAM_MAX
+				* Lucene80FPSearchConfig.NGRAM_MAX;
+		final FpHashMapPoolLease<FpTermKey, Boolean> uniqueNgramsLease = FpHashMapPoolHub.borrow(
+				FpHashMapPoolIds.commonTermUniqueNgrams, FpTermKey.class, Boolean.class, uniqueCap);
+		final HashMap<FpTermKey, Boolean> uniqueNgramsThisCommonTerm = uniqueNgramsLease.map();
+		try {
+			final BytesRef sliceScratch = new BytesRef();
+			for (Map.Entry<FpTermKey, FPDocList> entry : commonTermToDocs.entrySet()) {
+				final BytesRef commonPayload = entry.getKey().bytesRef();
+				final int payloadLen = commonPayload.length;
+				if (payloadLen <= 0) {
+					continue;
+				}
+				stat.term_cnt++;
+				uniqueNgramsThisCommonTerm.clear();
+				final byte[] bytes = commonPayload.bytes;
+				final int base = commonPayload.offset;
+				sliceScratch.bytes = bytes;
+
+				for (int start = 0; start < payloadLen; start++) {
+					int h = 0;
+					final int maxNgramLen = Math.min(Lucene80FPSearchConfig.NGRAM_MAX, payloadLen - start);
+					for (int ngramLen = Lucene80FPSearchConfig.NGRAM_MIN; ngramLen <= maxNgramLen; ngramLen++) {
+						h = FpTermKeyHash.rollAppend(h, bytes[base + start + ngramLen - 1]);
+						sliceScratch.offset = base + start;
+						sliceScratch.length = ngramLen;
+						stat.token_cnt++;
+						final FpTermKey view_key = FpTermKey.viewOf(sliceScratch, h);
+						if (uniqueNgramsThisCommonTerm.containsKey(view_key)) {
+							continue;
+						}
+						Counter val = ngramOccurrenceCount.get(view_key);
+						if (val == null) {
+							BytesRef sliceScratch_copy = new BytesRef();
+							sliceScratch_copy.bytes = sliceScratch.bytes;
+							sliceScratch_copy.offset = sliceScratch.offset;
+							sliceScratch_copy.length = sliceScratch.length;
+							FpTermKey key_soft_copy = FpTermKey.viewOf(sliceScratch_copy, view_key.hashCode());
+							val = new Counter(1, key_soft_copy);
+							ngramOccurrenceCount.put(key_soft_copy, val);
+						} else {
+							val.cnt++;
+						}
+						uniqueNgramsThisCommonTerm.put(val.key, UNIQUE_NGRAM_MARKER);
 					}
-					Counter val=ngramOccurrenceCount.get(view_key);
-					if(val==null)
-					{
-						BytesRef sliceScratch_copy = new BytesRef();
-						sliceScratch_copy.bytes=sliceScratch.bytes;
-						sliceScratch_copy.offset = sliceScratch.offset;
-						sliceScratch_copy.length = sliceScratch.length;
-						FpTermKey key_soft_copy=FpTermKey.viewOf(sliceScratch_copy,view_key.hashCode());
-						val=new Counter(1,key_soft_copy);
-						ngramOccurrenceCount.put(key_soft_copy, val);
-					}else {
-						val.cnt++;
-					}
-					
-					// 拷贝 ngram 并加入去重集合
-					uniqueNgramsThisCommonTerm.add(val.key);
-					// 全局计数累加
-//					ngramOccurrenceCount.merge(ngramKey, 1, Integer::sum);
 				}
 			}
+		} finally {
+			FpHashMapPoolHub.release(uniqueNgramsLease);
 		}
 	}
 

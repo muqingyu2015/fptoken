@@ -4,9 +4,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map.Entry;
-import java.util.TreeMap;
 
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.DataOutput;
@@ -22,7 +19,11 @@ import org.slf4j.Logger;
 
 import cn.lucene.proguard.keep.lxdb.common.CLMillisecondClock;
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
+import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolHub;
+import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolIds;
+import cn.lxdb.plugins.muqingyu.fptoken.pool.FpHashMapPoolLease;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.CommonTermSortEntry;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FPDocList;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
@@ -291,7 +292,7 @@ public final class FpGroupHotNgramBitIndex {
 		}
 	
 
-		// 完成构建：将 TreeMap 转为排序数组 + 压缩 order 列表
+		// 完成构建：将 HashMap 转为排序数组 + 压缩 order 列表
 		hotTier.finalizeRows();
 		commonTier.finalizeRows();
 		return new FpGroupHotNgramBitIndex(targetLevel, hotTier, commonTier, h, c, false);
@@ -614,16 +615,18 @@ public final class FpGroupHotNgramBitIndex {
 		}
 	}
 
+	private static final Boolean UNIQUE_SLICE_MARKER = Boolean.TRUE;
+
 	/**
 	 * 将一条普通词 payload 的去重 ngram 切片标记到指定 tier，同时跳过已在 hot 中出现的 slice。
 	 *
-	 * @param hotKeySet 热词 key 集合（用于排除）
-	 * @param tier      目标 common tier
-	 * @param payload   普通词载荷字节
-	 * @param order     该 term 在组内的序号
+	 * @param hotTermToDocs 热词表（用于排除已在 hot 中的 slice）
+	 * @param tier          目标 common tier
+	 * @param payload       普通词载荷字节
+	 * @param order         该 term 在组内的序号
 	 */
-	private static void markCommonNgramsByUniqueSlices(HashMap<FpTermKey, FPDocList> hotTermToDocs, TierIndex tier, BytesRef payload,
-			int order) {
+	private static void markCommonNgramsByUniqueSlices(HashMap<FpTermKey, FPDocList> hotTermToDocs, TierIndex tier,
+			BytesRef payload, int order) {
 		if (order < 1) {
 			return;
 		}
@@ -631,42 +634,40 @@ public final class FpGroupHotNgramBitIndex {
 		if (payloadLen <= 0) {
 			return;
 		}
-		final int base = payload.offset;
-		final BytesRef sliceScratch = new BytesRef();
-		sliceScratch.bytes = payload.bytes;
-		// 预估 unique slice 容量，避免频繁扩容
-		final int uniqueCap = Math.max(16, Math.min(payloadLen * 4, 4096));
-		// 用于 payload 内部 ngram 去重
-		final HashSet<FpTermKey> uniqueSlices = new HashSet<>(uniqueCap);
-		for (int start = 0; start < payloadLen; start++) {
-			int h = 0;
-			final int maxN = Math.min(Lucene80FPSearchConfig.NGRAM_MAX, payloadLen - start);
-			for (int n = Lucene80FPSearchConfig.NGRAM_MIN; n <= maxN; n++) {
-				h = FpTermKeyHash.rollAppend(h, payload.bytes[base + start + n - 1]);
-				sliceScratch.offset = base + start;
-				sliceScratch.length = n;
-				final FpTermKey key = FpTermKey.viewOf(sliceScratch, h);
-				// 跳过本 payload 内已出现过的相同 slice
-				if (uniqueSlices.contains(key)) {
+		final FpHashMapPoolLease<FpTermKey, Boolean> uniqueSlicesLease = FpHashMapPoolHub.borrow(
+				FpHashMapPoolIds.commonPayloadUniqueSlices, FpTermKey.class, Boolean.class, FpTokenBlockLevelPolicy.HASH_MAP_TOKEN_SIZE);
+		final HashMap<FpTermKey, Boolean> uniqueSlices = uniqueSlicesLease.map();
+		try {
+			final int base = payload.offset;
+			final BytesRef sliceScratch = new BytesRef();
+			sliceScratch.bytes = payload.bytes;
+			for (int start = 0; start < payloadLen; start++) {
+				int h = 0;
+				final int maxN = Math.min(Lucene80FPSearchConfig.NGRAM_MAX, payloadLen - start);
+				for (int n = Lucene80FPSearchConfig.NGRAM_MIN; n <= maxN; n++) {
+					h = FpTermKeyHash.rollAppend(h, payload.bytes[base + start + n - 1]);
+					sliceScratch.offset = base + start;
+					sliceScratch.length = n;
+					final FpTermKey key = FpTermKey.viewOf(sliceScratch, h);
+					if (uniqueSlices.containsKey(key)) {
+						continue;
+					}
+					final BytesRef sliceScratch_copy = new BytesRef();
+					sliceScratch_copy.bytes = sliceScratch.bytes;
+					sliceScratch_copy.offset = sliceScratch.offset;
+					sliceScratch_copy.length = sliceScratch.length;
+					uniqueSlices.put(FpTermKey.viewOf(sliceScratch_copy, key.hashCode()), UNIQUE_SLICE_MARKER);
+				}
+			}
+			for (FpTermKey key : uniqueSlices.keySet()) {
+				if (hotTermToDocs.containsKey(key)) {
 					continue;
 				}
-				
-				final BytesRef sliceScratch_copy = new BytesRef();
-				sliceScratch_copy.bytes=sliceScratch.bytes;
-				sliceScratch_copy.offset=sliceScratch.offset;
-				sliceScratch_copy.length=sliceScratch.length;
-
-				uniqueSlices.add(FpTermKey.viewOf(sliceScratch_copy,key.hashCode()));
+				final BytesRef br = key.bytesRef();
+				tier.add(br.length - 1, bucketIndex(br), order);
 			}
-		}
-		// 第二遍：将不在 hot 中的 slice 添加到 common tier
-		for (FpTermKey key : uniqueSlices) {
-			// 跳过已在 hot tier 中存在的 slice
-			if (hotTermToDocs.containsKey(key)) {
-				continue;
-			}
-			final BytesRef br = key.bytesRef();
-			tier.add(br.length - 1, bucketIndex(br), order);
+		} finally {
+			FpHashMapPoolHub.release(uniqueSlicesLease);
 		}
 	}
 
@@ -806,7 +807,7 @@ public final class FpGroupHotNgramBitIndex {
 			rows[lenIdx].add(bucket, order);
 		}
 
-		/** 完成所有行的构建：将 TreeMap 转为排序数组 + 压缩结构 */
+		/** 完成所有行的构建：将 HashMap 转为排序数组 + 压缩结构 */
 		void finalizeRows() {
 			for (LenRow row : rows) {
 				try {
@@ -1375,12 +1376,12 @@ public final class FpGroupHotNgramBitIndex {
 	 * 4) 用 found 下标读 meta[found]，再解码 order（单条内联或读 arena）
 	 * </pre>
 	 *
-	 * <p>构建期用 {@link TreeMap} 聚合；{@link #finalizeRow()} 后变为 sortedKeys + entryMeta + orderArena。
+	 * <p>构建期用 {@link HashMap} 聚合；{@link #finalizeRow()} 后变为 sortedKeys + entryMeta + orderArena。
 	 * selective 读在 {@link TierIndex#readSelective} 预取到 {@link #sparseOrders}；{@link #viewSelective} 从全量实例截取。
 	 */
 	static final class LenRow {
-		/** 构建期使用的 TreeMap（bucket → order 列表），finalize 后置 null */
-		private TreeMap<Integer, IntList> buildMap;
+		/** 构建期使用的 HashMap（bucket → order 列表），finalize 后置 null */
+		private HashMap<Integer, IntList> buildMap;
 		/** 稀疏模式下存储已加载的 bucket → order 映射 */
 		private HashMap<Integer, int[]> sparseOrders;
 
@@ -1398,7 +1399,7 @@ public final class FpGroupHotNgramBitIndex {
 		 */
 		LenRow(boolean sparse) {
 			if (!sparse) {
-				buildMap = new TreeMap<>();
+				buildMap = new HashMap<>();
 			}
 		}
 
@@ -1445,7 +1446,7 @@ public final class FpGroupHotNgramBitIndex {
 		}
 
 		/**
-		 * 构建结束：将 TreeMap 转换为排序数组 + 压缩 order 列表。
+		 * 构建结束：将 HashMap 转换为排序数组 + 压缩 order 列表。
 		 * <ul>
 		 *   <li>sortedKeys：bucket 升序数组</li>
 		 *   <li>entryMeta：单 order 内联 / 多 order 指向 arena 偏移</li>
@@ -1465,13 +1466,16 @@ public final class FpGroupHotNgramBitIndex {
 			final int n = buildMap.size();
 			sortedKeys = new int[n];
 			entryMeta = new int[n];
-			// 使用 RAM 缓冲构建 arena
+			int keyIdx = 0;
+			for (Integer bucketKey : buildMap.keySet()) {
+				sortedKeys[keyIdx++] = bucketKey.intValue();
+			}
+			Arrays.sort(sortedKeys);
 			final RAMOutputStream arenaOut = new RAMOutputStream();
-			int i = 0;
-			for (Entry<Integer, IntList> e : buildMap.entrySet()) {
-				sortedKeys[i] = e.getKey().intValue();
+			for (int i = 0; i < n; i++) {
+				final IntList list = buildMap.get(sortedKeys[i]);
 				// 将 order 列表转为排序去重数组
-				final int[] orders = e.getValue().toSortedArray();
+				final int[] orders = list.toSortedArray();
 				if (orders.length == 1) {
 					// 单 order：内联到 entryMeta 高 31 位，低 1 位为 TAG_SINGLE
 					entryMeta[i] = (orders[0] << 1) | ENTRY_TAG_SINGLE;
@@ -1481,7 +1485,6 @@ public final class FpGroupHotNgramBitIndex {
 					writeOrderList(arenaOut, orders);
 					entryMeta[i] = (arenaOffset << 1) | ENTRY_TAG_MULTI;
 				}
-				i++;
 			}
 			// 将 arena 缓冲拷贝到字节数组
 			orderArena = new byte[Math.toIntExact(arenaOut.getFilePointer())];
