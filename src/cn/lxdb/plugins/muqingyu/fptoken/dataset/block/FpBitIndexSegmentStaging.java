@@ -43,6 +43,10 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 	/** common tier 目录魔数 {@code 'FPTC'} */
 	public static final int TIER_DIR_MAGIC_COMMON = 0x46505443;
 
+	private static final int TIER_DIR_MAGIC_BYTES = 4;
+	private static final int TIER_DIR_ENTRY_BYTES_LEGACY = 16;
+	private static final int TIER_DIR_ENTRY_BYTES_WITH_BLOOM = 24;
+
 	private static final String HOT = "hot";
 	private static final String COMMON = "common";
 	private static final String SKIP = "skipkeys";
@@ -54,6 +58,28 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 
 	public FpBitIndexSegmentStaging(FpBitIndexTempDirectory.Session session) {
 		this.session = session;
+	}
+
+	/** tier 目录序列化字节数（含 magic），用于读路径判断是否含 Bloom 池。 */
+	public static int tierDirectorySerializedBytes(boolean withBloomPool) {
+		final int entryBytes = withBloomPool ? TIER_DIR_ENTRY_BYTES_WITH_BLOOM : TIER_DIR_ENTRY_BYTES_LEGACY;
+		return TIER_DIR_MAGIC_BYTES + Lucene80FPSearchConfig.NGRAM_MAX * entryBytes;
+	}
+
+	/**
+	 * 根据 {@link cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo} 记录的 tier 目录大小
+	 * 判断是否含 Bloom 池（旧索引仅 skip+arena，无 bloom 偏移）。
+	 */
+	public static boolean tierDirectoryHasBloomPool(int tierDirectorySerializedBytes) {
+		final int legacy = tierDirectorySerializedBytes(false);
+		final int withBloom = tierDirectorySerializedBytes(true);
+		if (tierDirectorySerializedBytes == withBloom) {
+			return true;
+		}
+		if (tierDirectorySerializedBytes == legacy) {
+			return false;
+		}
+		return tierDirectorySerializedBytes > legacy;
 	}
 
 	public boolean isEmpty() {

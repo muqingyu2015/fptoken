@@ -427,10 +427,12 @@ public final class FpGroupHotNgramBitIndex {
 
 	private static FpGroupHotNgramBitIndex readfromTierDirectory(IndexInput in, FpBlockInfo blkinfo, int hotMagic)
 			throws IOException {
-		final TierIndex hotTier = TierIndex.readTierDirectory(in, blkinfo.fpBanksHot, hotMagic, false);
+		final TierIndex hotTier = TierIndex.readTierDirectory(in, blkinfo.fpBanksHot, hotMagic, false,
+				blkinfo.bytesPerHotSerialized);
 		in.seek(blkinfo.fpBanksCommon);
 		final int commonMagic = in.readInt();
-		final TierIndex commonTier = TierIndex.readTierDirectory(in, blkinfo.fpBanksCommon, commonMagic, false);
+		final TierIndex commonTier = TierIndex.readTierDirectory(in, blkinfo.fpBanksCommon, commonMagic, false,
+				blkinfo.bytesPerCommonSerialized);
 		return new FpGroupHotNgramBitIndex(blkinfo.targetLevel, hotTier, commonTier, blkinfo.hotCount,
 				blkinfo.commonCount, false);
 	}
@@ -466,13 +468,14 @@ public final class FpGroupHotNgramBitIndex {
 			final int hotMagic = disk.readInt();
 			if (hotMagic == FpBitIndexSegmentStaging.TIER_DIR_MAGIC_HOT) {
 				final TierIndex hotTier = loadHotKeys == null || loadHotKeys.length == 0 ? TierIndex.emptySparse()
-						: TierIndex.readSelectiveTierDirectory(disk, blkinfo.fpBanksHot, hotMagic, loadHotKeys);
+						: TierIndex.readSelectiveTierDirectory(disk, blkinfo.fpBanksHot, hotMagic, loadHotKeys,
+								blkinfo.bytesPerHotSerialized);
 				disk.seek(blkinfo.fpBanksCommon);
 				final int commonMagic = disk.readInt();
 				final TierIndex commonTier = loadCommonKeys == null || loadCommonKeys.length == 0
 						? TierIndex.emptySparse()
 						: TierIndex.readSelectiveTierDirectory(disk, blkinfo.fpBanksCommon, commonMagic,
-								loadCommonKeys);
+								loadCommonKeys, blkinfo.bytesPerCommonSerialized);
 				return new FpGroupHotNgramBitIndex(blkinfo.targetLevel, hotTier, commonTier, blkinfo.hotCount,
 						blkinfo.commonCount, true);
 			}
@@ -1064,9 +1067,9 @@ public final class FpGroupHotNgramBitIndex {
 		/**
 		 * v4：从 tier 目录全量读入 6 行 LenRow（Bloom 池仅 selective 使用，全量读忽略）。
 		 */
-		static TierIndex readTierDirectory(IndexInput disk, long tierDirOffset, int magic, boolean sparse)
-				throws IOException {
-			final TierOffsets offsets = readTierOffsets(disk, tierDirOffset, magic);
+		static TierIndex readTierDirectory(IndexInput disk, long tierDirOffset, int magic, boolean sparse,
+				int tierDirectorySerializedBytes) throws IOException {
+			final TierOffsets offsets = readTierOffsets(disk, tierDirOffset, magic, tierDirectorySerializedBytes);
 			final TierIndex tier = sparse ? emptySparse() : new TierIndex(false);
 			for (int i = 0; i < tier.rows.length; i++) {
 				tier.rows[i] = LenRow.readLenRowSplit(disk, offsets.skipOff[i], offsets.arenaOff[i], sparse);
@@ -1077,12 +1080,12 @@ public final class FpGroupHotNgramBitIndex {
 		/**
 		 * v4 selective：tier 目录 + 分池 skip/arena/bloom 文件布局。
 		 */
-		static TierIndex readSelectiveTierDirectory(IndexInput disk, long tierDirOffset, int magic, long[] keys)
-				throws IOException {
+		static TierIndex readSelectiveTierDirectory(IndexInput disk, long tierDirOffset, int magic, long[] keys,
+				int tierDirectorySerializedBytes) throws IOException {
 			if (keys == null || keys.length == 0) {
 				return emptySparse();
 			}
-			final TierOffsets offsets = readTierOffsets(disk, tierDirOffset, magic);
+			final TierOffsets offsets = readTierOffsets(disk, tierDirOffset, magic, tierDirectorySerializedBytes);
 			final TierIndex tier = emptySparse();
 			final DiskLenRow[] diskRows = new DiskLenRow[Lucene80FPSearchConfig.NGRAM_MAX];
 			for (long key : keys) {
@@ -1103,18 +1106,22 @@ public final class FpGroupHotNgramBitIndex {
 			return tier;
 		}
 
-		private static TierOffsets readTierOffsets(IndexInput disk, long tierDirOffset, int magic) throws IOException {
+		private static TierOffsets readTierOffsets(IndexInput disk, long tierDirOffset, int magic,
+				int tierDirectorySerializedBytes) throws IOException {
 			disk.seek(tierDirOffset);
 			if (disk.readInt() != magic) {
 				throw new IOException("unexpected tier directory magic: " + magic);
 			}
+			final boolean hasBloomPool = FpBitIndexSegmentStaging.tierDirectoryHasBloomPool(tierDirectorySerializedBytes);
 			final long[] skipOff = new long[Lucene80FPSearchConfig.NGRAM_MAX];
 			final long[] arenaOff = new long[Lucene80FPSearchConfig.NGRAM_MAX];
 			final long[] bloomOff = new long[Lucene80FPSearchConfig.NGRAM_MAX];
 			for (int i = 0; i < Lucene80FPSearchConfig.NGRAM_MAX; i++) {
 				skipOff[i] = disk.readLong();
 				arenaOff[i] = disk.readLong();
-				bloomOff[i] = disk.readLong();
+				if (hasBloomPool) {
+					bloomOff[i] = disk.readLong();
+				}
 			}
 			return new TierOffsets(skipOff, arenaOff, bloomOff);
 		}
@@ -1262,7 +1269,8 @@ public final class FpGroupHotNgramBitIndex {
 			final int maxBucket = in.readInt();
 			in.seek(lenRowStart + metaStartRel + (long) entryCount * 4L);
 			in.readInt(); // arenaLen（arena 在独立池，此处仅跳过）
-			final FpLenRowBloom bloom = FpLenRowBloom.readFrom(in, bloomAbs);
+			final FpLenRowBloom bloom = bloomAbs <= 0 ? FpLenRowBloom.passthrough()
+					: FpLenRowBloom.readFrom(in, bloomAbs);
 			return new DiskLenRow(in, lenRowStart, entryCount, skipAnchors[0], maxBucket, skipCount, skipAnchors,
 					skipKeysPtrRel, keysBaseRel, metaStartRel, arenaAbs, bloom);
 		}

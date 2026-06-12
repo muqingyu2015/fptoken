@@ -99,6 +99,9 @@ public final class FpLenRowBloom {
 	}
 
 	public static FpLenRowBloom readFrom(IndexInput in, long offset) throws IOException {
+		if (offset <= 0) {
+			return PASSTHROUGH;
+		}
 		in.seek(offset);
 		return readFrom(in);
 	}

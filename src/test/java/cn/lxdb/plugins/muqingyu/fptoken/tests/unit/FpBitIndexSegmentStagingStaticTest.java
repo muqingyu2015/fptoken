@@ -1,6 +1,8 @@
 package cn.lxdb.plugins.muqingyu.fptoken.tests.unit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Method;
 import java.nio.file.Path;
@@ -19,6 +21,14 @@ class FpBitIndexSegmentStagingStaticTest {
 		assertEquals(0x4650544B, FpBitIndexSegmentStaging.SEGMENT_MAGIC);
 		assertEquals(0x46505448, FpBitIndexSegmentStaging.TIER_DIR_MAGIC_HOT);
 		assertEquals(0x46505443, FpBitIndexSegmentStaging.TIER_DIR_MAGIC_COMMON);
+	}
+
+	@Test
+	void tierDirectorySerializedBytes_legacyAndBloom() {
+		assertEquals(84, FpBitIndexSegmentStaging.tierDirectorySerializedBytes(false));
+		assertEquals(124, FpBitIndexSegmentStaging.tierDirectorySerializedBytes(true));
+		assertFalse(FpBitIndexSegmentStaging.tierDirectoryHasBloomPool(84));
+		assertTrue(FpBitIndexSegmentStaging.tierDirectoryHasBloomPool(124));
 	}
 
 	@Test
