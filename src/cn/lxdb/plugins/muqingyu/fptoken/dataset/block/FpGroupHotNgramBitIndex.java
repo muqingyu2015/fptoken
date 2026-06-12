@@ -283,13 +283,21 @@ public final class FpGroupHotNgramBitIndex {
 			markHotNgramsForPayload(hotTier, e.getKey().bytesRef(),index);
 		}
 		// 遍历所有普通词，将其去重后的 ngram 切片标记到 common tier（排除 hot 已有的）
-
+		final FpHashMapPoolLease<FpTermKey, Boolean> uniqueSlicesLease = FpHashMapPoolHub.borrow(
+				FpHashMapPoolIds.commonPayloadUniqueSlices, FpTermKey.class, Boolean.class, FpTokenBlockLevelPolicy.HASH_MAP_TOKEN_SIZE);
+		final HashMap<FpTermKey, Boolean> uniqueSlices = uniqueSlicesLease.map();
+		
+		try {
 		order = 1;
 		for (CommonTermSortEntry entry : commonTermFlushOrder1) {
 		    final Integer ord=Integer.valueOf(order++);
-			markCommonNgramsByUniqueSlices(hotTermToDocs1, commonTier, entry.key.bytesRef(), ord);
+			markCommonNgramsByUniqueSlices1(uniqueSlices,hotTermToDocs1, commonTier, entry.key.bytesRef(), ord);
 
 		}
+		}finally {
+			FpHashMapPoolHub.release(uniqueSlicesLease);
+		}
+
 	
 
 		// 完成构建：将 HashMap 转为排序数组 + 压缩 order 列表
@@ -625,7 +633,7 @@ public final class FpGroupHotNgramBitIndex {
 	 * @param payload       普通词载荷字节
 	 * @param order         该 term 在组内的序号
 	 */
-	private static void markCommonNgramsByUniqueSlices(HashMap<FpTermKey, FPDocList> hotTermToDocs, TierIndex tier,
+	private static void markCommonNgramsByUniqueSlices1(final HashMap<FpTermKey, Boolean> uniqueSlices,HashMap<FpTermKey, FPDocList> hotTermToDocs, TierIndex tier,
 			BytesRef payload, int order) {
 		if (order < 1) {
 			return;
@@ -634,41 +642,39 @@ public final class FpGroupHotNgramBitIndex {
 		if (payloadLen <= 0) {
 			return;
 		}
-		final FpHashMapPoolLease<FpTermKey, Boolean> uniqueSlicesLease = FpHashMapPoolHub.borrow(
-				FpHashMapPoolIds.commonPayloadUniqueSlices, FpTermKey.class, Boolean.class, FpTokenBlockLevelPolicy.HASH_MAP_TOKEN_SIZE);
-		final HashMap<FpTermKey, Boolean> uniqueSlices = uniqueSlicesLease.map();
-		try {
-			final int base = payload.offset;
-			final BytesRef sliceScratch = new BytesRef();
-			sliceScratch.bytes = payload.bytes;
-			for (int start = 0; start < payloadLen; start++) {
-				int h = 0;
-				final int maxN = Math.min(Lucene80FPSearchConfig.NGRAM_MAX, payloadLen - start);
-				for (int n = Lucene80FPSearchConfig.NGRAM_MIN; n <= maxN; n++) {
-					h = FpTermKeyHash.rollAppend(h, payload.bytes[base + start + n - 1]);
-					sliceScratch.offset = base + start;
-					sliceScratch.length = n;
-					final FpTermKey key = FpTermKey.viewOf(sliceScratch, h);
-					if (uniqueSlices.containsKey(key)) {
-						continue;
-					}
-					final BytesRef sliceScratch_copy = new BytesRef();
-					sliceScratch_copy.bytes = sliceScratch.bytes;
-					sliceScratch_copy.offset = sliceScratch.offset;
-					sliceScratch_copy.length = sliceScratch.length;
-					uniqueSlices.put(FpTermKey.viewOf(sliceScratch_copy, key.hashCode()), UNIQUE_SLICE_MARKER);
-				}
-			}
-			for (FpTermKey key : uniqueSlices.keySet()) {
-				if (hotTermToDocs.containsKey(key)) {
+	
+
+		
+		uniqueSlices.clear();
+		final int base = payload.offset;
+		final BytesRef sliceScratch = new BytesRef();
+		sliceScratch.bytes = payload.bytes;
+		for (int start = 0; start < payloadLen; start++) {
+			int h = 0;
+			final int maxN = Math.min(Lucene80FPSearchConfig.NGRAM_MAX, payloadLen - start);
+			for (int n = Lucene80FPSearchConfig.NGRAM_MIN; n <= maxN; n++) {
+				h = FpTermKeyHash.rollAppend(h, payload.bytes[base + start + n - 1]);
+				sliceScratch.offset = base + start;
+				sliceScratch.length = n;
+				final FpTermKey key = FpTermKey.viewOf(sliceScratch, h);
+				if (uniqueSlices.containsKey(key)) {
 					continue;
 				}
-				final BytesRef br = key.bytesRef();
-				tier.add(br.length - 1, bucketIndex(br), order);
+				final BytesRef sliceScratch_copy = new BytesRef();
+				sliceScratch_copy.bytes = sliceScratch.bytes;
+				sliceScratch_copy.offset = sliceScratch.offset;
+				sliceScratch_copy.length = sliceScratch.length;
+				uniqueSlices.put(FpTermKey.viewOf(sliceScratch_copy, key.hashCode()), UNIQUE_SLICE_MARKER);
 			}
-		} finally {
-			FpHashMapPoolHub.release(uniqueSlicesLease);
 		}
+		for (FpTermKey key : uniqueSlices.keySet()) {
+			if (hotTermToDocs.containsKey(key)) {
+				continue;
+			}
+			final BytesRef br = key.bytesRef();
+			tier.add(br.length - 1, bucketIndex(br), order);
+		}
+	
 	}
 
 	/**
