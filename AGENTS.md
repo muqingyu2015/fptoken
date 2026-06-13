@@ -4,7 +4,7 @@
 
 | Path | Role |
 |------|------|
-| `src/cn/lxdb/plugins/muqingyu/fptoken/` | Production code (API under `api/`, core under `exclusivefp/`, loaders under `runner/`) |
+| `src/cn/lxdb/plugins/muqingyu/fptoken/` | Production code (`api/`, `token/`, `config/`, `dataset/block/`, `dataset/common/`) |
 | `src/test/java/.../fptoken/tests/` | JUnit 5 tests (`unit`, `functional`, `performance`, …) |
 | `sample-data/` | Fixtures (`line-records/`, `real-docs/`) |
 | `docs/` | Human docs; start at [`docs/README.md`](docs/README.md) and [`docs/index.html`](docs/index.html) |
@@ -28,8 +28,9 @@ Alias: `scripts/run-tests-html-report.ps1` ≈ `-HtmlReport -ExcludePerfTag`.
 
 ## Primary API
 
-- `cn.lxdb.plugins.muqingyu.fptoken.api.ExclusiveFpRowsProcessingApi` — row processing and `ProcessingOptions` (incl. pre-merge hints).
-- `cn.lxdb.plugins.muqingyu.fptoken.ExclusiveFrequentItemsetSelector` — lower-level selector.
+- `cn.lxdb.plugins.muqingyu.fptoken.api.FpSearch` / `FpTokenQuery` — 查询侧 bucket selective + 多 slice AND。
+- `cn.lxdb.plugins.muqingyu.fptoken.api.FpTokenBlockOrchestrator` / `FPBlockTreeTermsWriter` — 写段编排。
+- `cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild` / `FpGroupHotNgramBitIndex` — 热词重建与 v7 bitindex。
 
 ## Conventions
 
