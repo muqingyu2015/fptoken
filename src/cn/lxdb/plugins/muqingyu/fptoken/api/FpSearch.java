@@ -206,7 +206,18 @@ public class FpSearch {
 	 * @throws IOException IO 异常
 	 */
 	private FpGroupHotNgramBitIndex loadBitIndex(Terms terms, int groupId, long[] bucketKeys) throws IOException {
-		return terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId, bucketKeys, bucketKeys);
+		final long t0 = Lucene80FPSearchConfig.LOG_FP_BITINDEX_DIAG ? System.nanoTime() : 0L;
+		final FpGroupHotNgramBitIndex index = terms.fpBits(Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupId, bucketKeys,
+				bucketKeys);
+		if (Lucene80FPSearchConfig.LOG_FP_BITINDEX_DIAG) {
+			final StringBuilder sb = FpLog.kv();
+			FpLog.append(sb, "event", "loadBitIndex");
+			FpLog.append(sb, "groupId", groupId);
+			FpLog.append(sb, "keyCount", bucketKeys == null ? 0 : bucketKeys.length);
+			FpLog.append(sb, "us", (System.nanoTime() - t0) / 1000L);
+			FpLog.debugTrace(LOG, traceId, sb);
+		}
+		return index;
 	}
 
 	/**

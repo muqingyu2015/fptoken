@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.TreeMap;
 
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
@@ -17,6 +18,8 @@ import org.apache.lucene.store.RAMDirectory;
 import org.apache.lucene.util.BytesRef;
 
 import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpBitIndexSegmentStaging;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpBitIndexTempDirectory;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramRebuild.CommonTermSortEntry;
@@ -88,11 +91,15 @@ public final class FpBitIndexTestSupport {
 	public static RamFlushedBitIndex flushBitIndexToRam(FpGroupHotNgramBitIndex bitIndex, int docCount)
 			throws IOException {
 		final Directory dir = new RAMDirectory();
-		final FpBlockInfo blockInfo;
-		try (IndexOutput out = dir.createOutput("bits", IOContext.DEFAULT)) {
-			blockInfo = bitIndex.flushto(out, "test", new BytesRef("col_bfp"), docCount);
+		final TreeMap<Integer, FpBlockInfo> blocks = new TreeMap<>();
+		try (FpBitIndexTempDirectory.Session session = FpBitIndexTempDirectory.INS.openSession("test");
+				FpBitIndexSegmentStaging staging = new FpBitIndexSegmentStaging(session)) {
+			staging.stage(0, bitIndex, "test", new BytesRef("col_bfp"), docCount);
+			try (IndexOutput out = dir.createOutput("bits", IOContext.DEFAULT)) {
+				staging.finalizeTo(out, blocks);
+			}
 		}
-		return new RamFlushedBitIndex(dir, blockInfo);
+		return new RamFlushedBitIndex(dir, blocks.get(0));
 	}
 
 	public static IndexInput openRamBits(Directory dir) throws IOException {

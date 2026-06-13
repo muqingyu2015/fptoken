@@ -1,11 +1,10 @@
 package cn.lxdb.plugins.muqingyu.fptoken.tests.unit;
 
 import static cn.lxdb.plugins.muqingyu.fptoken.tests.support.FpBitIndexTestSupport.buildBitIndexFromCommonPayloads;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Method;
-import java.util.Arrays;
 import java.util.List;
 
 import org.apache.lucene.store.Directory;
@@ -15,15 +14,13 @@ import org.apache.lucene.store.RAMDirectory;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpBitIndexSegmentStaging;
-import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpLenRowBloom;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 
 @Tag("lxdb-runtime")
-class FpBitIndexBloomStagingTest {
+class FpBitIndexSkipMinMaxTest {
 
 	@Test
-	void stageToTemp_writesBloomPools_andFiltersAbsentBucket() throws Exception {
+	void stageToTemp_writesSkipWithMinMax() throws Exception {
 		final FpGroupHotNgramBitIndex built = buildBitIndexFromCommonPayloads(List.of("abcdef", "abzzzz"));
 		final Directory dir = new RAMDirectory();
 
@@ -31,15 +28,20 @@ class FpBitIndexBloomStagingTest {
 		stageToTemp.setAccessible(true);
 		stageToTemp.invoke(built, dir);
 
-		final Method fileName = FpBitIndexSegmentStaging.class.getDeclaredMethod("fileName", String.class, String.class,
-				int.class);
-		fileName.setAccessible(true);
-		final String bloomName = (String) fileName.invoke(null, "common", "bloom", 1);
-		assertTrue(Arrays.asList(dir.listAll()).contains(bloomName), "应写出 common_bloom_1.dat");
+		final String skipName = "common_skip_1.dat";
+		assertTrue(List.of(dir.listAll()).contains(skipName));
 
-		try (IndexInput in = dir.openInput(bloomName, IOContext.READ)) {
-			final FpLenRowBloom bloom = FpLenRowBloom.readFrom(in);
-			assertFalse(bloom.mightContain(0x12345678), "Bloom 应过滤不在 sortedKeys 中的 bucket");
+		try (IndexInput in = dir.openInput(skipName, IOContext.READ)) {
+			final int entryCount = in.readInt();
+			assertTrue(entryCount > 0);
+			final int min = in.readInt();
+			final int max = in.readInt();
+			in.readLong();
+			assertTrue(min <= max, "skip 段 min/max 应覆盖 sortedKeys 区间");
 		}
+
+		final String orderName = "common_order_1.dat";
+		assertTrue(List.of(dir.listAll()).contains(orderName));
+		assertEquals("common_order_1.dat", orderName);
 	}
 }

@@ -90,6 +90,13 @@ public final class Lucene80FPSearchConfig {
 	 */
 	public static boolean LOG_FP_SEARCH = false;
 
+	/** v5 bitindex 写/查分池与 Bloom shard 诊断（DEBUG）；JVM：{@code -Dfptoken.logFpBitindexDiag=true}。 */
+	public static final boolean LOG_FP_BITINDEX_DIAG;
+
+	static {
+		LOG_FP_BITINDEX_DIAG = Boolean.parseBoolean(System.getProperty("fptoken.logFpBitindexDiag", "false"));
+	}
+
 //	/**
 //	 * selective 未命中时是否用全量 {@code fpBits(..., null, null)} 继续查询（默认 false，避免掩盖 selective 读盘问题）。
 //	 */

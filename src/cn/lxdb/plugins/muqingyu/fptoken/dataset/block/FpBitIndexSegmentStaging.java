@@ -20,38 +20,26 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
 
 /**
- * 段内 bitindex 暂存：按 lenIdx 分池，finish 时合并写入 {@code termsbit}（v4 布局）。
+ * 段内 bitindex 暂存：v6 按 lenIdx 分池 skip/keys/order；finish 合并写入 {@code termsbit}。
  *
- * <p>v4 段布局（写入 {@code bitOut}）：
- * <pre>
- * segmentHeader (magic + version + groupCount + poolBase[6][6])
- * hot/skipkeys/len0..5  各组同 lenIdx 连续拼接
- * hot/arena/len0..5
- * hot/bloom/len0..5
- * common/skipkeys/len0..5
- * common/arena/len0..5
- * common/bloom/len0..5
- * 每组 hot tierDirectory + common tierDirectory（绝对偏移指向上面各池）
- * </pre>
+ * <p>每 lenIdx 一轮 append：hot skip → hot keys → hot order → common skip → common keys → common order。
+ * 段尾写每组 hot/common tier 目录（每 len 槽 3 long：skipOff、keysOff、orderOff）。
  */
 public final class FpBitIndexSegmentStaging implements AutoCloseable {
 
-	/** 段头魔数 {@code 'FPTK'} */
 	public static final int SEGMENT_MAGIC = 0x4650544B;
-	/** hot tier 目录魔数 {@code 'FPTH'} */
 	public static final int TIER_DIR_MAGIC_HOT = 0x46505448;
-	/** common tier 目录魔数 {@code 'FPTC'} */
 	public static final int TIER_DIR_MAGIC_COMMON = 0x46505443;
 
 	private static final int TIER_DIR_MAGIC_BYTES = 4;
-	private static final int TIER_DIR_ENTRY_BYTES_LEGACY = 16;
-	private static final int TIER_DIR_ENTRY_BYTES_WITH_BLOOM = 24;
+	/** 每个 lenIdx 槽：skip + keys + order 在 termsbit 中的绝对偏移 */
+	public static final int TIER_DIR_LONGS_PER_LEN = 3;
 
 	private static final String HOT = "hot";
 	private static final String COMMON = "common";
-	private static final String SKIP = "skipkeys";
-	private static final String ARENA = "arena";
-	private static final String BLOOM = "bloom";
+	static final String PART_SKIP = "skip";
+	static final String PART_KEYS = "keys";
+	static final String PART_ORDER = "order";
 
 	private final FpBitIndexTempDirectory.Session session;
 	private final List<StagedGroup> groups = new ArrayList<>();
@@ -60,26 +48,8 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 		this.session = session;
 	}
 
-	/** tier 目录序列化字节数（含 magic），用于读路径判断是否含 Bloom 池。 */
-	public static int tierDirectorySerializedBytes(boolean withBloomPool) {
-		final int entryBytes = withBloomPool ? TIER_DIR_ENTRY_BYTES_WITH_BLOOM : TIER_DIR_ENTRY_BYTES_LEGACY;
-		return TIER_DIR_MAGIC_BYTES + Lucene80FPSearchConfig.NGRAM_MAX * entryBytes;
-	}
-
-	/**
-	 * 根据 {@link cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo} 记录的 tier 目录大小
-	 * 判断是否含 Bloom 池（旧索引仅 skip+arena，无 bloom 偏移）。
-	 */
-	public static boolean tierDirectoryHasBloomPool(int tierDirectorySerializedBytes) {
-		final int legacy = tierDirectorySerializedBytes(false);
-		final int withBloom = tierDirectorySerializedBytes(true);
-		if (tierDirectorySerializedBytes == withBloom) {
-			return true;
-		}
-		if (tierDirectorySerializedBytes == legacy) {
-			return false;
-		}
-		return tierDirectorySerializedBytes > legacy;
+	public static int tierDirectorySerializedBytes() {
+		return TIER_DIR_MAGIC_BYTES + Lucene80FPSearchConfig.NGRAM_MAX * TIER_DIR_LONGS_PER_LEN * Long.BYTES;
 	}
 
 	public boolean isEmpty() {
@@ -93,8 +63,8 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 			bitinfo.stageToTemp(dir);
 		}
 		groups.add(new StagedGroup(groupId, from, BytesRef.deepCopyOf(fieldInfo), docCount, bitinfo.targetLevelForWrite(),
-				bitinfo.hotCountForWrite(), bitinfo.commonCountForWrite(), bitinfo.hotArenaBytesForWrite(),
-				bitinfo.commonArenaBytesForWrite(), groupPath));
+				bitinfo.hotCountForWrite(), bitinfo.commonCountForWrite(), bitinfo.hotOrderBytesForWrite(),
+				bitinfo.commonOrderBytesForWrite(), groupPath));
 	}
 
 	public void finalizeTo(IndexOutput bitOut, TreeMap<Integer, FpBlockInfo> fpblockList) throws IOException {
@@ -103,58 +73,62 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 		}
 		final int n = groups.size();
 		final int maxLen = Lucene80FPSearchConfig.NGRAM_MAX;
-		final long[][] hotSkipOff = new long[n][maxLen];
-		final long[][] hotArenaOff = new long[n][maxLen];
-		final long[][] hotBloomOff = new long[n][maxLen];
-		final long[][] commonSkipOff = new long[n][maxLen];
-		final long[][] commonArenaOff = new long[n][maxLen];
-		final long[][] commonBloomOff = new long[n][maxLen];
-		final long[] hotSkipBase = new long[maxLen];
-		final long[] hotArenaBase = new long[maxLen];
-		final long[] hotBloomBase = new long[maxLen];
-		final long[] commonSkipBase = new long[maxLen];
-		final long[] commonArenaBase = new long[maxLen];
-		final long[] commonBloomBase = new long[maxLen];
+		final TierLenOffsets[][] hotOff = new TierLenOffsets[n][maxLen];
+		final TierLenOffsets[][] commonOff = new TierLenOffsets[n][maxLen];
+		for (int gi = 0; gi < n; gi++) {
+			for (int li = 0; li < maxLen; li++) {
+				hotOff[gi][li] = new TierLenOffsets();
+				commonOff[gi][li] = new TierLenOffsets();
+			}
+		}
 
 		bitOut.writeInt(SEGMENT_MAGIC);
 		bitOut.writeInt(FpBlockInfo.FORMAT_VERSION);
 		bitOut.writeInt(n);
 
+		final long[] hotSkipBase = new long[maxLen];
+		final long[] hotKeysBase = new long[maxLen];
+		final long[] hotOrderBase = new long[maxLen];
+		final long[] commonSkipBase = new long[maxLen];
+		final long[] commonKeysBase = new long[maxLen];
+		final long[] commonOrderBase = new long[maxLen];
+
 		for (int lenIdx = 0; lenIdx < maxLen; lenIdx++) {
 			hotSkipBase[lenIdx] = bitOut.getFilePointer();
-			appendLenIdxPool(bitOut, hotSkipOff, lenIdx, HOT, SKIP);
-			hotArenaBase[lenIdx] = bitOut.getFilePointer();
-			appendLenIdxPool(bitOut, hotArenaOff, lenIdx, HOT, ARENA);
-			hotBloomBase[lenIdx] = bitOut.getFilePointer();
-			appendLenIdxPool(bitOut, hotBloomOff, lenIdx, HOT, BLOOM);
+			appendPartPool(bitOut, hotOff, lenIdx, HOT, PART_SKIP);
+			hotKeysBase[lenIdx] = bitOut.getFilePointer();
+			appendPartPool(bitOut, hotOff, lenIdx, HOT, PART_KEYS);
+			hotOrderBase[lenIdx] = bitOut.getFilePointer();
+			appendPartPool(bitOut, hotOff, lenIdx, HOT, PART_ORDER);
+
 			commonSkipBase[lenIdx] = bitOut.getFilePointer();
-			appendLenIdxPool(bitOut, commonSkipOff, lenIdx, COMMON, SKIP);
-			commonArenaBase[lenIdx] = bitOut.getFilePointer();
-			appendLenIdxPool(bitOut, commonArenaOff, lenIdx, COMMON, ARENA);
-			commonBloomBase[lenIdx] = bitOut.getFilePointer();
-			appendLenIdxPool(bitOut, commonBloomOff, lenIdx, COMMON, BLOOM);
+			appendPartPool(bitOut, commonOff, lenIdx, COMMON, PART_SKIP);
+			commonKeysBase[lenIdx] = bitOut.getFilePointer();
+			appendPartPool(bitOut, commonOff, lenIdx, COMMON, PART_KEYS);
+			commonOrderBase[lenIdx] = bitOut.getFilePointer();
+			appendPartPool(bitOut, commonOff, lenIdx, COMMON, PART_ORDER);
 		}
+
 		for (int lenIdx = 0; lenIdx < maxLen; lenIdx++) {
 			bitOut.writeLong(hotSkipBase[lenIdx]);
-			bitOut.writeLong(hotArenaBase[lenIdx]);
-			bitOut.writeLong(hotBloomBase[lenIdx]);
+			bitOut.writeLong(hotKeysBase[lenIdx]);
+			bitOut.writeLong(hotOrderBase[lenIdx]);
 			bitOut.writeLong(commonSkipBase[lenIdx]);
-			bitOut.writeLong(commonArenaBase[lenIdx]);
-			bitOut.writeLong(commonBloomBase[lenIdx]);
+			bitOut.writeLong(commonKeysBase[lenIdx]);
+			bitOut.writeLong(commonOrderBase[lenIdx]);
 		}
 
 		for (int gi = 0; gi < n; gi++) {
 			final StagedGroup group = groups.get(gi);
 			final long hotDirOff = bitOut.getFilePointer();
-			writeTierDirectory(bitOut, TIER_DIR_MAGIC_HOT, hotSkipOff[gi], hotArenaOff[gi], hotBloomOff[gi]);
+			writeTierDirectory(bitOut, TIER_DIR_MAGIC_HOT, hotOff[gi]);
 			final long commonDirOff = bitOut.getFilePointer();
-			writeTierDirectory(bitOut, TIER_DIR_MAGIC_COMMON, commonSkipOff[gi], commonArenaOff[gi],
-					commonBloomOff[gi]);
+			writeTierDirectory(bitOut, TIER_DIR_MAGIC_COMMON, commonOff[gi]);
 
 			final FpBlockInfo info = new FpBlockInfo(hotDirOff, commonDirOff,
 					(int) (commonDirOff - hotDirOff),
 					(int) (bitOut.getFilePointer() - commonDirOff),
-					group.hotArenaBytes, group.commonArenaBytes, group.hotCount, group.commonCount, group.targetLevel,
+					group.hotOrderBytes, group.commonOrderBytes, group.hotCount, group.commonCount, group.targetLevel,
 					group.fieldInfo, group.docCount);
 			fpblockList.put(group.groupId, info);
 
@@ -162,38 +136,52 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 			FpLog.append(sb, "event", "bitindexStageFinalize");
 			FpLog.append(sb, "phase", group.from);
 			FpLog.append(sb, "groupId", group.groupId);
+			FpLog.append(sb, "format", "v6");
 			FpLog.append(sb, "block", info);
 			FpLog.infoLine(FpGroupHotNgramBitIndex.LOG, FpLog.TAG_BITINDEX, sb);
 		}
 	}
 
-	private void appendLenIdxPool(IndexOutput bitOut, long[][] offsets, int lenIdx, String tier, String part)
+	private void appendPartPool(IndexOutput bitOut, TierLenOffsets[][] allOff, int lenIdx, String tier, String part)
 			throws IOException {
+		long poolBytes = 0L;
 		for (int gi = 0; gi < groups.size(); gi++) {
-			offsets[gi][lenIdx] = bitOut.getFilePointer();
-			copyPartFile(bitOut, groups.get(gi).groupPath, tier, part, lenIdx);
+			final long start = bitOut.getFilePointer();
+			final long off = copyPartFile(bitOut, groups.get(gi).groupPath, tier, part, lenIdx);
+			if (PART_SKIP.equals(part)) {
+				allOff[gi][lenIdx].skipOff = off;
+			} else if (PART_KEYS.equals(part)) {
+				allOff[gi][lenIdx].keysOff = off;
+			} else if (PART_ORDER.equals(part)) {
+				allOff[gi][lenIdx].orderOff = off;
+			}
+			poolBytes += bitOut.getFilePointer() - start;
 		}
+		FpBitIndexDiag.finalizePool(FpGroupHotNgramBitIndex.LOG, tier, lenIdx, part, poolBytes);
 	}
 
-	private static void copyPartFile(IndexOutput bitOut, Path groupPath, String tier, String part, int lenIdx)
+	/** @return 文件起始绝对偏移；无文件时为 0 */
+	private static long copyPartFile(IndexOutput bitOut, Path groupPath, String tier, String part, int lenIdx)
 			throws IOException {
 		final Path file = partPath(groupPath, tier, part, lenIdx);
-		if (!Files.isRegularFile(file)) {
-			return;
+		if (!Files.isRegularFile(file) || Files.size(file) == 0) {
+			return 0L;
 		}
+		final long start = bitOut.getFilePointer();
 		try (Directory dir = FSDirectory.open(groupPath);
 				IndexInput in = dir.openInput(fileName(tier, part, lenIdx), IOContext.READ)) {
 			bitOut.copyBytes(in, in.length());
 		}
+		return start;
 	}
 
-	private static void writeTierDirectory(IndexOutput bitOut, int magic, long[] skipOff, long[] arenaOff,
-			long[] bloomOff) throws IOException {
+	private static void writeTierDirectory(IndexOutput bitOut, int magic, TierLenOffsets[] perLen) throws IOException {
 		bitOut.writeInt(magic);
 		for (int lenIdx = 0; lenIdx < Lucene80FPSearchConfig.NGRAM_MAX; lenIdx++) {
-			bitOut.writeLong(skipOff[lenIdx]);
-			bitOut.writeLong(arenaOff[lenIdx]);
-			bitOut.writeLong(bloomOff[lenIdx]);
+			final TierLenOffsets o = perLen[lenIdx];
+			bitOut.writeLong(o.skipOff);
+			bitOut.writeLong(o.keysOff);
+			bitOut.writeLong(o.orderOff);
 		}
 	}
 
@@ -207,7 +195,12 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 
 	@Override
 	public void close() {
-		// 会话目录由 FpBitIndexTempDirectory.Session 负责关闭删除
+	}
+
+	static final class TierLenOffsets {
+		long skipOff;
+		long keysOff;
+		long orderOff;
 	}
 
 	private static final class StagedGroup {
@@ -218,12 +211,12 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 		final int targetLevel;
 		final int hotCount;
 		final int commonCount;
-		final int hotArenaBytes;
-		final int commonArenaBytes;
+		final int hotOrderBytes;
+		final int commonOrderBytes;
 		final Path groupPath;
 
 		StagedGroup(int groupId, String from, BytesRef fieldInfo, int docCount, int targetLevel, int hotCount,
-				int commonCount, int hotArenaBytes, int commonArenaBytes, Path groupPath) {
+				int commonCount, int hotOrderBytes, int commonOrderBytes, Path groupPath) {
 			this.groupId = groupId;
 			this.from = from;
 			this.fieldInfo = fieldInfo;
@@ -231,8 +224,8 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 			this.targetLevel = targetLevel;
 			this.hotCount = hotCount;
 			this.commonCount = commonCount;
-			this.hotArenaBytes = hotArenaBytes;
-			this.commonArenaBytes = commonArenaBytes;
+			this.hotOrderBytes = hotOrderBytes;
+			this.commonOrderBytes = commonOrderBytes;
 			this.groupPath = groupPath;
 		}
 	}
