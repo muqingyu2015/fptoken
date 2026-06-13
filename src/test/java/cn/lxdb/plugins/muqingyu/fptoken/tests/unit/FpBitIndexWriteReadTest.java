@@ -83,6 +83,38 @@ class FpBitIndexWriteReadTest {
 	}
 
 	@Test
+	void selectiveSession_multiKeys_acrossSkip1Segments_matchesFull() throws Exception {
+		final List<String> payloads = new ArrayList<>();
+		for (int i = 0; i < 300; i++) {
+			payloads.add(String.format("p%03dxy", i));
+		}
+		payloads.add("p000xy");
+		payloads.add("p255xy");
+		final FpGroupHotNgramBitIndex built = buildBitIndexFromCommonPayloads(payloads);
+		final RamFlushedBitIndex ram = flushBitIndexToRam(built, 0);
+
+		final BytesRef[] slices = {
+				new BytesRef("p000".getBytes(StandardCharsets.UTF_8)),
+				new BytesRef("p255".getBytes(StandardCharsets.UTF_8)) };
+		final long[] keys = FpGroupHotNgramBitIndex.selectiveKeysForSlices(slices);
+
+		try (IndexInput in = openRamBits(ram.dir)) {
+			final FpGroupHotNgramBitIndex full = FpGroupHotNgramBitIndex.readfrom(in, ram.blockInfo);
+			try (FpGroupHotNgramBitIndex.SelectiveSession session = FpGroupHotNgramBitIndex.SelectiveSession.open(in,
+					ram.blockInfo, keys, keys)) {
+				session.runSkip1Phase();
+				session.runSkip2Phase();
+				final FpGroupHotNgramBitIndex selective = session.finishKeysOrderPhase();
+				for (BytesRef slice : slices) {
+					assertArrayEquals(full.lookupCommonOrders(slice), selective.lookupCommonOrders(slice),
+							"common " + slice);
+				}
+				selective.releasePooledMaps();
+			}
+		}
+	}
+
+	@Test
 	void selectiveRead_manyBuckets_exceedingSkipInterval_stillMatchesFull() throws Exception {
 		final List<String> payloads = new ArrayList<>();
 		for (int i = 0; i < 150; i++) {

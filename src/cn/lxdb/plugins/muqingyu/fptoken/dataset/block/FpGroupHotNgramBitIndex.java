@@ -584,19 +584,13 @@ public final class FpGroupHotNgramBitIndex {
 				}
 			}
 
+			/** keys/order 阶段：走完整 {@link DiskLenRow#lookupOrders}，不依赖 phase2 缓存的 skip 段下标。 */
 			void loadKeysOrder(KeyProbe p, TierIndex tier) throws IOException {
-				final boolean reject1 = "hot".equals(label) ? p.hotSkip1Reject : p.commonSkip1Reject;
-				final boolean reject2 = "hot".equals(label) ? p.hotSkip2Reject : p.commonSkip2Reject;
-				if (reject1 || reject2) {
-					return;
-				}
 				final DiskLenRow row = rowFor(p);
 				if (row == null) {
 					return;
 				}
-				final int s1 = "hot".equals(label) ? p.hotSkip1Seg : p.commonSkip1Seg;
-				final int s2 = "hot".equals(label) ? p.hotSkip2Seg : p.commonSkip2Seg;
-				final int[] orders = row.loadKeysOrder(p.bucket, s1, s2);
+				final int[] orders = row.lookupOrders(p.bucket);
 				if (orders.length > 0) {
 					tier.rows[p.lenIdx].putSparse(p.bucket, orders);
 				}
@@ -1206,6 +1200,7 @@ public final class FpGroupHotNgramBitIndex {
 			if (skip1Segment < 0) {
 				return -1;
 			}
+			ensureSkip1Loaded();
 			ensureSkip2SegmentLoaded(skip1Segment);
 			if (skip2Count == 0 || bucket < skip2Min[0] || bucket > skip2Max[skip2Count - 1]) {
 				FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "skip2Reject", 0);
@@ -1225,6 +1220,8 @@ public final class FpGroupHotNgramBitIndex {
 			if (skip1Segment < 0 || skip2Segment < 0) {
 				return EMPTY_ORDERS;
 			}
+			ensureSkip1Loaded();
+			ensureSkip2SegmentLoaded(skip1Segment);
 			final int entryStart = skip1Segment * SKIP1_INTERVAL + skip2Segment * SKIP2_INTERVAL;
 			final int entryEnd = Math.min(entryStart + SKIP2_INTERVAL, entryCount);
 			final long segKeysBase = keysAbs + skip2KeysPtrRel[skip2Segment] - (long) entryStart * 4L;

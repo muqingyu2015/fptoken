@@ -365,7 +365,7 @@ public class FpSearch {
 	/**
 	 * 遍历 order 列表，逐个 seek 倒排 term 并将 postings OR 到 collect 位图。
 	 * <p>
-	 * hot 模式下首个命中会记录 maxHotPayloadLen，后续 order 若 payload 超过该长度则提前终止（BREAK_PAYLOAD_LEN），
+	 * hot 模式下首个命中会记录 maxHotPayloadLen（精确命中优先，否则首个子串命中）；后续 order 若 payload 超过该长度则提前终止（BREAK_PAYLOAD_LEN），
 	 * 因为更长的 payload 不可能包含当前 slice 的精确匹配。
 	 *
 	 * @param orders   term order 数组
@@ -403,14 +403,22 @@ public class FpSearch {
 				}
 				first = true;
 			}
-			// hot 模式且尚未设置 payload 长度上限时，要求精确匹配以获取 maxHotPayloadLen
+			// hot 模式且尚未设置 payload 长度上限时：先精确匹配取 maxHotPayloadLen；若无整 payload 等于 slice 的 hot term，再子串匹配
 			if (hotMark && !payloadLenCapSet) {
-				final int status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, true, termsEnum, reuse,
+				int status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, true, termsEnum, reuse,
 						Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark,
 						termIndex, columnName, anchorSlice, maxDoc, collect);
+				if (status == SEEK_MISS) {
+					status = seekTermAndOrDocs(reusePosting, maxHotPayloadLen, false, termsEnum, reuse,
+							Lucene80FPSearchConfig.DEFAULT_INDEX_ID, groupid, (byte) blkinfo.targetLevel, hotMark,
+							termIndex, columnName, anchorSlice, maxDoc, collect);
+				}
 				if (status == SEEK_OK) {
 					anyHit = true;
 					payloadLenCapSet = true;
+				}
+				if (status == SEEK_BREAK_PAYLOAD_LEN) {
+					break;
 				}
 				continue;
 			}
@@ -652,8 +660,7 @@ public class FpSearch {
 
 		// hot 模式下检查 payload 长度上限
 		if (hotMark && maxHotPayloadLenOrNull != null) {
-			if (requireExactPayloadMatch) {
-				// 首次精确匹配时记录最大 payload 长度
+			if (requireExactPayloadMatch || maxHotPayloadLenOrNull.get() == 0) {
 				maxHotPayloadLenOrNull.set(FpTokenTermLayout.maxHotPayloadLenFromHeader(found, payload.length));
 			}
 			// 当前 payload 超过上限，返回截断信号
