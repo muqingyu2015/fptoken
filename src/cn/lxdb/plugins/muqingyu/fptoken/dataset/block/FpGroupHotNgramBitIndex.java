@@ -31,10 +31,10 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKeyHash;
 
 /**
- * 组内热词 / 普通词 ngram 精确倒排索引（v6，{@link FpBlockInfo#FORMAT_VERSION} = 6）。
+ * 组内热词 / 普通词 ngram 精确倒排索引（v7，{@link FpBlockInfo#FORMAT_VERSION} = 7）。
  *
- * <p>写段经 {@link FpBitIndexSegmentStaging}：暂存 skip/keys/order 分池文件 + {@code *_tier_dir.dat}，
- * finish 合并进 {@code termsbit}；读段通过 tier 目录中的 skipOff/keysOff/orderOff 定位各池。
+ * <p>写段经 {@link FpBitIndexSegmentStaging}：暂存 skip1/skip2/keys/order 分池 + {@code *_tier_dir.dat}，
+ * finish 合并进 {@code termsbit}；读段通过 tier 目录中的 skip1Off/skip2Off/keysOff/orderOff 定位各池。
  *
  * @see FpBitIndexSegmentStaging
  * @see FpBlockInfo
@@ -43,10 +43,16 @@ public final class FpGroupHotNgramBitIndex {
 	/** 日志记录器，使用加密/脱敏日志工具获取 */
 	public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 
-	/** skip 表采样间隔：每 {@value} 条 posting 一条 (min, max, keysPtrRel)。 */
-	static final int SKIP_INTERVAL = 16;
-	/** skip 表每条：min(int) + max(int) + keysPtrRel(long) */
+	/** skip1 粗粒度间隔：每 {@value} 条 posting 一条 (min, max, skip2Off)。 */
+	static final int SKIP1_INTERVAL = 256;
+	/** skip2 细粒度间隔：每 {@value} 条 posting 一条 (min, max, keysPtrRel)。 */
+	static final int SKIP2_INTERVAL = 16;
+	/** skip 表每条：min(int) + max(int) + relOff(long) */
 	static final int SKIP_ENTRY_BYTES = 16;
+
+	static int skipSegmentCount(int entryCount, int interval) {
+		return entryCount <= 0 ? 0 : (entryCount + interval - 1) / interval;
+	}
 	/** entryMeta 低 bit 标记：单 order 内联在 meta 高 31 位。 */
 	static final int ENTRY_TAG_SINGLE = 0;
 	/** entryMeta 低 bit 标记：多 order，高 31 位为 orderBytes 内 vint 列表偏移。 */
@@ -235,14 +241,14 @@ public final class FpGroupHotNgramBitIndex {
 		return new FpGroupHotNgramBitIndex(targetLevel, hotTier, commonTier, h, c, false);
 	}
 
-	/** 将 hot/common 各 LenRow 分片写入暂存目录（skip / keys / order），尾部写 {@code *_tier_dir.dat}。 */
+	/** 将 hot/common 各 LenRow 分片写入暂存目录（skip1/skip2/keys/order），尾部写 {@code *_tier_dir.dat}。 */
 	void stageToTemp(Directory dir) throws IOException {
 		stageTierToTemp(dir, "hot", hot);
 		stageTierToTemp(dir, "common", common);
 	}
 
 	private static void stageTierToTemp(Directory dir, String tierName, TierIndex tier) throws IOException {
-		final long[][] tierDirOff = new long[Lucene80FPSearchConfig.NGRAM_MAX][3];
+		final long[][] tierDirOff = new long[Lucene80FPSearchConfig.NGRAM_MAX][4];
 		long virtualPos = 0L;
 		for (int lenIdx = 0; lenIdx < Lucene80FPSearchConfig.NGRAM_MAX; lenIdx++) {
 			final LenRow row = tier.rows[lenIdx];
@@ -250,10 +256,15 @@ public final class FpGroupHotNgramBitIndex {
 			if (entryCount == 0) {
 				continue;
 			}
-			try (IndexOutput skipOut = dir.createOutput(
-					FpBitIndexSegmentStaging.fileName(tierName, FpBitIndexSegmentStaging.PART_SKIP, lenIdx),
+			try (IndexOutput skip1Out = dir.createOutput(
+					FpBitIndexSegmentStaging.fileName(tierName, FpBitIndexSegmentStaging.PART_SKIP1, lenIdx),
 					IOContext.DEFAULT)) {
-				row.writeLenRowSkipOnly(skipOut);
+				row.writeLenRowSkip1Only(skip1Out);
+			}
+			try (IndexOutput skip2Out = dir.createOutput(
+					FpBitIndexSegmentStaging.fileName(tierName, FpBitIndexSegmentStaging.PART_SKIP2, lenIdx),
+					IOContext.DEFAULT)) {
+				row.writeLenRowSkip2Only(skip2Out);
 			}
 			try (IndexOutput keysOut = dir.createOutput(
 					FpBitIndexSegmentStaging.fileName(tierName, FpBitIndexSegmentStaging.PART_KEYS, lenIdx),
@@ -265,17 +276,21 @@ public final class FpGroupHotNgramBitIndex {
 					IOContext.DEFAULT)) {
 				row.writeLenRowOrderOnly(orderOut);
 			}
-			final long skipSize = FpBitIndexSegmentStaging.partFileSize(dir, tierName,
-					FpBitIndexSegmentStaging.PART_SKIP, lenIdx);
+			final long skip1Size = FpBitIndexSegmentStaging.partFileSize(dir, tierName,
+					FpBitIndexSegmentStaging.PART_SKIP1, lenIdx);
+			final long skip2Size = FpBitIndexSegmentStaging.partFileSize(dir, tierName,
+					FpBitIndexSegmentStaging.PART_SKIP2, lenIdx);
 			final long keysSize = FpBitIndexSegmentStaging.partFileSize(dir, tierName,
 					FpBitIndexSegmentStaging.PART_KEYS, lenIdx);
 			final long orderSize = FpBitIndexSegmentStaging.partFileSize(dir, tierName,
 					FpBitIndexSegmentStaging.PART_ORDER, lenIdx);
-			tierDirOff[lenIdx][0] = skipSize > 0 ? virtualPos : 0L;
-			virtualPos += skipSize;
-			tierDirOff[lenIdx][1] = keysSize > 0 ? virtualPos : 0L;
+			tierDirOff[lenIdx][0] = skip1Size > 0 ? virtualPos : 0L;
+			virtualPos += skip1Size;
+			tierDirOff[lenIdx][1] = skip2Size > 0 ? virtualPos : 0L;
+			virtualPos += skip2Size;
+			tierDirOff[lenIdx][2] = keysSize > 0 ? virtualPos : 0L;
 			virtualPos += keysSize;
-			tierDirOff[lenIdx][2] = orderSize > 0 ? virtualPos : 0L;
+			tierDirOff[lenIdx][3] = orderSize > 0 ? virtualPos : 0L;
 			virtualPos += orderSize;
 			FpBitIndexDiag.stageLenRow(LOG, tierName, lenIdx, entryCount);
 		}
@@ -315,7 +330,7 @@ public final class FpGroupHotNgramBitIndex {
 		final int hotMagic = in.readInt();
 		if (hotMagic != FpBitIndexSegmentStaging.TIER_DIR_MAGIC_HOT) {
 			throw new IOException("unsupported bitindex hot magic: 0x" + Integer.toHexString(hotMagic)
-					+ " (expected v6 tier directory 0x"
+					+ " (expected v7 tier directory 0x"
 					+ Integer.toHexString(FpBitIndexSegmentStaging.TIER_DIR_MAGIC_HOT) + ")");
 		}
 		return readfromTierDirectory(in, blkinfo, hotMagic);
@@ -364,7 +379,7 @@ public final class FpGroupHotNgramBitIndex {
 			final int hotMagic = disk.readInt();
 			if (hotMagic != FpBitIndexSegmentStaging.TIER_DIR_MAGIC_HOT) {
 				throw new IOException("unsupported bitindex hot magic: 0x" + Integer.toHexString(hotMagic)
-						+ " (expected v6 tier directory)");
+						+ " (expected v7 tier directory)");
 			}
 			final TierIndex hotTier = loadHotKeys == null || loadHotKeys.length == 0 ? TierIndex.emptySparse()
 					: TierIndex.readSelectiveTierDirectory(disk, blkinfo.fpBanksHot, hotMagic, loadHotKeys,
@@ -635,8 +650,8 @@ public final class FpGroupHotNgramBitIndex {
 	/**
 	 * 单套 tier 的内存 / 磁盘载体（hot 或 common 各一份）。
 	 *
-	 * <p>v6 读路径：{@link #readTierDirectory} / {@link #readSelectiveTierDirectory} 经 tier 目录
-	 * 取 skipOff/keysOff/orderOff，再 {@link LenRow#readLenRowSplit} 或 {@link DiskLenRow#lookupOrders}。
+	 * <p>v7 读路径：{@link #readTierDirectory} / {@link #readSelectiveTierDirectory} 经 tier 目录
+	 * 取 skip1Off/skip2Off/keysOff/orderOff，再 {@link LenRow#readLenRowSplit} 或 {@link DiskLenRow#lookupOrders}。
 	 */
 	static final class TierIndex {
 		/** 6 行 LenRow，下标 0..5 对应 ngram 长度 1..6 */
@@ -750,14 +765,14 @@ public final class FpGroupHotNgramBitIndex {
 			final TierIndex tier = sparse ? emptySparse() : new TierIndex(false);
 			for (int i = 0; i < tier.rows.length; i++) {
 				final TierLenOffsets offsets = readTierOffsetsForLen(disk, tierDirOffset, magic, i);
-				tier.rows[i] = LenRow.readLenRowSplit(disk, offsets.skipOff, offsets.keysOff, offsets.orderOff,
-						sparse);
+				tier.rows[i] = LenRow.readLenRowSplit(disk, offsets.skip1Off, offsets.skip2Off, offsets.keysOff,
+						offsets.orderOff, sparse);
 			}
 			return tier;
 		}
 
 		/**
-		 * v6 selective：按需读 lenIdx 槽；skip(min/max) 与 keys/order 分池延迟加载。
+		 * v7 selective：skip1(256) 全量加载；skip2(16) 仅加载命中的 skip1 段。
 		 */
 		static TierIndex readSelectiveTierDirectory(IndexInput disk, long tierDirOffset, int magic, long[] keys,
 				int tierDirectorySerializedBytes, String tierLabel) throws IOException {
@@ -776,13 +791,13 @@ public final class FpGroupHotNgramBitIndex {
 				}
 				if (diskRows[lenIdx] == null) {
 					final TierLenOffsets offsets = readTierOffsetsForLen(disk, tierDirOffset, magic, lenIdx);
-					FpBitIndexDiag.selectiveTierRead(LOG, tierLabel, lenIdx, offsets.skipOff, offsets.keysOff,
-							offsets.orderOff);
-					if (offsets.skipOff <= 0 && offsets.keysOff <= 0) {
+					FpBitIndexDiag.selectiveTierRead(LOG, tierLabel, lenIdx, offsets.skip1Off, offsets.skip2Off,
+							offsets.keysOff, offsets.orderOff);
+					if (offsets.skip1Off <= 0 && offsets.keysOff <= 0) {
 						continue;
 					}
-					diskRows[lenIdx] = DiskLenRow.openAt(disk, lenIdx, offsets.skipOff, offsets.keysOff,
-							offsets.orderOff);
+					diskRows[lenIdx] = DiskLenRow.openAt(disk, lenIdx, offsets.skip1Off, offsets.skip2Off,
+							offsets.keysOff, offsets.orderOff);
 				}
 				final int bucket = unpackBucketIndex(key);
 				final int[] orders = diskRows[lenIdx].lookupOrders(bucket);
@@ -795,7 +810,7 @@ public final class FpGroupHotNgramBitIndex {
 
 		/**
 		 * 从 tier 目录读出指定 lenIdx 的三个池在 termsbit 中的绝对偏移。
-		 * <p>目录布局：magic(4) + len0(skipOff,keysOff,orderOff) + len1(...) + ... × {@link Lucene80FPSearchConfig#NGRAM_MAX}
+		 * <p>目录布局：magic(4) + len0(skip1Off,skip2Off,keysOff,orderOff) + len1(...) + ...
 		 */
 		private static TierLenOffsets readTierOffsetsForLen(IndexInput disk, long tierDirOffset, int magic, int lenIdx)
 				throws IOException {
@@ -810,98 +825,125 @@ public final class FpGroupHotNgramBitIndex {
 					* Long.BYTES;
 			disk.seek(slotBase);
 			final TierLenOffsets o = new TierLenOffsets();
-			o.skipOff = disk.readLong();
+			o.skip1Off = disk.readLong();
+			o.skip2Off = disk.readLong();
 			o.keysOff = disk.readLong();
 			o.orderOff = disk.readLong();
 			return o;
 		}
 
 		static final class TierLenOffsets {
-			long skipOff;
+			long skip1Off;
+			long skip2Off;
 			long keysOff;
 			long orderOff;
 		}
 
 	}
 
-	// DiskLenRow — v6：skip(min/max) 延迟加载；keys/order 分池
+	// DiskLenRow — v7：skip1(256) 全量 + skip2(16) 按 skip1 段按需加载
 	// -------------------------------------------------------------------------
 
 	static final class DiskLenRow {
 		final IndexInput in;
 		final int lenIdx;
-		final long skipAbs;
+		final long skip1Abs;
+		final long skip2Abs;
 		final long keysAbs;
 		final long orderDataStart;
 
 		int entryCount = -1;
-		int skipCount;
-		int[] skipMin;
-		int[] skipMax;
-		long[] skipKeysPtrRel;
-		boolean skipLoaded;
+		int skip1Count;
+		int[] skip1Min;
+		int[] skip1Max;
+		long[] skip1Skip2Off;
+		boolean skip1Loaded;
 
-		private DiskLenRow(IndexInput in, int lenIdx, long skipAbs, long keysAbs, long orderDataStart) {
+		int loadedSkip1Segment = -1;
+		int skip2Count;
+		int[] skip2Min;
+		int[] skip2Max;
+		long[] skip2KeysPtrRel;
+
+		private DiskLenRow(IndexInput in, int lenIdx, long skip1Abs, long skip2Abs, long keysAbs, long orderDataStart) {
 			this.in = in;
 			this.lenIdx = lenIdx;
-			this.skipAbs = skipAbs;
+			this.skip1Abs = skip1Abs;
+			this.skip2Abs = skip2Abs;
 			this.keysAbs = keysAbs;
 			this.orderDataStart = orderDataStart;
 		}
 
-		static DiskLenRow openAt(IndexInput in, int lenIdx, long skipAbs, long keysAbs, long orderAbs) {
-			if (skipAbs <= 0 && keysAbs <= 0) {
-				return new DiskLenRow(in, lenIdx, 0L, 0L, orderAbs);
+		static DiskLenRow openAt(IndexInput in, int lenIdx, long skip1Abs, long skip2Abs, long keysAbs, long orderAbs) {
+			if (skip1Abs <= 0 && keysAbs <= 0) {
+				return new DiskLenRow(in, lenIdx, 0L, 0L, 0L, orderAbs);
 			}
-			return new DiskLenRow(in, lenIdx, skipAbs, keysAbs, orderAbs);
+			return new DiskLenRow(in, lenIdx, skip1Abs, skip2Abs, keysAbs, orderAbs);
 		}
 
 		private int ensureEntryCount() throws IOException {
 			if (entryCount >= 0) {
 				return entryCount;
 			}
-			if (skipAbs <= 0) {
+			if (skip1Abs <= 0) {
 				entryCount = 0;
 				return 0;
 			}
-			in.seek(skipAbs);
+			in.seek(skip1Abs);
 			entryCount = in.readInt();
 			return entryCount;
 		}
 
-		private void ensureSkipLoaded() throws IOException {
-			if (skipLoaded || skipAbs <= 0) {
+		private void ensureSkip1Loaded() throws IOException {
+			if (skip1Loaded || skip1Abs <= 0) {
 				return;
 			}
 			final int n = ensureEntryCount();
 			if (n == 0) {
-				skipLoaded = true;
+				skip1Loaded = true;
 				return;
 			}
-			skipCount = (n + SKIP_INTERVAL - 1) / SKIP_INTERVAL;
-			skipMin = new int[skipCount];
-			skipMax = new int[skipCount];
-			skipKeysPtrRel = new long[skipCount];
-			final long skipTableStart = skipAbs + 4L;
-			for (int s = 0; s < skipCount; s++) {
-				in.seek(skipTableStart + (long) s * SKIP_ENTRY_BYTES);
-				skipMin[s] = in.readInt();
-				skipMax[s] = in.readInt();
-				skipKeysPtrRel[s] = in.readLong();
+			skip1Count = skipSegmentCount(n, SKIP1_INTERVAL);
+			skip1Min = new int[skip1Count];
+			skip1Max = new int[skip1Count];
+			skip1Skip2Off = new long[skip1Count];
+			final long tableStart = skip1Abs + 4L;
+			for (int s = 0; s < skip1Count; s++) {
+				in.seek(tableStart + (long) s * SKIP_ENTRY_BYTES);
+				skip1Min[s] = in.readInt();
+				skip1Max[s] = in.readInt();
+				skip1Skip2Off[s] = in.readLong();
 			}
-			skipLoaded = true;
-			FpBitIndexDiag.skipLazyLoad(LOG, lenIdx, n, skipCount, skipMin[0], skipMax[skipCount - 1]);
+			skip1Loaded = true;
+			FpBitIndexDiag.skip1LazyLoad(LOG, lenIdx, n, skip1Count, skip1Min[0], skip1Max[skip1Count - 1]);
 		}
 
-		int[] lookupOrders(int bucket) throws IOException {
-			if (ensureEntryCount() == 0) {
-				return EMPTY_ORDERS;
+		private void ensureSkip2SegmentLoaded(int skip1Segment) throws IOException {
+			if (loadedSkip1Segment == skip1Segment) {
+				return;
 			}
-			ensureSkipLoaded();
-			if (bucket < skipMin[0] || bucket > skipMax[skipCount - 1]) {
-				FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "skipReject", 0);
-				return EMPTY_ORDERS;
+			if (skip2Abs <= 0) {
+				loadedSkip1Segment = skip1Segment;
+				skip2Count = 0;
+				return;
 			}
+			final int segStart = skip1Segment * SKIP1_INTERVAL;
+			final int segLen = Math.min(SKIP1_INTERVAL, entryCount - segStart);
+			skip2Count = skipSegmentCount(segLen, SKIP2_INTERVAL);
+			skip2Min = new int[skip2Count];
+			skip2Max = new int[skip2Count];
+			skip2KeysPtrRel = new long[skip2Count];
+			in.seek(skip2Abs + skip1Skip2Off[skip1Segment]);
+			for (int s = 0; s < skip2Count; s++) {
+				skip2Min[s] = in.readInt();
+				skip2Max[s] = in.readInt();
+				skip2KeysPtrRel[s] = in.readLong();
+			}
+			loadedSkip1Segment = skip1Segment;
+			FpBitIndexDiag.skip2SegmentLoad(LOG, lenIdx, skip1Segment, skip2Count);
+		}
+
+		private static int locateSkipSegment(int[] skipMin, int skipCount, int bucket) {
 			int segment = 0;
 			int lo = 0;
 			int hi = skipCount - 1;
@@ -914,19 +956,45 @@ public final class FpGroupHotNgramBitIndex {
 					hi = mid - 1;
 				}
 			}
+			return segment;
+		}
+
+		private static boolean skipSegmentMiss(int bucket, int segment, int skipCount, int[] skipMin, int[] skipMax) {
 			if (segment + 1 < skipCount && bucket >= skipMin[segment + 1]) {
-				FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "skipGap", 0);
+				return true;
+			}
+			return bucket < skipMin[segment] || bucket > skipMax[segment];
+		}
+
+		int[] lookupOrders(int bucket) throws IOException {
+			if (ensureEntryCount() == 0) {
 				return EMPTY_ORDERS;
 			}
-			if (bucket < skipMin[segment] || bucket > skipMax[segment]) {
-				FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "skipReject", 0);
+			ensureSkip1Loaded();
+			if (skip1Count == 0 || bucket < skip1Min[0] || bucket > skip1Max[skip1Count - 1]) {
+				FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "skip1Reject", 0);
 				return EMPTY_ORDERS;
 			}
-			final int segStart = segment * SKIP_INTERVAL;
-			final int segEnd = Math.min(segStart + SKIP_INTERVAL, entryCount);
-			final long segKeysBase = keysAbs + skipKeysPtrRel[segment] - (long) segStart * 4L;
+			final int s1 = locateSkipSegment(skip1Min, skip1Count, bucket);
+			if (skipSegmentMiss(bucket, s1, skip1Count, skip1Min, skip1Max)) {
+				FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "skip1Gap", 0);
+				return EMPTY_ORDERS;
+			}
+			ensureSkip2SegmentLoaded(s1);
+			if (skip2Count == 0 || bucket < skip2Min[0] || bucket > skip2Max[skip2Count - 1]) {
+				FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "skip2Reject", 0);
+				return EMPTY_ORDERS;
+			}
+			final int s2 = locateSkipSegment(skip2Min, skip2Count, bucket);
+			if (skipSegmentMiss(bucket, s2, skip2Count, skip2Min, skip2Max)) {
+				FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "skip2Gap", 0);
+				return EMPTY_ORDERS;
+			}
+			final int entryStart = s1 * SKIP1_INTERVAL + s2 * SKIP2_INTERVAL;
+			final int entryEnd = Math.min(entryStart + SKIP2_INTERVAL, entryCount);
+			final long segKeysBase = keysAbs + skip2KeysPtrRel[s2] - (long) entryStart * 4L;
 			int found = -1;
-			for (int i = segStart; i < segEnd; i++) {
+			for (int i = entryStart; i < entryEnd; i++) {
 				in.seek(segKeysBase + (long) i * 4L);
 				final int key = in.readInt();
 				if (key == bucket) {
@@ -1225,25 +1293,44 @@ public final class FpGroupHotNgramBitIndex {
 		}
 
 		/**
-		 * v6：skip / keys / order 分池写出（由 {@link #stageTierToTemp} 调用）。
+		 * v7：skip1 / skip2 / keys / order 分池写出（由 {@link #stageTierToTemp} 调用）。
 		 */
-		void writeLenRowSkipOnly(DataOutput out) throws IOException {
+		void writeLenRowSkip1Only(DataOutput out) throws IOException {
 			final int n = sortedKeys == null ? 0 : sortedKeys.length;
 			out.writeInt(n);
 			if (n == 0) {
 				return;
 			}
-			writeSkipTable(out, n, 0L);
+			long skip2Pos = 0L;
+			final int skip1Count = skipSegmentCount(n, SKIP1_INTERVAL);
+			for (int s1 = 0; s1 < skip1Count; s1++) {
+				final int segStart = s1 * SKIP1_INTERVAL;
+				final int segEndIdx = Math.min(segStart + SKIP1_INTERVAL, n) - 1;
+				out.writeInt(sortedKeys[segStart]);
+				out.writeInt(sortedKeys[segEndIdx]);
+				out.writeLong(skip2Pos);
+				skip2Pos += (long) skipSegmentCount(Math.min(SKIP1_INTERVAL, n - segStart), SKIP2_INTERVAL)
+						* SKIP_ENTRY_BYTES;
+			}
 		}
 
-		private void writeSkipTable(DataOutput out, int entryCount, long keysPtrRelBase) throws IOException {
-			final int skipCount = (entryCount + SKIP_INTERVAL - 1) / SKIP_INTERVAL;
-			for (int s = 0; s < skipCount; s++) {
-				final int entryIdx = s * SKIP_INTERVAL;
-				final int segEndIdx = Math.min(entryIdx + SKIP_INTERVAL, entryCount) - 1;
-				out.writeInt(sortedKeys[entryIdx]);
-				out.writeInt(sortedKeys[segEndIdx]);
-				out.writeLong(keysPtrRelBase + (long) entryIdx * 4L);
+		void writeLenRowSkip2Only(DataOutput out) throws IOException {
+			final int n = sortedKeys == null ? 0 : sortedKeys.length;
+			if (n == 0) {
+				return;
+			}
+			final int skip1Count = skipSegmentCount(n, SKIP1_INTERVAL);
+			for (int s1 = 0; s1 < skip1Count; s1++) {
+				final int segStart = s1 * SKIP1_INTERVAL;
+				final int segEnd = Math.min(segStart + SKIP1_INTERVAL, n);
+				final int skip2Count = skipSegmentCount(segEnd - segStart, SKIP2_INTERVAL);
+				for (int s2 = 0; s2 < skip2Count; s2++) {
+					final int entryIdx = segStart + s2 * SKIP2_INTERVAL;
+					final int blockEndIdx = Math.min(entryIdx + SKIP2_INTERVAL, n) - 1;
+					out.writeInt(sortedKeys[entryIdx]);
+					out.writeInt(sortedKeys[blockEndIdx]);
+					out.writeLong((long) entryIdx * 4L);
+				}
 			}
 		}
 
@@ -1269,28 +1356,20 @@ public final class FpGroupHotNgramBitIndex {
 			}
 		}
 
-		/** v6 全量读：skip / keys / order 分池。 */
-		static LenRow readLenRowSplit(IndexInput in, long skipAbs, long keysAbs, long orderAbs, boolean sparse)
-				throws IOException {
+		/** v7 全量读：skip1 头取 entryCount，keys/order 分池直读。 */
+		static LenRow readLenRowSplit(IndexInput in, long skip1Abs, long skip2Abs, long keysAbs, long orderAbs,
+				boolean sparse) throws IOException {
 			final LenRow row = new LenRow(sparse);
-			if (skipAbs <= 0 && keysAbs <= 0) {
+			if (skip1Abs <= 0 && keysAbs <= 0) {
 				row.sortedKeys = EMPTY_INT;
 				row.entryMeta = EMPTY_INT;
 				row.orderBytes = EMPTY_BYTES;
 				return row;
 			}
 			int entryCount = 0;
-			if (skipAbs > 0) {
-				in.seek(skipAbs);
+			if (skip1Abs > 0) {
+				in.seek(skip1Abs);
 				entryCount = in.readInt();
-				if (entryCount > 0) {
-					final int skipCount = (entryCount + SKIP_INTERVAL - 1) / SKIP_INTERVAL;
-					for (int s = 0; s < skipCount; s++) {
-						in.readInt();
-						in.readInt();
-						in.readLong();
-					}
-				}
 			}
 			if (entryCount == 0 || keysAbs <= 0) {
 				row.sortedKeys = EMPTY_INT;

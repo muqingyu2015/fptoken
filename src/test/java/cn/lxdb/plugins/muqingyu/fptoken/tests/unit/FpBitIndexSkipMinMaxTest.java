@@ -21,7 +21,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 class FpBitIndexSkipMinMaxTest {
 
 	@Test
-	void stageToTemp_writesSkipWithMinMax() throws Exception {
+	void stageToTemp_writesTwoLevelSkipWithMinMax() throws Exception {
 		final FpGroupHotNgramBitIndex built = buildBitIndexFromCommonPayloads(List.of("abcdef", "abzzzz"));
 		final Directory dir = new RAMDirectory();
 
@@ -29,21 +29,27 @@ class FpBitIndexSkipMinMaxTest {
 		stageToTemp.setAccessible(true);
 		stageToTemp.invoke(built, dir);
 
-		final String skipName = "common_skip_1.dat";
-		assertTrue(List.of(dir.listAll()).contains(skipName));
+		final String skip1Name = "common_skip1_1.dat";
+		final String skip2Name = "common_skip2_1.dat";
+		assertTrue(List.of(dir.listAll()).contains(skip1Name));
+		assertTrue(List.of(dir.listAll()).contains(skip2Name));
 
-		try (IndexInput in = dir.openInput(skipName, IOContext.READ)) {
-			final int entryCount = in.readInt();
+		try (IndexInput skip1 = dir.openInput(skip1Name, IOContext.READ)) {
+			final int entryCount = skip1.readInt();
 			assertTrue(entryCount > 0);
-			final int min = in.readInt();
-			final int max = in.readInt();
-			in.readLong();
-			assertTrue(min <= max, "skip 段 min/max 应覆盖 sortedKeys 区间");
+			final int min = skip1.readInt();
+			final int max = skip1.readInt();
+			final long skip2Off = skip1.readLong();
+			assertTrue(min <= max);
+			assertEquals(0L, skip2Off);
 		}
 
-		final String orderName = "common_order_1.dat";
-		assertTrue(List.of(dir.listAll()).contains(orderName));
-		assertEquals("common_order_1.dat", orderName);
+		try (IndexInput skip2 = dir.openInput(skip2Name, IOContext.READ)) {
+			final int min = skip2.readInt();
+			final int max = skip2.readInt();
+			skip2.readLong();
+			assertTrue(min <= max);
+		}
 
 		assertTrue(List.of(dir.listAll()).contains("hot_tier_dir.dat"));
 		assertTrue(List.of(dir.listAll()).contains("common_tier_dir.dat"));
@@ -52,20 +58,21 @@ class FpBitIndexSkipMinMaxTest {
 			assertEquals(FpBitIndexSegmentStaging.TIER_DIR_MAGIC_COMMON, tierDir.readInt());
 			long virtualPos = 0L;
 			for (int lenIdx = 0; lenIdx < 5; lenIdx++) {
-				final String skipName2 = "common_skip_" + lenIdx + ".dat";
-				final String keysName = "common_keys_" + lenIdx + ".dat";
-				final String orderName2 = "common_order_" + lenIdx + ".dat";
-				final long skipSize = fileSize(dir, skipName2);
-				final long keysSize = fileSize(dir, keysName);
-				final long orderSize = fileSize(dir, orderName2);
-				if (skipSize == 0 && keysSize == 0 && orderSize == 0) {
+				final long skip1Size = fileSize(dir, "common_skip1_" + lenIdx + ".dat");
+				final long skip2Size = fileSize(dir, "common_skip2_" + lenIdx + ".dat");
+				final long keysSize = fileSize(dir, "common_keys_" + lenIdx + ".dat");
+				final long orderSize = fileSize(dir, "common_order_" + lenIdx + ".dat");
+				if (skip1Size == 0 && skip2Size == 0 && keysSize == 0 && orderSize == 0) {
+					assertEquals(0L, tierDir.readLong());
 					assertEquals(0L, tierDir.readLong());
 					assertEquals(0L, tierDir.readLong());
 					assertEquals(0L, tierDir.readLong());
 					continue;
 				}
 				assertEquals(virtualPos, tierDir.readLong());
-				virtualPos += skipSize;
+				virtualPos += skip1Size;
+				assertEquals(virtualPos, tierDir.readLong());
+				virtualPos += skip2Size;
 				assertEquals(virtualPos, tierDir.readLong());
 				virtualPos += keysSize;
 				final long orderOff = tierDir.readLong();

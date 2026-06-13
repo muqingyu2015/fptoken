@@ -12,8 +12,8 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 class FpBlockInfoOffsetTest {
 
 	@Test
-	void formatVersion_isV3() {
-		assertEquals(4, FpBlockInfo.FORMAT_VERSION);
+	void formatVersion_isV7() {
+		assertEquals(7, FpBlockInfo.FORMAT_VERSION);
 	}
 
 	@Test

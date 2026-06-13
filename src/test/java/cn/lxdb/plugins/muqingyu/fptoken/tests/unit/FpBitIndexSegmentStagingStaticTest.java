@@ -23,11 +23,11 @@ class FpBitIndexSegmentStagingStaticTest {
 	}
 
 	@Test
-	void tierDirectorySerializedBytes_v6() {
+	void tierDirectorySerializedBytes_v7() {
 		final int expected = 4 + Lucene80FPSearchConfig.NGRAM_MAX * FpBitIndexSegmentStaging.TIER_DIR_LONGS_PER_LEN
 				* Long.BYTES;
 		assertEquals(expected, FpBitIndexSegmentStaging.tierDirectorySerializedBytes());
-		assertEquals(3, FpBitIndexSegmentStaging.TIER_DIR_LONGS_PER_LEN);
+		assertEquals(4, FpBitIndexSegmentStaging.TIER_DIR_LONGS_PER_LEN);
 	}
 
 	@Test
@@ -35,7 +35,8 @@ class FpBitIndexSegmentStagingStaticTest {
 		Method fileName = FpBitIndexSegmentStaging.class.getDeclaredMethod("fileName", String.class, String.class,
 				int.class);
 		fileName.setAccessible(true);
-		assertEquals("hot_skip_3.dat", fileName.invoke(null, "hot", "skip", 3));
+		assertEquals("hot_skip1_3.dat", fileName.invoke(null, "hot", "skip1", 3));
+		assertEquals("hot_skip2_3.dat", fileName.invoke(null, "hot", "skip2", 3));
 		assertEquals("common_keys_2.dat", fileName.invoke(null, "common", "keys", 2));
 		assertEquals("common_order_4.dat", fileName.invoke(null, "common", "order", 4));
 

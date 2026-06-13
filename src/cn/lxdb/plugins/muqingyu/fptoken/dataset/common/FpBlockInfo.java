@@ -12,7 +12,7 @@ import org.apache.lucene.util.BytesRef;
 public class FpBlockInfo {
 
 	/** 与 {@link #writeto} / {@link #readfrom} 格式一致；v6 为 skip(min/max)/keys/order 分池，无 Bloom */
-	public static final int FORMAT_VERSION = 6;
+	public static final int FORMAT_VERSION = 7;
 
 	/**
 	 * 交错区起点：{@code banksHot[0][0]} 在 bit 文件中的偏移。

@@ -20,10 +20,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
 
 /**
- * 段内 bitindex 暂存：v6 按 lenIdx 分池 skip/keys/order；finish 合并写入 {@code termsbit}。
- *
- * <p>每 lenIdx 一轮 append：hot skip → hot keys → hot order → common skip → common keys → common order。
- * 段尾写每组 hot/common tier 目录（每 len 槽 3 long：skipOff、keysOff、orderOff）。
+ * 段内 bitindex 暂存：v7 按 lenIdx 分池 skip1/skip2/keys/order；finish 合并写入 {@code termsbit}。
  */
 public final class FpBitIndexSegmentStaging implements AutoCloseable {
 
@@ -32,12 +29,13 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 	public static final int TIER_DIR_MAGIC_COMMON = 0x46505443;
 
 	private static final int TIER_DIR_MAGIC_BYTES = 4;
-	/** 每个 lenIdx 槽：skip + keys + order 在 termsbit 中的绝对偏移 */
-	public static final int TIER_DIR_LONGS_PER_LEN = 3;
+	/** 每个 lenIdx 槽：skip1 + skip2 + keys + order 在 termsbit 中的绝对偏移 */
+	public static final int TIER_DIR_LONGS_PER_LEN = 4;
 
 	private static final String HOT = "hot";
 	private static final String COMMON = "common";
-	static final String PART_SKIP = "skip";
+	static final String PART_SKIP1 = "skip1";
+	static final String PART_SKIP2 = "skip2";
 	static final String PART_KEYS = "keys";
 	static final String PART_ORDER = "order";
 
@@ -86,23 +84,29 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 		bitOut.writeInt(FpBlockInfo.FORMAT_VERSION);
 		bitOut.writeInt(n);
 
-		final long[] hotSkipBase = new long[maxLen];
+		final long[] hotSkip1Base = new long[maxLen];
+		final long[] hotSkip2Base = new long[maxLen];
 		final long[] hotKeysBase = new long[maxLen];
 		final long[] hotOrderBase = new long[maxLen];
-		final long[] commonSkipBase = new long[maxLen];
+		final long[] commonSkip1Base = new long[maxLen];
+		final long[] commonSkip2Base = new long[maxLen];
 		final long[] commonKeysBase = new long[maxLen];
 		final long[] commonOrderBase = new long[maxLen];
 
 		for (int lenIdx = 0; lenIdx < maxLen; lenIdx++) {
-			hotSkipBase[lenIdx] = bitOut.getFilePointer();
-			appendPartPool(bitOut, hotOff, lenIdx, HOT, PART_SKIP);
+			hotSkip1Base[lenIdx] = bitOut.getFilePointer();
+			appendPartPool(bitOut, hotOff, lenIdx, HOT, PART_SKIP1);
+			hotSkip2Base[lenIdx] = bitOut.getFilePointer();
+			appendPartPool(bitOut, hotOff, lenIdx, HOT, PART_SKIP2);
 			hotKeysBase[lenIdx] = bitOut.getFilePointer();
 			appendPartPool(bitOut, hotOff, lenIdx, HOT, PART_KEYS);
 			hotOrderBase[lenIdx] = bitOut.getFilePointer();
 			appendPartPool(bitOut, hotOff, lenIdx, HOT, PART_ORDER);
 
-			commonSkipBase[lenIdx] = bitOut.getFilePointer();
-			appendPartPool(bitOut, commonOff, lenIdx, COMMON, PART_SKIP);
+			commonSkip1Base[lenIdx] = bitOut.getFilePointer();
+			appendPartPool(bitOut, commonOff, lenIdx, COMMON, PART_SKIP1);
+			commonSkip2Base[lenIdx] = bitOut.getFilePointer();
+			appendPartPool(bitOut, commonOff, lenIdx, COMMON, PART_SKIP2);
 			commonKeysBase[lenIdx] = bitOut.getFilePointer();
 			appendPartPool(bitOut, commonOff, lenIdx, COMMON, PART_KEYS);
 			commonOrderBase[lenIdx] = bitOut.getFilePointer();
@@ -110,10 +114,12 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 		}
 
 		for (int lenIdx = 0; lenIdx < maxLen; lenIdx++) {
-			bitOut.writeLong(hotSkipBase[lenIdx]);
+			bitOut.writeLong(hotSkip1Base[lenIdx]);
+			bitOut.writeLong(hotSkip2Base[lenIdx]);
 			bitOut.writeLong(hotKeysBase[lenIdx]);
 			bitOut.writeLong(hotOrderBase[lenIdx]);
-			bitOut.writeLong(commonSkipBase[lenIdx]);
+			bitOut.writeLong(commonSkip1Base[lenIdx]);
+			bitOut.writeLong(commonSkip2Base[lenIdx]);
 			bitOut.writeLong(commonKeysBase[lenIdx]);
 			bitOut.writeLong(commonOrderBase[lenIdx]);
 		}
@@ -136,7 +142,7 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 			FpLog.append(sb, "event", "bitindexStageFinalize");
 			FpLog.append(sb, "phase", group.from);
 			FpLog.append(sb, "groupId", group.groupId);
-			FpLog.append(sb, "format", "v6");
+			FpLog.append(sb, "format", "v7");
 			FpLog.append(sb, "block", info);
 			FpLog.infoLine(FpGroupHotNgramBitIndex.LOG, FpLog.TAG_BITINDEX, sb);
 		}
@@ -148,8 +154,10 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 		for (int gi = 0; gi < groups.size(); gi++) {
 			final long start = bitOut.getFilePointer();
 			final long off = copyPartFile(bitOut, groups.get(gi).groupPath, tier, part, lenIdx);
-			if (PART_SKIP.equals(part)) {
-				allOff[gi][lenIdx].skipOff = off;
+			if (PART_SKIP1.equals(part)) {
+				allOff[gi][lenIdx].skip1Off = off;
+			} else if (PART_SKIP2.equals(part)) {
+				allOff[gi][lenIdx].skip2Off = off;
 			} else if (PART_KEYS.equals(part)) {
 				allOff[gi][lenIdx].keysOff = off;
 			} else if (PART_ORDER.equals(part)) {
@@ -160,7 +168,6 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 		FpBitIndexDiag.finalizePool(FpGroupHotNgramBitIndex.LOG, tier, lenIdx, part, poolBytes);
 	}
 
-	/** @return 文件起始绝对偏移；无文件时为 0 */
 	private static long copyPartFile(IndexOutput bitOut, Path groupPath, String tier, String part, int lenIdx)
 			throws IOException {
 		final Path file = partPath(groupPath, tier, part, lenIdx);
@@ -179,10 +186,6 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 		return String.format(Locale.ROOT, "%s_tier_dir.dat", tier);
 	}
 
-	/**
-	 * 暂存目录尾部写出 tier 目录：magic + 每 len 的 skipOff/keysOff/orderOff。
-	 * <p>值为该 tier 内按 len0→len4、每 len 顺序 skip|keys|order 虚拟拼接后的起始字节（便于对照上方 *.dat 列表）。
-	 */
 	static void writeStagingTierDirectory(Directory dir, String tier, long[][] perLenOff) throws IOException {
 		final int magic = HOT.equals(tier) ? TIER_DIR_MAGIC_HOT : TIER_DIR_MAGIC_COMMON;
 		try (IndexOutput out = dir.createOutput(tierDirFileName(tier), IOContext.DEFAULT)) {
@@ -191,6 +194,7 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 				out.writeLong(perLenOff[lenIdx][0]);
 				out.writeLong(perLenOff[lenIdx][1]);
 				out.writeLong(perLenOff[lenIdx][2]);
+				out.writeLong(perLenOff[lenIdx][3]);
 			}
 		}
 	}
@@ -211,7 +215,8 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 		bitOut.writeInt(magic);
 		for (int lenIdx = 0; lenIdx < Lucene80FPSearchConfig.NGRAM_MAX; lenIdx++) {
 			final TierLenOffsets o = perLen[lenIdx];
-			bitOut.writeLong(o.skipOff);
+			bitOut.writeLong(o.skip1Off);
+			bitOut.writeLong(o.skip2Off);
 			bitOut.writeLong(o.keysOff);
 			bitOut.writeLong(o.orderOff);
 		}
@@ -230,7 +235,8 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 	}
 
 	static final class TierLenOffsets {
-		long skipOff;
+		long skip1Off;
+		long skip2Off;
 		long keysOff;
 		long orderOff;
 	}
