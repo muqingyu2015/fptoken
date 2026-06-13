@@ -175,6 +175,38 @@ public final class FpBitIndexSegmentStaging implements AutoCloseable {
 		return start;
 	}
 
+	static String tierDirFileName(String tier) {
+		return String.format(Locale.ROOT, "%s_tier_dir.dat", tier);
+	}
+
+	/**
+	 * 暂存目录尾部写出 tier 目录：magic + 每 len 的 skipOff/keysOff/orderOff。
+	 * <p>值为该 tier 内按 len0→len4、每 len 顺序 skip|keys|order 虚拟拼接后的起始字节（便于对照上方 *.dat 列表）。
+	 */
+	static void writeStagingTierDirectory(Directory dir, String tier, long[][] perLenOff) throws IOException {
+		final int magic = HOT.equals(tier) ? TIER_DIR_MAGIC_HOT : TIER_DIR_MAGIC_COMMON;
+		try (IndexOutput out = dir.createOutput(tierDirFileName(tier), IOContext.DEFAULT)) {
+			out.writeInt(magic);
+			for (int lenIdx = 0; lenIdx < Lucene80FPSearchConfig.NGRAM_MAX; lenIdx++) {
+				out.writeLong(perLenOff[lenIdx][0]);
+				out.writeLong(perLenOff[lenIdx][1]);
+				out.writeLong(perLenOff[lenIdx][2]);
+			}
+		}
+	}
+
+	static long partFileSize(Directory dir, String tier, String part, int lenIdx) throws IOException {
+		final String name = fileName(tier, part, lenIdx);
+		for (String n : dir.listAll()) {
+			if (name.equals(n)) {
+				try (IndexInput in = dir.openInput(name, IOContext.READ)) {
+					return in.length();
+				}
+			}
+		}
+		return 0L;
+	}
+
 	private static void writeTierDirectory(IndexOutput bitOut, int magic, TierLenOffsets[] perLen) throws IOException {
 		bitOut.writeInt(magic);
 		for (int lenIdx = 0; lenIdx < Lucene80FPSearchConfig.NGRAM_MAX; lenIdx++) {

@@ -22,7 +22,15 @@ class FpGroupHotNgramBitIndexStaticTest {
 	void bucketIndex_shortNgram_usesLowBytes() {
 		org.apache.lucene.util.BytesRef slice = new org.apache.lucene.util.BytesRef(new byte[] { 1, 2 });
 		int b = FpGroupHotNgramBitIndex.bucketIndex(slice);
-		assertTrue(b >= 0);
+		assertEquals((2 << 24) | ((1 << 8) | 2), b);
+	}
+
+	@Test
+	void bucketIndex_encodesLengthInHighByte() {
+		org.apache.lucene.util.BytesRef slice = new org.apache.lucene.util.BytesRef(new byte[] { 'a', 'b', 'c' });
+		int b = FpGroupHotNgramBitIndex.bucketIndex(slice);
+		assertEquals(3, b >>> 24);
+		assertEquals(((int) 'a' << 16) | ((int) 'b' << 8) | (int) 'c', b & 0xFFFFFF);
 	}
 
 	@Test

@@ -82,13 +82,11 @@ public final class FpTokenBlockOrchestrator {
 	public long termWriteOrderViolationCount;
 
 	public FpTokenBlockOrchestrator(TreeMap<Integer, FpBlockInfo> fpblock_list,BlockTreeTermsWriter blockTreeWriter, Terms terms, int maxDoc, String fieldName,
-			ObjectPoolMulti pool, BlockTreeTermsWriter$TermsWriter termsWriter, AtomicLong[] debugList, NormsProducer norms) throws IOException {
-		this(fpblock_list, blockTreeWriter, terms, maxDoc, fieldName, pool, termsWriter, debugList, norms, null);
-	}
-
-	public FpTokenBlockOrchestrator(TreeMap<Integer, FpBlockInfo> fpblock_list,BlockTreeTermsWriter blockTreeWriter, Terms terms, int maxDoc, String fieldName,
 			ObjectPoolMulti pool, BlockTreeTermsWriter$TermsWriter termsWriter, AtomicLong[] debugList, NormsProducer norms,
 			FpBitIndexSegmentStaging bitIndexStaging) throws IOException {
+		if (bitIndexStaging == null) {
+			throw new IllegalArgumentException("bitIndexStaging is required");
+		}
 		this.fpblock_list=fpblock_list;
 		this.bitIndexStaging = bitIndexStaging;
 		this.blockTreeWriter = blockTreeWriter;
@@ -326,7 +324,7 @@ public final class FpTokenBlockOrchestrator {
 	public void finish() throws IOException {
 		flushHighGroup("0");
 		flushCommonGroup("0");
-		if (bitIndexStaging != null && !bitIndexStaging.isEmpty()) {
+		if (!bitIndexStaging.isEmpty()) {
 			bitIndexStaging.finalizeTo(blockTreeWriter.bitOut, fpblock_list);
 		}
 		if (termWriteOrderViolationCount > 0) {
@@ -337,15 +335,13 @@ public final class FpTokenBlockOrchestrator {
 		}
 	}
 
-	/** flush 阶段写入 bitindex：有 staging 则暂存，否则直接 append 到 bitOut（单测 / 兼容）。 */
+	/** flush 阶段写入 bitindex（必须经 {@link FpBitIndexSegmentStaging}）。 */
 	public void stageBitIndex(int groupId, FpGroupHotNgramBitIndex bitinfo, String from, BytesRef fieldInfo, int docCount)
 			throws IOException {
-		if (bitIndexStaging != null) {
-			bitIndexStaging.stage(groupId, bitinfo, from, fieldInfo, docCount);
-			return;
+		if (bitIndexStaging == null) {
+			throw new IllegalStateException("FpBitIndexSegmentStaging is required");
 		}
-		final FpBlockInfo blkinfo = bitinfo.flushto(blockTreeWriter.bitOut, from, fieldInfo, docCount);
-		fpblock_list.put(groupId, blkinfo);
+		bitIndexStaging.stage(groupId, bitinfo, from, fieldInfo, docCount);
 	}
 
 	public int getColumnLevel(final BytesRef  columName)

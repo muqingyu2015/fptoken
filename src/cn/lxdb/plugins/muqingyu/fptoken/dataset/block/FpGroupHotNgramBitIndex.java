@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 
-import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IndexInput;
@@ -32,106 +31,22 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKey;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKeyHash;
 
 /**
- * 组内热词 / 普通词 ngram 精确倒排索引（v3，{@link FpBlockInfo#FORMAT_VERSION} = 3）。
+ * 组内热词 / 普通词 ngram 精确倒排索引（v6，{@link FpBlockInfo#FORMAT_VERSION} = 6）。
  *
- * <p><b>职责</b>：把组内 hot/common 载荷的所有合法 ngram 切片映射到
- * {@code bucketIndex(ngram bytes)} → {@code orderList}（term 在组内的序号），
- * 供 {@link cn.lxdb.plugins.muqingyu.fptoken.api.FpSearch} 按查询 slice 定位 order 再 seek 倒排。
+ * <p>写段经 {@link FpBitIndexSegmentStaging}：暂存 skip/keys/order 分池文件 + {@code *_tier_dir.dat}，
+ * finish 合并进 {@code termsbit}；读段通过 tier 目录中的 skipOff/keysOff/orderOff 定位各池。
  *
- * <p><b>与 v2 的区别</b>：废弃 FixedBitSet + 固定 256/512 桶掩码；改为整型域 murmurhash bucket +
- * 稀疏 sorted posting；查询侧可按 bucket 跳跃读盘，避免无效 bit 扫描。
- *
- * <h3>内存结构（构建期 / 全量读入后）</h3>
- * <pre>
- * FpGroupHotNgramBitIndex
- * ├── hot: TierIndex          // 热词 tier
- * ├── common: TierIndex       // 普通词 tier（跳过与 hot 重复的 slice）
- * ├── hotCount, commonCount   // 组内 term 数（元数据）
- * └── sparse: boolean         // true = 仅含 selective 加载的 bucket
- *
- * TierIndex
- * └── rows[6]: LenRow         // lenIdx 0..5 对应 ngram 长度 1..6（{@link Lucene80FPSearchConfig#NGRAM_MAX}）
- *
- * LenRow（全量实例）
- * ├── sortedKeys[int]         // bucketIndex 升序、无重复
- * ├── entryMeta[int]          // 与 sortedKeys 同下标；见下方 entryMeta 编码
- * └── orderBytes[byte]        // 多条 order 的 vint 增量序列池（单条 order 内联在 entryMeta）
- *
- * LenRow（稀疏 / selective 查询实例）
- * └── sparseOrders: HashMap&lt;bucket, order[]&gt;  // readSelective 用 skip 跳跃读盘后填入；lookup 纯内存
- * </pre>
- *
- * <h3>磁盘布局（段内连续两块，由 {@link FpBlockInfo} 定位）</h3>
- * <pre>
- * [ fpBanksHot ──────────────────────────────────────────────── )
- *   Hot Tier
- * [ fpBanksCommon ───────────────────────────────────────────── )
- *   Common Tier
- *
- * 每个 Tier（magic = {@link #TIER_MAGIC} 'FPTR'）：
- * ┌─────────────────────────────────────────────────────────────┐
- * │ magic: int                                                  │
- * │ lenRowOffset[6]: long × 6   // 相对 tier 起点，指向各 LenRow │
- * ├─────────────────────────────────────────────────────────────┤
- * │ LenRow(len=1)  @ lenRowOffset[0]                             │
- * │ LenRow(len=2)  @ lenRowOffset[1]                             │
- * │ ...                                                         │
- * │ LenRow(len=6)  @ lenRowOffset[5]                             │
- * └─────────────────────────────────────────────────────────────┘
- *
- * 每个 LenRow（entryCount = 该长度下非空 bucket 数）：
- * ┌─────────────────────────────────────────────────────────────┐
- * │ entryCount: int                                             │
- * │ skip[count]: (bucketIndex: int, keysStartRel: long) × N     │  N = ceil(entryCount / 128)
- * │ sortedKeys[entryCount]: int                                 │  bucketIndex 升序
- * │ entryMeta[entryCount]: int                                  │
- * │ arenaLen: int                                               │
- * │ orderBytes[arenaLen]: byte                                  │
- * └─────────────────────────────────────────────────────────────┘
- *   keysStartRel / metaStartRel / arena 偏移均相对 <b>LenRow 起点</b>（selective 跳跃读依赖此约定）。
- *
- * skip 表：每 {@link #SKIP_INTERVAL}（128）条 posting 一条，记录该段首 bucket 与 keys 区相对偏移；
- * selective 读时对 bucketIndex 二分定位段，再在段内顺序扫描 ≤128 个 key。
- * </pre>
- *
- * <h3>entryMeta 编码（int，低 1 位为 tag）</h3>
- * <pre>
- * tag = 0 ({@link #ENTRY_TAG_SINGLE})：单 order，value = (order &lt;&lt; 1) | 0
- * tag = 1 ({@link #ENTRY_TAG_MULTI}) ：多 order，value = (arenaOffset &lt;&lt; 1) | 1
- *   arena 内：vint(count) + vint(delta order)*  （order 升序、增量 vint 压缩）
- * </pre>
- *
- * <h3>bucketKey（上游 {@code Terms#fpBits(..., long[], long[])}  selective 参数）</h3>
- * <pre>
- * long key = packBucketKey(lenIdx, bucketIndex)
- *          = (lenIdx &lt;&lt; 32) | (bucketIndex &amp; 0xFFFFFFFFL)
- *
- * bucketIndex = len≤4 时大端字节拼 int；len≥5 时 murmurhash3_x86_32
- * lenIdx      = ngramLen - 1                      // 1..6 → 0..5
- * </pre>
- *
- * <h3>典型调用链</h3>
- * <pre>
- * 写段：FpGroupDataRebuild → execute() → flushto() → FpBlockInfo
- * 查：  FpSearch.selectiveKeysForSlices(slices)
- *       → terms.fpBits(indexId, groupId, hotKeys, commonKeys)
- *       → readfromBanksSelective(in, blkinfo, hotKeys, commonKeys)
- *       → lookupHotOrders(slice) / lookupCommonOrders(slice) → order[] → seek 倒排
- * </pre>
- *
+ * @see FpBitIndexSegmentStaging
  * @see FpBlockInfo
- * @see cn.lxdb.plugins.muqingyu.fptoken.api.FpSearch
  */
 public final class FpGroupHotNgramBitIndex {
 	/** 日志记录器，使用加密/脱敏日志工具获取 */
 	public static final Logger LOG = LxdbLogerEncrypt.getLogger("mqy.fptoken");
 
-	/** skip 表采样间隔：每 128 条 posting 一条 (anchorKey, keysPtrRel)；见 {@link LenRow#readOrdersForBucket}。 */
+	/** skip 表采样间隔：每 {@value} 条 posting 一条 (min, max, keysPtrRel)。 */
 	static final int SKIP_INTERVAL = 16;
 	/** skip 表每条：min(int) + max(int) + keysPtrRel(long) */
 	static final int SKIP_ENTRY_BYTES = 16;
-	/** Tier 魔数 {@code 'FPTR'}，用于校验 hot/common 段边界。 */
-	static final int TIER_MAGIC = 0x46505452; // 'FPTR'
 	/** entryMeta 低 bit 标记：单 order 内联在 meta 高 31 位。 */
 	static final int ENTRY_TAG_SINGLE = 0;
 	/** entryMeta 低 bit 标记：多 order，高 31 位为 orderBytes 内 vint 列表偏移。 */
@@ -215,36 +130,39 @@ public final class FpGroupHotNgramBitIndex {
 	}
 
 	/**
-	 * 统一计算 bucketIndex：
-	 * 1~4 字节直接大端拼接成 int（无需 hash，保留原始字节序）；
-	 * 5~6 字节使用 murmurhash3_x86_32 哈希。
+	 * 统一计算 bucketIndex：高 8 位为 ngram 字节长度 {@code len}，低 24 位为 payload。
+	 * <ul>
+	 *   <li>len 1~3：大端拼接（与原逻辑一致，自然落在 24 位内）</li>
+	 *   <li>len 4：原 4 字节大端 int 取低 24 位</li>
+	 *   <li>len ≥ 5：{@code murmurhash3_x86_32} 取低 24 位</li>
+	 * </ul>
 	 *
 	 * @param buf 字节数组
 	 * @param off 起始偏移
-	 * @param len 字节长度
-	 * @return bucket 索引值
+	 * @param len 字节长度（写入高 8 位，便于 skip min/max 按长度区分）
+	 * @return {@code (len << 24) | (payload & 0xFFFFFF)}
 	 */
 	public static int bucketIndex(byte[] buf, int off, int len) {
 		if (len <= 0) {
 			return 0;
 		}
+		return (len << 24) | (bucketPayload24(buf, off, len) & 0xFFFFFF);
+	}
+
+	/** 低 24 位 payload：len 1~4 大端拼接；len ≥ 5 为 murmurhash 低 24 位。 */
+	private static int bucketPayload24(byte[] buf, int off, int len) {
 		switch (len) {
 			case 1:
-				// 1 字节：直接取低 8 位
 				return buf[off] & 0xFF;
 			case 2:
-				// 2 字节：大端拼接
 				return ((buf[off] & 0xFF) << 8) | (buf[off + 1] & 0xFF);
 			case 3:
-				// 3 字节：大端拼接
 				return ((buf[off] & 0xFF) << 16) | ((buf[off + 1] & 0xFF) << 8) | (buf[off + 2] & 0xFF);
 			case 4:
-				// 4 字节：大端拼接
-				return ((buf[off] & 0xFF) << 24) | ((buf[off + 1] & 0xFF) << 16) | ((buf[off + 2] & 0xFF) << 8)
-						| (buf[off + 3] & 0xFF);
+				return (((buf[off] & 0xFF) << 24) | ((buf[off + 1] & 0xFF) << 16) | ((buf[off + 2] & 0xFF) << 8)
+						| (buf[off + 3] & 0xFF)) & 0xFFFFFF;
 			default:
-				// 5 字节及以上：使用 murmurhash3 哈希
-				return StringHelper.murmurhash3_x86_32(buf, off, len, 0);
+				return StringHelper.murmurhash3_x86_32(buf, off, len, 0) & 0xFFFFFF;
 		}
 	}
 
@@ -317,63 +235,19 @@ public final class FpGroupHotNgramBitIndex {
 		return new FpGroupHotNgramBitIndex(targetLevel, hotTier, commonTier, h, c, false);
 	}
 
-	/**
-	 * 顺序写出 hot tier + common tier 到磁盘，返回 {@link FpBlockInfo}（含 fpBanksHot / fpBanksCommon 偏移）。
-	 *
-	 * @param out       输出流
-	 * @param from      调用阶段标识（用于日志）
-	 * @param fieldInfo 字段信息
-	 * @param docCount  文档数
-	 * @return 块信息对象，记录各段偏移和大小
-	 * @throws IOException IO 异常
-	 */
-	public FpBlockInfo flushto(IndexOutput out, String from, BytesRef fieldInfo, int docCount) throws IOException {
-		final long tsBegin = CLMillisecondClock.CLOCK.now();
-		// 记录 hot tier 起始文件指针
-		final long fpBanksHot = out.getFilePointer();
-		// 写出 hot tier，返回 arena 字节数
-		final int hotArenaBytes = hot.writeTier(out);
-		// 记录 common tier 起始文件指针
-		final long fpBanksCommon = out.getFilePointer();
-		// 写出 common tier，返回 arena 字节数
-		final int commonArenaBytes = common.writeTier(out);
-
-		// 计算各 tier 序列化后的字节数
-		final int bytesPerHotSerialized = (int) (fpBanksCommon - fpBanksHot);
-		final int bytesPerCommonSerialized = (int) (out.getFilePointer() - fpBanksCommon);
-
-		// 构造块信息对象
-		final FpBlockInfo info = new FpBlockInfo(fpBanksHot, fpBanksCommon, bytesPerHotSerialized,
-				bytesPerCommonSerialized, hotArenaBytes, commonArenaBytes, hotCount, commonCount, this.targetlevel,
-				fieldInfo, docCount);
-
-		// 构建并输出 flush 日志
-		final StringBuilder sb = FpLog.kv();
-		FpLog.append(sb, "event", "flush");
-		FpLog.append(sb, "phase", from);
-		FpLog.append(sb, "perLength", formatFlushStats(hot, common));
-		FpLog.append(sb, "hotCount", hotCount);
-		FpLog.append(sb, "commonCount", commonCount);
-		FpLog.append(sb, "targetLevel", "L" + targetlevel);
-		FpLog.append(sb, "block", info);
-		final long flushMs = CLMillisecondClock.CLOCK.now() - tsBegin;
-		FpLog.append(sb, "ms", flushMs);
-		FpLog.infoLineSampled(LOG, FpLog.TAG_BITINDEX, sb, flushMs);
-		return info;
-	}
-
-	/** 将 hot/common 各 LenRow 分片写入临时目录（skip+keys+meta 与 arena 分离，按 lenIdx 分文件）。 */
+	/** 将 hot/common 各 LenRow 分片写入暂存目录（skip / keys / order），尾部写 {@code *_tier_dir.dat}。 */
 	void stageToTemp(Directory dir) throws IOException {
 		stageTierToTemp(dir, "hot", hot);
 		stageTierToTemp(dir, "common", common);
 	}
 
 	private static void stageTierToTemp(Directory dir, String tierName, TierIndex tier) throws IOException {
+		final long[][] tierDirOff = new long[Lucene80FPSearchConfig.NGRAM_MAX][3];
+		long virtualPos = 0L;
 		for (int lenIdx = 0; lenIdx < Lucene80FPSearchConfig.NGRAM_MAX; lenIdx++) {
 			final LenRow row = tier.rows[lenIdx];
 			final int entryCount = row.sortedKeys == null ? 0 : row.sortedKeys.length;
 			if (entryCount == 0) {
-				FpBitIndexDiag.stageLenRow(LOG, tierName, lenIdx, 0);
 				continue;
 			}
 			try (IndexOutput skipOut = dir.createOutput(
@@ -391,8 +265,21 @@ public final class FpGroupHotNgramBitIndex {
 					IOContext.DEFAULT)) {
 				row.writeLenRowOrderOnly(orderOut);
 			}
+			final long skipSize = FpBitIndexSegmentStaging.partFileSize(dir, tierName,
+					FpBitIndexSegmentStaging.PART_SKIP, lenIdx);
+			final long keysSize = FpBitIndexSegmentStaging.partFileSize(dir, tierName,
+					FpBitIndexSegmentStaging.PART_KEYS, lenIdx);
+			final long orderSize = FpBitIndexSegmentStaging.partFileSize(dir, tierName,
+					FpBitIndexSegmentStaging.PART_ORDER, lenIdx);
+			tierDirOff[lenIdx][0] = skipSize > 0 ? virtualPos : 0L;
+			virtualPos += skipSize;
+			tierDirOff[lenIdx][1] = keysSize > 0 ? virtualPos : 0L;
+			virtualPos += keysSize;
+			tierDirOff[lenIdx][2] = orderSize > 0 ? virtualPos : 0L;
+			virtualPos += orderSize;
 			FpBitIndexDiag.stageLenRow(LOG, tierName, lenIdx, entryCount);
 		}
+		FpBitIndexSegmentStaging.writeStagingTierDirectory(dir, tierName, tierDirOff);
 	}
 
 	int targetLevelForWrite() {
@@ -428,7 +315,7 @@ public final class FpGroupHotNgramBitIndex {
 		final int hotMagic = in.readInt();
 		if (hotMagic != FpBitIndexSegmentStaging.TIER_DIR_MAGIC_HOT) {
 			throw new IOException("unsupported bitindex hot magic: 0x" + Integer.toHexString(hotMagic)
-					+ " (expected v5 tier directory 0x"
+					+ " (expected v6 tier directory 0x"
 					+ Integer.toHexString(FpBitIndexSegmentStaging.TIER_DIR_MAGIC_HOT) + ")");
 		}
 		return readfromTierDirectory(in, blkinfo, hotMagic);
@@ -477,7 +364,7 @@ public final class FpGroupHotNgramBitIndex {
 			final int hotMagic = disk.readInt();
 			if (hotMagic != FpBitIndexSegmentStaging.TIER_DIR_MAGIC_HOT) {
 				throw new IOException("unsupported bitindex hot magic: 0x" + Integer.toHexString(hotMagic)
-						+ " (expected v5 tier directory)");
+						+ " (expected v6 tier directory)");
 			}
 			final TierIndex hotTier = loadHotKeys == null || loadHotKeys.length == 0 ? TierIndex.emptySparse()
 					: TierIndex.readSelectiveTierDirectory(disk, blkinfo.fpBanksHot, hotMagic, loadHotKeys,
@@ -690,22 +577,6 @@ public final class FpGroupHotNgramBitIndex {
 		}
 	}
 
-	/**
-	 * 格式化 flush 统计信息字符串，按 ngram 长度分别列出 hot/common 的 entry 数量
-	 *
-	 * @param hotTier    热词 tier
-	 * @param commonTier 普通词 tier
-	 * @return 格式化的统计字符串
-	 */
-	private static String formatFlushStats(TierIndex hotTier, TierIndex commonTier) {
-		final StringBuilder sb = new StringBuilder(256);
-		for (int li = 0; li < Lucene80FPSearchConfig.NGRAM_MAX; li++) {
-			sb.append(" len").append(li + 1).append("{hot entries=").append(hotTier.rows[li].entryCount())
-					.append(" | common entries=").append(commonTier.rows[li].entryCount()).append('}');
-		}
-		return sb.toString();
-	}
-
 //	/** 获取组内热词 term 数量 */
 //	public int getHotCount() {
 //		return hotCount;
@@ -764,36 +635,8 @@ public final class FpGroupHotNgramBitIndex {
 	/**
 	 * 单套 tier 的内存 / 磁盘载体（hot 或 common 各一份）。
 	 *
-	 * <p><b>逻辑结构</b>：固定 6 行 {@link LenRow}，{@code rows[lenIdx]} 只存该长度的 ngram
-	 *（len = lenIdx + 1，范围 1..{@link Lucene80FPSearchConfig#NGRAM_MAX}）。
-	 * 每行是一张「bucketIndex → order[]」升序 posting 表。
-	 *
-	 * <p><b>两种实例形态</b>
-	 * <ul>
-	 *   <li><b>全量</b>（{@code sparse=false}）：构建期 / {@link #readTier} 后，
-	 *       每行有完整的 sortedKeys + entryMeta + orderBytes</li>
-	 *   <li><b>稀疏</b>（{@code sparse=true}）：{@link #readSelective} 用 skip 跳跃读 {@code keys} 对应 bucket 的 orderList 到 {@link LenRow#sparseOrders}；
-	 *       或 {@link #viewSelective} 从全量内存实例截取</li>
-	 * </ul>
-	 *
-	 * <p><b>磁盘上 Tier 的布局</b>（{@link #writeTier} 写出，{@link #readTier} / {@link #readSelective} 读入）
-	 * <pre>
-	 * tierOffset ─┬─ magic: int ('FPTR')
-	 *             ├─ lenRowOffset[0..5]: long × 6   // 各 LenRow 相对 tierOffset 的字节偏移
-	 *             ├─ LenRow(len=1)  @ lenRowOffset[0]
-	 *             ├─ LenRow(len=2)  @ lenRowOffset[1]
-	 *             └─ ...
-	 * </pre>
-	 *
-	 * <p><b>全量读 vs selective 读</b>
-	 * <ul>
-	 *   <li>{@link #readTier}：顺序读完 6 个 LenRow（跳过 skip 表内容但把整个 keys/meta/arena 载入内存）</li>
-	 *   <li>{@link #readSelective}：只读 tier 头 + 查询 keys 涉及到的 LenRow 中的<b>单个 bucket</b>，
-	 *       利用 skip 表做 O(段数 + 128) 跳跃定位，避免读整张 LenRow</li>
-	 * </ul>
-	 *
-	 * @see DiskLenRow#lookupOrders           skip 跳跃 + 按需 seek（仅 readSelective 预取阶段）
-	 * @see #readSelective                    按 bucketKey 预取 orderList，不持有 IndexInput
+	 * <p>v6 读路径：{@link #readTierDirectory} / {@link #readSelectiveTierDirectory} 经 tier 目录
+	 * 取 skipOff/keysOff/orderOff，再 {@link LenRow#readLenRowSplit} 或 {@link DiskLenRow#lookupOrders}。
 	 */
 	static final class TierIndex {
 		/** 6 行 LenRow，下标 0..5 对应 ngram 长度 1..6 */
@@ -899,101 +742,6 @@ public final class FpGroupHotNgramBitIndex {
 //			return sparseTier;
 //		}
 
-		/**
-		 * 将整个 tier 写入磁盘。
-		 * 先写入 RAM 缓冲（回填 lenRowOffset），再一次性写入 {@link DataOutput}。
-		 *
-		 * <p>写入内容（按照磁盘布局顺序）：
-		 * <ul>
-		 *   <li>magic: int ('FPTR')</li>
-		 *   <li>lenRowOffset[6]: long × 6</li>
-		 *   <li>LenRow(len=1..6) 各自的数据</li>
-		 * </ul>
-		 *
-		 * @param out 输出流
-		 * @return 所有行 orderBytes 的总字节数
-		 * @throws IOException IO 异常
-		 */
-		int writeTier(DataOutput out) throws IOException {
-			// 使用 RAM 缓冲以便回填 lenRowOffset
-			final RAMOutputStream ram = new RAMOutputStream();
-			// 写入 tier 魔数
-			ram.writeInt(TIER_MAGIC);
-			// 预留 6 个 long 的位置用于存放各 LenRow 的偏移
-			final int lenTablePos = 4;
-			for (int i = 0; i < rows.length; i++) {
-				ram.writeLong(0L);
-			}
-			// 依次写出每个 LenRow，并记录其偏移
-			final long[] lenOffsets = new long[rows.length];
-			for (int i = 0; i < rows.length; i++) {
-				lenOffsets[i] = ram.getFilePointer();
-				rows[i].writeLenRow(ram);
-			}
-			// 将 RAM 缓冲内容拷贝到字节数组
-			final int len = Math.toIntExact(ram.getFilePointer());
-			final byte[] buf = new byte[len];
-			ram.writeTo(buf, 0);
-			// 回填各 LenRow 的偏移到字节数组头部
-			for (int i = 0; i < lenOffsets.length; i++) {
-				putLong(buf, lenTablePos + i * 8, lenOffsets[i]);
-			}
-			// 一次性写入目标输出流
-			out.writeBytes(buf, 0, len);
-			// 统计所有行 arena 总字节数
-			int totalArena = 0;
-			for (LenRow row : rows) {
-				totalArena += row.orderBytes == null ? 0 : row.orderBytes.length;
-			}
-			return totalArena;
-		}
-
-		/**
-		 * 手动将 long 值以大端序写入字节数组指定位置
-		 *
-		 * @param data 目标字节数组
-		 * @param pos  写入起始位置
-		 * @param v    要写入的 long 值
-		 */
-		private static void putLong(byte[] data, int pos, long v) {
-			data[pos] = (byte) (v >>> 56);
-			data[pos + 1] = (byte) (v >>> 48);
-			data[pos + 2] = (byte) (v >>> 40);
-			data[pos + 3] = (byte) (v >>> 32);
-			data[pos + 4] = (byte) (v >>> 24);
-			data[pos + 5] = (byte) (v >>> 16);
-			data[pos + 6] = (byte) (v >>> 8);
-			data[pos + 7] = (byte) v;
-		}
-
-		/**
-		 * 全量读取一个 tier。
-		 * 校验 magic 后顺序读取 6 个 LenRow（skip 表内容被跳过但 keys/meta/arena 全部载入内存）。
-		 *
-		 * @param in     输入流
-		 * @param sparse 是否以稀疏模式读取（通常全量读为 false）
-		 * @return 读取完成的 TierIndex
-		 * @throws IOException IO 异常或 magic 校验失败
-		 */
-		static TierIndex readTier(DataInput in, boolean sparse) throws IOException {
-			// 读取并校验 tier 魔数
-			final int magic = in.readInt();
-			if (magic != TIER_MAGIC) {
-				throw new IOException("unexpected tier magic: " + magic);
-			}
-			// 跳过 lenRow 目录表（6 × long）；readLenRow 会顺序消费后续字节流
-			for (int i = 0; i < Lucene80FPSearchConfig.NGRAM_MAX; i++) {
-				in.readLong();
-			}
-			// 根据 sparse 参数创建对应模式的 TierIndex
-			final TierIndex tier = sparse ? emptySparse() : new TierIndex(false);
-			// 顺序读取每个 LenRow
-			for (int i = 0; i < tier.rows.length; i++) {
-				tier.rows[i] = LenRow.readLenRow(in, sparse);
-			}
-			return tier;
-		}
-
 		static TierIndex readTierDirectory(IndexInput disk, long tierDirOffset, int magic, boolean sparse,
 				int tierDirectorySerializedBytes) throws IOException {
 			if (tierDirectorySerializedBytes != FpBitIndexSegmentStaging.tierDirectorySerializedBytes()) {
@@ -1009,7 +757,7 @@ public final class FpGroupHotNgramBitIndex {
 		}
 
 		/**
-		 * v5 selective：按需读 lenIdx 槽；Bloom shard 与 skip 延迟加载。
+		 * v6 selective：按需读 lenIdx 槽；skip(min/max) 与 keys/order 分池延迟加载。
 		 */
 		static TierIndex readSelectiveTierDirectory(IndexInput disk, long tierDirOffset, int magic, long[] keys,
 				int tierDirectorySerializedBytes, String tierLabel) throws IOException {
@@ -1045,6 +793,10 @@ public final class FpGroupHotNgramBitIndex {
 			return tier;
 		}
 
+		/**
+		 * 从 tier 目录读出指定 lenIdx 的三个池在 termsbit 中的绝对偏移。
+		 * <p>目录布局：magic(4) + len0(skipOff,keysOff,orderOff) + len1(...) + ... × {@link Lucene80FPSearchConfig#NGRAM_MAX}
+		 */
 		private static TierLenOffsets readTierOffsetsForLen(IndexInput disk, long tierDirOffset, int magic, int lenIdx)
 				throws IOException {
 			if (lenIdx < 0 || lenIdx >= Lucene80FPSearchConfig.NGRAM_MAX) {
@@ -1473,48 +1225,8 @@ public final class FpGroupHotNgramBitIndex {
 		}
 
 		/**
-		 * 将 LenRow 写出到 {@link DataOutput}（flush 阶段，由 {@link TierIndex#writeTier} 调用）。
-		 * 按照磁盘布局依次写出：entryCount → skip 表 → sortedKeys → entryMeta → arenaLen → orderBytes。
-		 *
-		 * @param out 输出流
-		 * @throws IOException IO 异常
+		 * v6：skip / keys / order 分池写出（由 {@link #stageTierToTemp} 调用）。
 		 */
-		void writeLenRow(DataOutput out) throws IOException {
-			final int entryCount = sortedKeys == null ? 0 : sortedKeys.length;
-			// 记录 LenRow 起始位置（用于计算相对偏移）
-			final long lenRowStart = getOutputFilePointer(out);
-			// 写出 entry 数量
-			out.writeInt(entryCount);
-			if (entryCount == 0) {
-				return;
-			}
-			// 计算 skip 表条目数
-			final int skipCount = (entryCount + SKIP_INTERVAL - 1) / SKIP_INTERVAL;
-			// 预计算 sortedKeys[0] 相对 LenRow 起点的偏移（skip 表之后紧接 keys）
-			final long keysStartRel = getOutputFilePointer(out) + (long) skipCount * SKIP_ENTRY_BYTES - lenRowStart;
-			for (int s = 0; s < skipCount; s++) {
-				final int entryIdx = s * SKIP_INTERVAL;
-				final int segEndIdx = Math.min(entryIdx + SKIP_INTERVAL, entryCount) - 1;
-				out.writeInt(sortedKeys[entryIdx]);
-				out.writeInt(sortedKeys[segEndIdx]);
-				out.writeLong(keysStartRel + (long) entryIdx * 4L);
-			}
-			// 写出所有 sortedKeys
-			for (int k = 0; k < entryCount; k++) {
-				out.writeInt(sortedKeys[k]);
-			}
-			// 写出所有 entryMeta
-			for (int k = 0; k < entryCount; k++) {
-				out.writeInt(entryMeta[k]);
-			}
-			// 写出 arena 长度和数据
-			out.writeInt(orderBytes == null ? 0 : orderBytes.length);
-			if (orderBytes != null && orderBytes.length > 0) {
-				out.writeBytes(orderBytes, 0, orderBytes.length);
-			}
-		}
-
-		/** v6：仅 skip 池 — entryCount + skip(min,max,keysPtrRel)。 */
 		void writeLenRowSkipOnly(DataOutput out) throws IOException {
 			final int n = sortedKeys == null ? 0 : sortedKeys.length;
 			out.writeInt(n);
@@ -1604,80 +1316,6 @@ public final class FpGroupHotNgramBitIndex {
 				in.readBytes(row.orderBytes, 0, orderLen);
 			}
 			return row;
-		}
-
-		/**
-		 * 获取 DataOutput 的当前文件指针位置。
-		 * 兼容 RAMOutputStream 和 IndexOutput 两种类型。
-		 *
-		 * @param out 输出流
-		 * @return 当前文件指针位置
-		 */
-		private static long getOutputFilePointer(DataOutput out) {
-			if (out instanceof RAMOutputStream) {
-				return ((RAMOutputStream) out).getFilePointer();
-			}
-			return out instanceof IndexOutput ? ((IndexOutput) out).getFilePointer() : 0L;
-		}
-
-		/**
-		 * 全量读 LenRow（{@link TierIndex#readTier} 路径）。
-		 * skip 表内容读入后直接丢弃——全量路径本来就要读完整 keys/meta/arena。
-		 *
-		 * @param in     输入流
-		 * @param sparse 是否以稀疏模式读取
-		 * @return 读取完成的 LenRow
-		 * @throws IOException IO 异常
-		 */
-		static LenRow readLenRow(DataInput in, boolean sparse) throws IOException {
-			final LenRow row = new LenRow(sparse);
-			// 读取 entry 数量
-			final int entryCount = in.readInt();
-			if (entryCount == 0) {
-				row.sortedKeys = EMPTY_INT;
-				row.entryMeta = EMPTY_INT;
-				row.orderBytes = EMPTY_BYTES;
-				return row;
-			}
-			// 跳过 skip 表（全量读不需要）
-			final int skipCount = (entryCount + SKIP_INTERVAL - 1) / SKIP_INTERVAL;
-			for (int s = 0; s < skipCount; s++) {
-				in.readInt();
-				in.readInt();
-				in.readLong();
-			}
-			// 读取 sortedKeys
-			row.sortedKeys = new int[entryCount];
-			for (int i = 0; i < entryCount; i++) {
-				row.sortedKeys[i] = in.readInt();
-			}
-			// 读取 entryMeta
-			row.entryMeta = new int[entryCount];
-			for (int i = 0; i < entryCount; i++) {
-				row.entryMeta[i] = in.readInt();
-			}
-			// 读取 arena 数据
-			final int arenaLen = in.readInt();
-			if (arenaLen <= 0) {
-				row.orderBytes = EMPTY_BYTES;
-			} else {
-				row.orderBytes = new byte[arenaLen];
-				in.readBytes(row.orderBytes, 0, arenaLen);
-			}
-			return row;
-		}
-
-		/**
-		 * selective 单 bucket 跳跃读（测试或独立调用）；
-		 * 生产环境由 {@link TierIndex#readSelective} 预取到 {@link #sparseOrders}。
-		 *
-		 * @param in     输入流（指针应位于 LenRow 起点）
-		 * @param bucket 目标 bucket 哈希值
-		 * @return order 数组
-		 * @throws IOException IO 异常
-		 */
-		static int[] readOrdersForBucket(IndexInput in, int bucket) throws IOException {
-			throw new UnsupportedOperationException("use selective tier directory read in v6");
 		}
 	}
 
