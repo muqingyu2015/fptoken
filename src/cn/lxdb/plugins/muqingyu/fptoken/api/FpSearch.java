@@ -1,6 +1,7 @@
 package cn.lxdb.plugins.muqingyu.fptoken.api;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -10,6 +11,7 @@ import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.index.TermsEnum$SeekStatus;
+import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.offheap.OffheapPoolName;
@@ -18,6 +20,7 @@ import org.slf4j.Logger;
 import cn.lucene.lxdb.params.LxdbLogerEncrypt;
 import cn.lxdb.plugins.muqingyu.fptoken.config.FpTokenBlockLevelPolicy;
 import cn.lxdb.plugins.muqingyu.fptoken.config.Lucene80FPSearchConfig;
+import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpBitIndexTermsAccess;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.block.FpGroupHotNgramBitIndex;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpBlockInfo;
 import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpLog;
@@ -72,7 +75,7 @@ public class FpSearch {
 	 * 流程：
 	 * <ol>
 	 *   <li>将 slices 转为 selective bucketKeys</li>
-	 *   <li>遍历 fpblock_list 中每个 group，按需加载位图索引</li>
+	 *   <li>收集列名匹配的 group，三趟批量读盘：全体 skip1 → 全体 skip2 → 全体 keys/order</li>
 	 *   <li>对每个 slice 在组内查找 hot/common order 并 seek 倒排合并 doc</li>
 	 *   <li>补扫稀疏列（NOGROUP）的 term</li>
 	 *   <li>对所有 slice 的结果做 AND 合并返回</li>
@@ -106,48 +109,57 @@ public class FpSearch {
 		// 将所有 slice 转换为去重后的 packed bucketKey 数组，用于 selective 读盘
 		final long[] bucketKeys = FpGroupHotNgramBitIndex.selectiveKeysForSlices(slices);
 
-		// 遍历所有 group 块
+		final ArrayList<Integer> matchedGroupIds = new ArrayList<>();
+		final ArrayList<FpBlockInfo> matchedBlkinfos = new ArrayList<>();
+
+		// 第一遍：收集列名匹配的 group，并累加统计
 		for (Entry<Integer, FpBlockInfo> e : fpblock_list.entrySet()) {
 			final FpBlockInfo blkinfo = e.getValue();
-			// 记录首个匹配的列名样本，用于列不匹配时的诊断日志
 			if (indexColumnSample == null && blkinfo.fieldInfo != null) {
 				indexColumnSample = Utils.BytesReftoString(blkinfo.fieldInfo);
 			}
-			// 列名不匹配则跳过该 group
 			if (!fieldInfoMatchesColumn(blkinfo, columnName)) {
 				columnSkippedGroups++;
 				continue;
 			}
 			columnMatchedGroups++;
-			// 按层级和 slice 数累加块计数
-			stat.blkCount[blkinfo.targetLevel]+=slices.length;
+			stat.blkCount[blkinfo.targetLevel] += slices.length;
 			final int groupId = e.getKey().intValue();
 			if (groupId > maxGroupId) {
 				maxGroupId = groupId;
 			}
-			
-			// 通过 skip index 按需加载命中的 hot 和 common 的 term_order_num
-			final FpGroupHotNgramBitIndex bitsetIndex = loadBitIndex(terms, groupId, bucketKeys);
-			if (bitsetIndex == null) {
-				// 位图索引为空，记录调试日志并跳过
-				if (Lucene80FPSearchConfig.LOG_FP_SEARCH || Lucene80FPSearchConfig.PRINT_DEBUG) {
-					final StringBuilder sb = FpLog.kv();
-					FpLog.append(sb, "event", "skipGroup");
-					FpLog.append(sb, "reason", "fpBitsNull");
-					FpLog.append(sb, "groupId", groupId);
-					FpLog.append(sb, "level", "L" + blkinfo.targetLevel);
-					FpLog.debugTrace(LOG, traceId, sb);
-				}
-				continue;
-			}
+			matchedGroupIds.add(groupId);
+			matchedBlkinfos.add(blkinfo);
+		}
 
-			try {
-				// 对每个 slice 在当前 group 内搜索，结果累积到 collect[i]
-				for (int i = 0; i < slices.length; i++) {
-					searchSliceInGroup(bitsetIndex, columnName, slices[i], blkinfo, groupId, terms, maxDoc, collect, i);
+		final IndexInput bitIn = FpBitIndexTermsAccess.bitIndexInput(terms);
+		if (bitIn != null) {
+			searchMatchedGroupsThreePass(bitIn, matchedGroupIds, matchedBlkinfos, bucketKeys, columnName, slices,
+					terms, maxDoc, collect);
+		} else {
+			for (int i = 0; i < matchedGroupIds.size(); i++) {
+				final int groupId = matchedGroupIds.get(i);
+				final FpBlockInfo blkinfo = matchedBlkinfos.get(i);
+				final FpGroupHotNgramBitIndex bitsetIndex = loadBitIndex(terms, groupId, bucketKeys);
+				if (bitsetIndex == null) {
+					if (Lucene80FPSearchConfig.LOG_FP_SEARCH || Lucene80FPSearchConfig.PRINT_DEBUG) {
+						final StringBuilder sb = FpLog.kv();
+						FpLog.append(sb, "event", "skipGroup");
+						FpLog.append(sb, "reason", "fpBitsNull");
+						FpLog.append(sb, "groupId", groupId);
+						FpLog.append(sb, "level", "L" + blkinfo.targetLevel);
+						FpLog.debugTrace(LOG, traceId, sb);
+					}
+					continue;
 				}
-			} finally {
-				bitsetIndex.releasePooledMaps();
+				try {
+					for (int j = 0; j < slices.length; j++) {
+						searchSliceInGroup(bitsetIndex, columnName, slices[j], blkinfo, groupId, terms, maxDoc, collect,
+								j);
+					}
+				} finally {
+					bitsetIndex.releasePooledMaps();
+				}
 			}
 		}
 
@@ -192,6 +204,51 @@ public class FpSearch {
 			FpLog.debugTrace(LOG, traceId, sb);
 		}
 		return rtn;
+	}
+
+	/**
+	 * 跨 group 三趟 selective 读盘：skip1 → skip2 → keys/order，再逐组 slice 搜索。
+	 * 同一阶段连续访问各 group 的同 tier 数据，更利于 OS page cache。
+	 */
+	private void searchMatchedGroupsThreePass(IndexInput bitIn, ArrayList<Integer> matchedGroupIds,
+			ArrayList<FpBlockInfo> matchedBlkinfos, long[] bucketKeys, BytesRef columnName, BytesRef[] slices,
+			Terms terms, int maxDoc, FixedBitSet[] collect) throws IOException {
+		final int n = matchedGroupIds.size();
+		if (n == 0) {
+			return;
+		}
+		final FpGroupHotNgramBitIndex.SelectiveSession[] sessions = new FpGroupHotNgramBitIndex.SelectiveSession[n];
+		try {
+			for (int i = 0; i < n; i++) {
+				sessions[i] = FpGroupHotNgramBitIndex.SelectiveSession.open(bitIn, matchedBlkinfos.get(i), bucketKeys,
+						bucketKeys);
+			}
+			for (int i = 0; i < n; i++) {
+				sessions[i].runSkip1Phase();
+			}
+			for (int i = 0; i < n; i++) {
+				sessions[i].runSkip2Phase();
+			}
+			for (int i = 0; i < n; i++) {
+				final FpGroupHotNgramBitIndex bitsetIndex = sessions[i].finishKeysOrderPhase();
+				final int groupId = matchedGroupIds.get(i);
+				final FpBlockInfo blkinfo = matchedBlkinfos.get(i);
+				try {
+					for (int j = 0; j < slices.length; j++) {
+						searchSliceInGroup(bitsetIndex, columnName, slices[j], blkinfo, groupId, terms, maxDoc, collect,
+								j);
+					}
+				} finally {
+					bitsetIndex.releasePooledMaps();
+				}
+			}
+		} finally {
+			for (FpGroupHotNgramBitIndex.SelectiveSession session : sessions) {
+				if (session != null) {
+					session.close();
+				}
+			}
+		}
 	}
 
 	/**

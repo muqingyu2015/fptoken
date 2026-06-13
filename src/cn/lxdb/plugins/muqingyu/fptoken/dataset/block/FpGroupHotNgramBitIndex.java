@@ -34,7 +34,7 @@ import cn.lxdb.plugins.muqingyu.fptoken.dataset.common.FpTermKeyHash;
  * 组内热词 / 普通词 ngram 精确倒排索引（v7，{@link FpBlockInfo#FORMAT_VERSION} = 7）。
  *
  * <p>写段经 {@link FpBitIndexSegmentStaging}：暂存 skip1/skip2/keys/order 分池 + {@code *_tier_dir.dat}，
- * finish 合并进 {@code termsbit}；读段通过 tier 目录中的 skip1Off/skip2Off/keysOff/orderOff 定位各池。
+ * finish 合并进 {@code termsbit}；查盘固定顺序 skip1 → skip2 → keys → order（即使仅 1 条 posting 也不跳过）。
  *
  * @see FpBitIndexSegmentStaging
  * @see FpBlockInfo
@@ -368,33 +368,239 @@ public final class FpGroupHotNgramBitIndex {
 	 */
 	public static FpGroupHotNgramBitIndex readfromBanksSelective(IndexInput in, FpBlockInfo blkinfo,
 			long[] loadHotKeys, long[] loadCommonKeys) throws IOException {
-		// 两个 key 数组都为 null 时，走全量读取路径,在索引合并阶段FpGroupDataOriginal会用到
 		if (loadHotKeys == null && loadCommonKeys == null) {
 			return readfrom(in, blkinfo);
 		}
-		// clone 输入流以避免影响外部流的指针位置
-		final IndexInput disk = in.clone();
-		try {
-			disk.seek(blkinfo.fpBanksHot);
-			final int hotMagic = disk.readInt();
-			if (hotMagic != FpBitIndexSegmentStaging.TIER_DIR_MAGIC_HOT) {
-				throw new IOException("unsupported bitindex hot magic: 0x" + Integer.toHexString(hotMagic)
-						+ " (expected v7 tier directory)");
+		try (SelectiveSession session = SelectiveSession.open(in, blkinfo, loadHotKeys, loadCommonKeys)) {
+			session.runSkip1Phase();
+			session.runSkip2Phase();
+			return session.finishKeysOrderPhase();
+		}
+	}
+
+	/**
+	 * 单 group selective 会话：拆成 skip1 → skip2 → keys/order，供 {@link cn.lxdb.plugins.muqingyu.fptoken.api.FpSearch}
+	 * 跨 group 三趟循环批量读盘。
+	 */
+	public static final class SelectiveSession implements AutoCloseable {
+		private final IndexInput disk;
+		private final FpBlockInfo blkinfo;
+		private final KeyProbe[] probes;
+		private final TierLoader hot;
+		private final TierLoader common;
+
+		private SelectiveSession(IndexInput bitIn, FpBlockInfo blkinfo, long[] keys) throws IOException {
+			this.disk = bitIn.clone();
+			this.blkinfo = blkinfo;
+			this.probes = KeyProbe.build(keys);
+			this.hot = new TierLoader("hot", blkinfo.fpBanksHot, blkinfo.bytesPerHotSerialized,
+					FpBitIndexSegmentStaging.TIER_DIR_MAGIC_HOT);
+			this.common = new TierLoader("common", blkinfo.fpBanksCommon, blkinfo.bytesPerCommonSerialized,
+					FpBitIndexSegmentStaging.TIER_DIR_MAGIC_COMMON);
+		}
+
+		public static SelectiveSession open(IndexInput bitIn, FpBlockInfo blkinfo, long[] hotKeys, long[] commonKeys)
+				throws IOException {
+			return new SelectiveSession(bitIn, blkinfo, mergeKeys(hotKeys, commonKeys));
+		}
+
+		private static long[] mergeKeys(long[] a, long[] b) {
+			if (a == null || a.length == 0) {
+				return b == null ? EMPTY_LONG : b;
 			}
-			final TierIndex hotTier = loadHotKeys == null || loadHotKeys.length == 0 ? TierIndex.emptySparse()
-					: TierIndex.readSelectiveTierDirectory(disk, blkinfo.fpBanksHot, hotMagic, loadHotKeys,
-							blkinfo.bytesPerHotSerialized, "hot");
-			disk.seek(blkinfo.fpBanksCommon);
-			final int commonMagic = disk.readInt();
-			final TierIndex commonTier = loadCommonKeys == null || loadCommonKeys.length == 0
-					? TierIndex.emptySparse()
-					: TierIndex.readSelectiveTierDirectory(disk, blkinfo.fpBanksCommon, commonMagic,
-							loadCommonKeys, blkinfo.bytesPerCommonSerialized, "common");
+			if (b == null || b.length == 0 || a == b) {
+				return a;
+			}
+			final long[] buf = new long[a.length + b.length];
+			int n = 0;
+			for (long k : a) {
+				if (!containsKey(buf, n, k)) {
+					buf[n++] = k;
+				}
+			}
+			for (long k : b) {
+				if (!containsKey(buf, n, k)) {
+					buf[n++] = k;
+				}
+			}
+			return n == buf.length ? buf : Arrays.copyOf(buf, n);
+		}
+
+		private static boolean containsKey(long[] buf, int n, long key) {
+			for (int i = 0; i < n; i++) {
+				if (buf[i] == key) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		public void runSkip1Phase() throws IOException {
+			for (KeyProbe p : probes) {
+				hot.probeSkip1(p);
+				common.probeSkip1(p);
+			}
+		}
+
+		public void runSkip2Phase() throws IOException {
+			for (KeyProbe p : probes) {
+				hot.probeSkip2(p);
+				common.probeSkip2(p);
+			}
+		}
+
+		public FpGroupHotNgramBitIndex finishKeysOrderPhase() throws IOException {
+			final TierIndex hotTier = TierIndex.emptySparse();
+			final TierIndex commonTier = TierIndex.emptySparse();
+			for (KeyProbe p : probes) {
+				hot.loadKeysOrder(p, hotTier);
+				common.loadKeysOrder(p, commonTier);
+			}
 			return new FpGroupHotNgramBitIndex(blkinfo.targetLevel, hotTier, commonTier, blkinfo.hotCount,
 					blkinfo.commonCount, true);
-		} finally {
-			// 确保 clone 的流被关闭
+		}
+
+		@Override
+		public void close() throws IOException {
 			disk.close();
+		}
+
+		static final class KeyProbe {
+			final int lenIdx;
+			final int bucket;
+			int hotSkip1Seg = -1;
+			boolean hotSkip1Reject;
+			int hotSkip2Seg = -1;
+			boolean hotSkip2Reject;
+			int commonSkip1Seg = -1;
+			boolean commonSkip1Reject;
+			int commonSkip2Seg = -1;
+			boolean commonSkip2Reject;
+
+			KeyProbe(int lenIdx, int bucket) {
+				this.lenIdx = lenIdx;
+				this.bucket = bucket;
+			}
+
+			static KeyProbe[] build(long[] keys) {
+				if (keys == null || keys.length == 0) {
+					return new KeyProbe[0];
+				}
+				final KeyProbe[] out = new KeyProbe[keys.length];
+				int n = 0;
+				for (long key : keys) {
+					final int lenIdx = unpackLenIdx(key);
+					if (lenIdx < 0 || lenIdx >= Lucene80FPSearchConfig.NGRAM_MAX) {
+						continue;
+					}
+					final KeyProbe p = new KeyProbe(lenIdx, unpackBucketIndex(key));
+					boolean dup = false;
+					for (int i = 0; i < n; i++) {
+						if (out[i].lenIdx == p.lenIdx && out[i].bucket == p.bucket) {
+							dup = true;
+							break;
+						}
+					}
+					if (!dup) {
+						out[n++] = p;
+					}
+				}
+				return n == out.length ? out : Arrays.copyOf(out, n);
+			}
+		}
+
+		final class TierLoader {
+			final String label;
+			final long tierDirOffset;
+			final int tierDirectorySerializedBytes;
+			final int magic;
+			final DiskLenRow[] rows = new DiskLenRow[Lucene80FPSearchConfig.NGRAM_MAX];
+
+			TierLoader(String label, long tierDirOffset, int tierDirectorySerializedBytes, int magic) {
+				this.label = label;
+				this.tierDirOffset = tierDirOffset;
+				this.tierDirectorySerializedBytes = tierDirectorySerializedBytes;
+				this.magic = magic;
+			}
+
+			private DiskLenRow rowFor(KeyProbe p) throws IOException {
+				if (rows[p.lenIdx] != null) {
+					return rows[p.lenIdx];
+				}
+				rows[p.lenIdx] = TierIndex.openSelectiveDiskRow(disk, tierDirOffset, magic, p.lenIdx,
+						tierDirectorySerializedBytes, label);
+				return rows[p.lenIdx];
+			}
+
+			void probeSkip1(KeyProbe p) throws IOException {
+				final DiskLenRow row = rowFor(p);
+				if (row == null) {
+					if ("hot".equals(label)) {
+						p.hotSkip1Reject = true;
+					} else {
+						p.commonSkip1Reject = true;
+					}
+					return;
+				}
+				final int seg = row.probeSkip1(p.bucket);
+				if ("hot".equals(label)) {
+					if (seg < 0) {
+						p.hotSkip1Reject = true;
+					} else {
+						p.hotSkip1Seg = seg;
+					}
+				} else if (seg < 0) {
+					p.commonSkip1Reject = true;
+				} else {
+					p.commonSkip1Seg = seg;
+				}
+			}
+
+			void probeSkip2(KeyProbe p) throws IOException {
+				if ("hot".equals(label) ? p.hotSkip1Reject : p.commonSkip1Reject) {
+					return;
+				}
+				final DiskLenRow row = rowFor(p);
+				if (row == null) {
+					if ("hot".equals(label)) {
+						p.hotSkip2Reject = true;
+					} else {
+						p.commonSkip2Reject = true;
+					}
+					return;
+				}
+				final int s1 = "hot".equals(label) ? p.hotSkip1Seg : p.commonSkip1Seg;
+				final int seg = row.probeSkip2(p.bucket, s1);
+				if ("hot".equals(label)) {
+					if (seg < 0) {
+						p.hotSkip2Reject = true;
+					} else {
+						p.hotSkip2Seg = seg;
+					}
+				} else if (seg < 0) {
+					p.commonSkip2Reject = true;
+				} else {
+					p.commonSkip2Seg = seg;
+				}
+			}
+
+			void loadKeysOrder(KeyProbe p, TierIndex tier) throws IOException {
+				final boolean reject1 = "hot".equals(label) ? p.hotSkip1Reject : p.commonSkip1Reject;
+				final boolean reject2 = "hot".equals(label) ? p.hotSkip2Reject : p.commonSkip2Reject;
+				if (reject1 || reject2) {
+					return;
+				}
+				final DiskLenRow row = rowFor(p);
+				if (row == null) {
+					return;
+				}
+				final int s1 = "hot".equals(label) ? p.hotSkip1Seg : p.commonSkip1Seg;
+				final int s2 = "hot".equals(label) ? p.hotSkip2Seg : p.commonSkip2Seg;
+				final int[] orders = row.loadKeysOrder(p.bucket, s1, s2);
+				if (orders.length > 0) {
+					tier.rows[p.lenIdx].putSparse(p.bucket, orders);
+				}
+			}
 		}
 	}
 
@@ -790,14 +996,11 @@ public final class FpGroupHotNgramBitIndex {
 					continue;
 				}
 				if (diskRows[lenIdx] == null) {
-					final TierLenOffsets offsets = readTierOffsetsForLen(disk, tierDirOffset, magic, lenIdx);
-					FpBitIndexDiag.selectiveTierRead(LOG, tierLabel, lenIdx, offsets.skip1Off, offsets.skip2Off,
-							offsets.keysOff, offsets.orderOff);
-					if (offsets.skip1Off <= 0 && offsets.keysOff <= 0) {
-						continue;
-					}
-					diskRows[lenIdx] = DiskLenRow.openAt(disk, lenIdx, offsets.skip1Off, offsets.skip2Off,
-							offsets.keysOff, offsets.orderOff);
+					diskRows[lenIdx] = openSelectiveDiskRow(disk, tierDirOffset, magic, lenIdx,
+							tierDirectorySerializedBytes, tierLabel);
+				}
+				if (diskRows[lenIdx] == null) {
+					continue;
 				}
 				final int bucket = unpackBucketIndex(key);
 				final int[] orders = diskRows[lenIdx].lookupOrders(bucket);
@@ -806,6 +1009,22 @@ public final class FpGroupHotNgramBitIndex {
 				}
 			}
 			return tier;
+		}
+
+		/** selective 会话：打开指定 len 的 {@link DiskLenRow}；无效 tier 返回 null。 */
+		static DiskLenRow openSelectiveDiskRow(IndexInput disk, long tierDirOffset, int magic, int lenIdx,
+				int tierDirectorySerializedBytes, String tierLabel) throws IOException {
+			if (tierDirectorySerializedBytes != FpBitIndexSegmentStaging.tierDirectorySerializedBytes()) {
+				throw new IOException("unsupported tier directory bytes: " + tierDirectorySerializedBytes);
+			}
+			final TierLenOffsets offsets = readTierOffsetsForLen(disk, tierDirOffset, magic, lenIdx);
+			FpBitIndexDiag.selectiveTierRead(LOG, tierLabel, lenIdx, offsets.skip1Off, offsets.skip2Off,
+					offsets.keysOff, offsets.orderOff);
+			if (offsets.skip1Off <= 0 || offsets.skip2Off <= 0 || offsets.keysOff <= 0) {
+				return null;
+			}
+			return DiskLenRow.openAt(disk, lenIdx, offsets.skip1Off, offsets.skip2Off, offsets.keysOff,
+					offsets.orderOff);
 		}
 
 		/**
@@ -875,9 +1094,6 @@ public final class FpGroupHotNgramBitIndex {
 		}
 
 		static DiskLenRow openAt(IndexInput in, int lenIdx, long skip1Abs, long skip2Abs, long keysAbs, long orderAbs) {
-			if (skip1Abs <= 0 && keysAbs <= 0) {
-				return new DiskLenRow(in, lenIdx, 0L, 0L, 0L, orderAbs);
-			}
 			return new DiskLenRow(in, lenIdx, skip1Abs, skip2Abs, keysAbs, orderAbs);
 		}
 
@@ -966,33 +1182,52 @@ public final class FpGroupHotNgramBitIndex {
 			return bucket < skipMin[segment] || bucket > skipMax[segment];
 		}
 
-		int[] lookupOrders(int bucket) throws IOException {
-			if (ensureEntryCount() == 0) {
-				return EMPTY_ORDERS;
+		/** skip1 阶段：返回命中的 skip1 段下标，未命中返回 -1。 */
+		int probeSkip1(int bucket) throws IOException {
+			if (skip1Abs <= 0 || skip2Abs <= 0 || keysAbs <= 0 || ensureEntryCount() == 0) {
+				return -1;
 			}
 			ensureSkip1Loaded();
 			if (skip1Count == 0 || bucket < skip1Min[0] || bucket > skip1Max[skip1Count - 1]) {
 				FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "skip1Reject", 0);
-				return EMPTY_ORDERS;
+				return -1;
 			}
 			final int s1 = locateSkipSegment(skip1Min, skip1Count, bucket);
 			if (skipSegmentMiss(bucket, s1, skip1Count, skip1Min, skip1Max)) {
 				FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "skip1Gap", 0);
-				return EMPTY_ORDERS;
+				return -1;
 			}
-			ensureSkip2SegmentLoaded(s1);
+			FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "skip1Hit", 0);
+			return s1;
+		}
+
+		/** skip2 阶段：须先 {@link #probeSkip1}；返回 skip2 段下标，未命中 -1。 */
+		int probeSkip2(int bucket, int skip1Segment) throws IOException {
+			if (skip1Segment < 0) {
+				return -1;
+			}
+			ensureSkip2SegmentLoaded(skip1Segment);
 			if (skip2Count == 0 || bucket < skip2Min[0] || bucket > skip2Max[skip2Count - 1]) {
 				FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "skip2Reject", 0);
-				return EMPTY_ORDERS;
+				return -1;
 			}
 			final int s2 = locateSkipSegment(skip2Min, skip2Count, bucket);
 			if (skipSegmentMiss(bucket, s2, skip2Count, skip2Min, skip2Max)) {
 				FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "skip2Gap", 0);
+				return -1;
+			}
+			FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "skip2Hit", 0);
+			return s2;
+		}
+
+		/** keys/order 阶段：须先完成 skip1+skip2 探测。 */
+		int[] loadKeysOrder(int bucket, int skip1Segment, int skip2Segment) throws IOException {
+			if (skip1Segment < 0 || skip2Segment < 0) {
 				return EMPTY_ORDERS;
 			}
-			final int entryStart = s1 * SKIP1_INTERVAL + s2 * SKIP2_INTERVAL;
+			final int entryStart = skip1Segment * SKIP1_INTERVAL + skip2Segment * SKIP2_INTERVAL;
 			final int entryEnd = Math.min(entryStart + SKIP2_INTERVAL, entryCount);
-			final long segKeysBase = keysAbs + skip2KeysPtrRel[s2] - (long) entryStart * 4L;
+			final long segKeysBase = keysAbs + skip2KeysPtrRel[skip2Segment] - (long) entryStart * 4L;
 			int found = -1;
 			for (int i = entryStart; i < entryEnd; i++) {
 				in.seek(segKeysBase + (long) i * 4L);
@@ -1018,6 +1253,18 @@ public final class FpGroupHotNgramBitIndex {
 			final int[] orders = readOrderListFromInput(in, orderDataStart + (meta >>> 1));
 			FpBitIndexDiag.lookupOrders(LOG, lenIdx, bucket, "hitOrder", orders.length);
 			return orders;
+		}
+
+		int[] lookupOrders(int bucket) throws IOException {
+			if (skip1Abs <= 0 || skip2Abs <= 0 || keysAbs <= 0) {
+				return EMPTY_ORDERS;
+			}
+			final int s1 = probeSkip1(bucket);
+			if (s1 < 0) {
+				return EMPTY_ORDERS;
+			}
+			final int s2 = probeSkip2(bucket, s1);
+			return loadKeysOrder(bucket, s1, s2);
 		}
 	}
 
